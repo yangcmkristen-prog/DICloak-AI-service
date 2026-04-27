@@ -4,8 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { Send, Loader2, Copy, Check, Tag, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Message } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -29,10 +28,19 @@ function parseAIResponse(content: string): { questionType: string; replies: { la
   // 按换行分割
   const lines = content.split('\n');
   
+  let currentReply: { label: string; content: string } | null = null;
+  
   for (const line of lines) {
     const trimmedLine = line.trim();
     
-    if (!trimmedLine) continue;
+    if (!trimmedLine) {
+      // 空行时保存当前回复
+      if (currentReply) {
+        replies.push(currentReply);
+        currentReply = null;
+      }
+      continue;
+    }
     
     // 匹配【问题类型：xxx】或【问题类型】xxx
     const questionTypeMatch = trimmedLine.match(/^【\s*问题类型\s*[：:]\s*(.+?)】?$/);
@@ -41,30 +49,45 @@ function parseAIResponse(content: string): { questionType: string; replies: { la
       continue;
     }
     
-    // 匹配回复1：xxx 或 回复1）xxx 等格式
-    const replyMatch = trimmedLine.match(/^回复\s*1[）):：]\s*(.+)$/);
-    if (replyMatch) {
-      replies.push({ label: '回复1', content: replyMatch[1].trim() });
+    // 匹配 回复1：xxx 格式
+    if (trimmedLine.startsWith('回复1：') || trimmedLine.startsWith('回复1：') || trimmedLine.match(/^回复\s*1[：:]/)) {
+      if (currentReply) replies.push(currentReply);
+      const match = trimmedLine.match(/^回复\s*1[：:]\s*(.+)$/);
+      currentReply = { label: '回复1', content: match ? match[1] : trimmedLine.replace(/^回复\s*1[：:]\s*/, '') };
       continue;
     }
     
-    const reply2Match = trimmedLine.match(/^回复\s*2[）):：]\s*(.+)$/);
-    if (reply2Match) {
-      replies.push({ label: '回复2', content: reply2Match[1].trim() });
+    // 匹配 回复2：xxx 格式
+    if (trimmedLine.startsWith('回复2：') || trimmedLine.startsWith('回复2：') || trimmedLine.match(/^回复\s*2[：:]/)) {
+      if (currentReply) replies.push(currentReply);
+      const match = trimmedLine.match(/^回复\s*2[：:]\s*(.+)$/);
+      currentReply = { label: '回复2', content: match ? match[1] : trimmedLine.replace(/^回复\s*2[：:]\s*/, '') };
       continue;
     }
     
-    const reply3Match = trimmedLine.match(/^回复\s*3[）):：]\s*(.+)$/);
-    if (reply3Match) {
-      replies.push({ label: '回复3', content: reply3Match[1].trim() });
+    // 匹配 回复3：xxx 格式
+    if (trimmedLine.startsWith('回复3：') || trimmedLine.startsWith('回复3：') || trimmedLine.match(/^回复\s*3[：:]/)) {
+      if (currentReply) replies.push(currentReply);
+      const match = trimmedLine.match(/^回复\s*3[：:]\s*(.+)$/);
+      currentReply = { label: '回复3', content: match ? match[1] : trimmedLine.replace(/^回复\s*3[：:]\s*/, '') };
       continue;
     }
+    
+    // 如果当前有回复在处理中，追加内容
+    if (currentReply) {
+      currentReply.content += '\n' + trimmedLine;
+    }
+  }
+  
+  // 保存最后一个回复
+  if (currentReply) {
+    replies.push(currentReply);
   }
   
   // 如果没有解析到任何回复，整个内容作为一个回复
   if (replies.length === 0 && content.trim()) {
     replies.push({
-      label: '回复',
+      label: '回复1',
       content: content.trim(),
     });
   }
@@ -116,43 +139,37 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
     return (
       <div className="space-y-4">
         {/* 问题类型 - 固定展示 */}
-        <div className="flex items-center gap-2">
-          <Tag className="w-4 h-4 text-blue-600" />
-          <span className="text-sm font-medium text-muted-foreground">问题类型：</span>
-          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-            {questionType}
-          </Badge>
+        <div className="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
+          <div className="flex items-center gap-2 mb-1">
+            <Tag className="w-4 h-4 text-blue-600" />
+            <span className="text-sm font-semibold text-blue-800 dark:text-blue-200">【问题类型】</span>
+          </div>
+          <p className="text-blue-700 dark:text-blue-300 font-medium">{questionType}</p>
         </div>
 
         {/* 回复列表 */}
         <div className="space-y-3">
           {replies.map((reply, index) => (
             <Card key={index} className="group hover:border-blue-300 transition-colors">
-              {/* 回复标题 - 不在复制范围内 */}
-              <CardHeader className="py-2 px-4 bg-gray-50 dark:bg-gray-800/50 border-b">
-                <CardTitle className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                  <MessageSquare className="w-4 h-4" />
-                  {reply.label}
-                </CardTitle>
-              </CardHeader>
+              {/* 回复标题 - 固定展示 */}
+              <div className="py-2 px-4 bg-gray-100 dark:bg-gray-700/50 border-b">
+                <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                  【{reply.label}】
+                </span>
+              </div>
               
               {/* 回复内容 - 可复制 */}
               <CardContent className="py-3 px-4 relative">
-                <p className="text-sm whitespace-pre-wrap pr-10">
-                  {reply.content}
-                </p>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 p-0"
+                <p 
+                  className="text-sm whitespace-pre-wrap cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 p-2 -m-2 rounded transition-colors"
                   onClick={() => handleCopy(reply.content, `${message.id}-${index}`)}
                 >
-                  {copiedId === `${message.id}-${index}` ? (
-                    <Check className="w-4 h-4 text-green-600" />
-                  ) : (
-                    <Copy className="w-4 h-4 text-gray-500" />
-                  )}
-                </Button>
+                  {reply.content}
+                </p>
+                <div className="absolute top-2 right-2 flex items-center gap-1 text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Copy className="w-3 h-3" />
+                  <span>点击复制</span>
+                </div>
               </CardContent>
             </Card>
           ))}
