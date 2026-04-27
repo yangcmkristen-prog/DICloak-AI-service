@@ -177,7 +177,16 @@ function parseTermSheet(sheet: XLSX.WorkSheet): TermItem[] {
   return data
     .filter(row => getCellValue(row['term_id']) || getCellValue(row['中文术语']))
     .map(row => {
-      const isVisible = row['is_ui_visible'];
+      // is_ui_visible 可能是数字 1/0 或字符串 'TRUE'/'FALSE'
+      const isVisibleRaw = row['is_ui_visible'];
+      let isVisible = false;
+      if (typeof isVisibleRaw === 'number') {
+        isVisible = isVisibleRaw === 1;
+      } else if (typeof isVisibleRaw === 'string') {
+        isVisible = isVisibleRaw === '1' || isVisibleRaw.toUpperCase() === 'TRUE';
+      } else if (typeof isVisibleRaw === 'boolean') {
+        isVisible = isVisibleRaw;
+      }
       return {
         id: generateId(),
         termId: getCellValue(row['term_id']),
@@ -191,7 +200,7 @@ function parseTermSheet(sheet: XLSX.WorkSheet): TermItem[] {
         termVI: getCellValue(row['越南语']),
         termType: getCellValue(row['术语类型']),
         definition: getCellValue(row['定义说明']),
-        isUiVisible: isVisible === true || isVisible === 1 || getCellValue(isVisible) === 'TRUE',
+        isUiVisible: isVisible,
       };
     });
 }
@@ -205,7 +214,8 @@ function inferSheetType(sheetName: string): string {
   if (name.includes('out_of_scope') || name.includes('outofscope')) return 'out_of_scope';
   if (name.includes('mapping') || name.includes('map')) return 'mapping';
   if (name.includes('功能知识库') || name.includes('function')) return 'function_knowledge';
-  if (name.includes('术语库') || name.includes('term')) return 'term';
+  // Sheet1 可能是术语库
+  if (name === 'sheet1' || name.includes('术语库') || name.includes('term')) return 'term';
   return 'unknown';
 }
 
