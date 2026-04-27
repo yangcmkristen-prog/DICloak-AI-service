@@ -77,7 +77,7 @@ DICloak 客服助手（内部版）是一个帮助客服人员快速生成专业
 1. **AI 回复生成**：输入客户问题，AI 根据知识库和对话历史生成 3 条推荐回复
 2. **多对话管理**：支持新建、删除、重命名多个独立对话
 3. **对话记忆**：同一对话内支持多轮对话上下文
-4. **知识库配置**：支持飞书多维表格链接和自定义文档内容
+4. **知识库配置**：支持 Excel 文件导入知识库（FAQ、排障、功能知识、术语等）
 
 ### 文件结构
 
@@ -87,16 +87,18 @@ src/
 │   ├── api/
 │   │   ├── chat/route.ts         # AI 回复生成 API (流式)
 │   │   ├── conversations/route.ts # 对话管理 API
-│   │   └── knowledge/route.ts    # 知识库管理 API
+│   │   ├── knowledge/route.ts    # 知识库管理 API
+│   │   └── prompt/route.ts       # Prompt 管理 API
 │   ├── page.tsx                  # 主页面
 │   └── layout.tsx                # 布局
 ├── components/
 │   ├── conversation-list.tsx     # 左侧对话列表
-│   ├── chat-area.tsx             # 聊天区域
-│   └── knowledge-manager.tsx     # 知识库管理
+│   ├── chat-area.tsx            # 聊天区域
+│   └── knowledge-manager.tsx    # 知识库管理（Excel导入）
 └── lib/
     ├── types.ts                  # 类型定义
-    └── store.ts                  # localStorage 存储
+    ├── store.ts                  # localStorage 存储
+    └── excel-parser.ts          # Excel 解析工具
 ```
 
 ### API 接口

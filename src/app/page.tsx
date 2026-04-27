@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { MessageSquare, BookOpen } from "lucide-react";
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConversationList } from "@/components/conversation-list";
 import { ChatArea } from "@/components/chat-area";
 import { KnowledgeManager } from "@/components/knowledge-manager";
-import { Conversation, KnowledgeItem, Message, generateId } from "@/lib/types";
+import { Conversation, Message, generateId } from "@/lib/types";
 import {
   getConversations,
   saveConversations,
@@ -16,26 +15,18 @@ import {
   updateConversation,
   getCurrentConversationId,
   setCurrentConversationId,
-  getKnowledgeItems,
-  saveKnowledgeItems,
-  addKnowledgeItem as addItemToStore,
-  deleteKnowledgeItem as removeItemFromStore,
 } from "@/lib/store";
 import { toast } from "sonner";
 
 export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationIdState] = useState<string | null>(null);
-  const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
 
   // 初始化加载数据
   useEffect(() => {
     const loadedConversations = getConversations();
     setConversations(loadedConversations);
-
-    const loadedKnowledge = getKnowledgeItems();
-    setKnowledgeItems(loadedKnowledge);
 
     const currentId = getCurrentConversationId();
     if (currentId) {
@@ -121,7 +112,7 @@ export default function Home() {
     setIsGenerating(true);
 
     try {
-      // 构建请求
+      // 构建请求（知识库数据现在由后端直接获取）
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -131,7 +122,6 @@ export default function Home() {
             role: m.role,
             content: m.content,
           })),
-          knowledge: knowledgeItems,
         }),
       });
 
@@ -188,18 +178,6 @@ export default function Home() {
     } finally {
       setIsGenerating(false);
     }
-  };
-
-  // 添加知识库项
-  const handleAddKnowledgeItem = (item: Omit<KnowledgeItem, "id" | "createdAt">) => {
-    const newItem = addItemToStore(item);
-    setKnowledgeItems((prev) => [...prev, newItem]);
-  };
-
-  // 删除知识库项
-  const handleDeleteKnowledgeItem = (id: string) => {
-    removeItemFromStore(id);
-    setKnowledgeItems((prev) => prev.filter((i) => i.id !== id));
   };
 
   return (
@@ -278,11 +256,7 @@ export default function Home() {
             </TabsContent>
 
             <TabsContent value="knowledge" className="flex-1 overflow-auto m-0">
-              <KnowledgeManager
-                items={knowledgeItems}
-                onAddItem={handleAddKnowledgeItem}
-                onDeleteItem={handleDeleteKnowledgeItem}
-              />
+              <KnowledgeManager />
             </TabsContent>
           </Tabs>
         </main>

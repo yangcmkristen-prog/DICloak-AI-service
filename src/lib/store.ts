@@ -1,10 +1,21 @@
-import { Conversation, KnowledgeItem, generateId } from './types';
+import { 
+  Conversation, 
+  KnowledgeBase, 
+  FAQItem, 
+  TroubleshootingItem, 
+  OutOfScopeItem, 
+  MappingItem, 
+  FunctionKnowledge, 
+  TermItem,
+  generateId 
+} from './types';
 
 const CONVERSATIONS_KEY = 'diclok_conversations';
 const KNOWLEDGE_KEY = 'diclok_knowledge';
 const CURRENT_CONVERSATION_KEY = 'diclok_current_conversation';
 
-// 对话存储
+// ============ 对话存储 ============
+
 export function getConversations(): Conversation[] {
   if (typeof window === 'undefined') return [];
   const data = localStorage.getItem(CONVERSATIONS_KEY);
@@ -46,7 +57,6 @@ export function updateConversation(id: string, updates: Partial<Conversation>): 
 export function deleteConversation(id: string): void {
   const conversations = getConversations().filter((c) => c.id !== id);
   saveConversations(conversations);
-  // 如果删除的是当前对话，清除当前对话ID
   if (getCurrentConversationId() === id) {
     setCurrentConversationId(null);
   }
@@ -56,7 +66,8 @@ export function getConversation(id: string): Conversation | undefined {
   return getConversations().find((c) => c.id === id);
 }
 
-// 当前对话ID管理
+// ============ 当前对话ID管理 ============
+
 export function getCurrentConversationId(): string | null {
   if (typeof window === 'undefined') return null;
   return localStorage.getItem(CURRENT_CONVERSATION_KEY);
@@ -71,45 +82,108 @@ export function setCurrentConversationId(id: string | null): void {
   }
 }
 
-// 知识库存储
-export function getKnowledgeItems(): KnowledgeItem[] {
-  if (typeof window === 'undefined') return [];
+// ============ 知识库存储 ============
+
+const DEFAULT_KNOWLEDGE_BASE: KnowledgeBase = {
+  faqItems: [],
+  troubleshootingItems: [],
+  outOfScopeItems: [],
+  mappingItems: [],
+  functionKnowledge: [],
+  termItems: [],
+  lastUpdated: 0,
+};
+
+export function getKnowledgeBase(): KnowledgeBase {
+  if (typeof window === 'undefined') return DEFAULT_KNOWLEDGE_BASE;
   const data = localStorage.getItem(KNOWLEDGE_KEY);
-  return data ? JSON.parse(data) : [];
-}
-
-export function saveKnowledgeItems(items: KnowledgeItem[]): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(KNOWLEDGE_KEY, JSON.stringify(items));
-}
-
-export function addKnowledgeItem(item: Omit<KnowledgeItem, 'id' | 'createdAt'>): KnowledgeItem {
-  const items = getKnowledgeItems();
-  const newItem: KnowledgeItem = {
-    ...item,
-    id: generateId(),
-    createdAt: Date.now(),
-  };
-  items.push(newItem);
-  saveKnowledgeItems(items);
-  return newItem;
-}
-
-export function deleteKnowledgeItem(id: string): void {
-  const items = getKnowledgeItems().filter((i) => i.id !== id);
-  saveKnowledgeItems(items);
-}
-
-export function updateKnowledgeItem(id: string, updates: Partial<KnowledgeItem>): void {
-  const items = getKnowledgeItems();
-  const index = items.findIndex((i) => i.id === id);
-  if (index !== -1) {
-    items[index] = { ...items[index], ...updates };
-    saveKnowledgeItems(items);
+  if (!data) return DEFAULT_KNOWLEDGE_BASE;
+  
+  try {
+    const parsed = JSON.parse(data);
+    // 确保所有字段都存在
+    return {
+      faqItems: parsed.faqItems || [],
+      troubleshootingItems: parsed.troubleshootingItems || [],
+      outOfScopeItems: parsed.outOfScopeItems || [],
+      mappingItems: parsed.mappingItems || [],
+      functionKnowledge: parsed.functionKnowledge || [],
+      termItems: parsed.termItems || [],
+      lastUpdated: parsed.lastUpdated || 0,
+    };
+  } catch {
+    return DEFAULT_KNOWLEDGE_BASE;
   }
 }
 
-// System Prompt 存储
+export function saveKnowledgeBase(knowledge: KnowledgeBase): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(KNOWLEDGE_KEY, JSON.stringify(knowledge));
+}
+
+export function updateKnowledgeBase(updates: Partial<KnowledgeBase>): KnowledgeBase {
+  const current = getKnowledgeBase();
+  const updated: KnowledgeBase = {
+    ...current,
+    ...updates,
+    lastUpdated: Date.now(),
+  };
+  saveKnowledgeBase(updated);
+  return updated;
+}
+
+export function clearKnowledgeBase(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(KNOWLEDGE_KEY);
+}
+
+// 导入知识库数据
+export function importKnowledgeData(data: Partial<KnowledgeBase>): void {
+  const current = getKnowledgeBase();
+  const updated: KnowledgeBase = {
+    faqItems: [...current.faqItems, ...(data.faqItems || [])],
+    troubleshootingItems: [...current.troubleshootingItems, ...(data.troubleshootingItems || [])],
+    outOfScopeItems: [...current.outOfScopeItems, ...(data.outOfScopeItems || [])],
+    mappingItems: [...current.mappingItems, ...(data.mappingItems || [])],
+    functionKnowledge: [...current.functionKnowledge, ...(data.functionKnowledge || [])],
+    termItems: [...current.termItems, ...(data.termItems || [])],
+    lastUpdated: Date.now(),
+  };
+  saveKnowledgeBase(updated);
+}
+
+// 替换所有知识库数据（导入时使用）
+export function replaceKnowledgeData(data: KnowledgeBase): void {
+  saveKnowledgeBase({
+    ...data,
+    lastUpdated: Date.now(),
+  });
+}
+
+// 获取知识库统计信息
+export function getKnowledgeStats(): { 
+  faqCount: number; 
+  troubleshootingCount: number; 
+  outOfScopeCount: number; 
+  mappingCount: number; 
+  functionCount: number; 
+  termCount: number;
+  lastUpdated: number;
+} {
+  const kb = getKnowledgeBase();
+  return {
+    faqCount: kb.faqItems.length,
+    troubleshootingCount: kb.troubleshootingItems.length,
+    outOfScopeCount: kb.outOfScopeItems.length,
+    mappingCount: kb.mappingItems.length,
+    functionCount: kb.functionKnowledge.length,
+    termCount: kb.termItems.length,
+    lastUpdated: kb.lastUpdated,
+  };
+}
+
+// ============ System Prompt 存储 ============
+
 const SYSTEM_PROMPT_KEY = 'diclok_system_prompt';
 
 export const DEFAULT_SYSTEM_PROMPT = `你是 DICloak 客服助手，专注于帮助客服人员快速生成专业、友好的客户回复。
