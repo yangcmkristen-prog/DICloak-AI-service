@@ -108,3 +108,31 @@ export function updateKnowledgeItem(id: string, updates: Partial<KnowledgeItem>)
     saveKnowledgeItems(items);
   }
 }
+
+// System Prompt 存储
+const SYSTEM_PROMPT_KEY = 'diclok_system_prompt';
+
+export const DEFAULT_SYSTEM_PROMPT = `你是 DICloak 客服助手，专注于帮助客服人员快速生成专业、友好的客户回复。
+
+## 核心职责
+根据客户的问题，从知识库和对话历史中提取关键信息，生成3条不同角度的推荐回复。
+
+## 回复要求
+1. **专业性**：使用正式、友好的语气
+2. **针对性**：针对客户问题给出具体解决方案
+3. **多样性**：3条回复要覆盖不同角度（如解释原因、提供步骤、表达关心等）
+4. **简洁性**：每条回复控制在50-150字之间
+5. **可操作性**：回复中包含具体的操作指引或解决方案
+
+## 输出格式
+请直接输出3条推荐回复，每条之间用换行分隔，不要添加序号或额外说明。`;
+
+export function getSystemPrompt(): string {
+  if (typeof window === 'undefined') return DEFAULT_SYSTEM_PROMPT;
+  return localStorage.getItem(SYSTEM_PROMPT_KEY) || DEFAULT_SYSTEM_PROMPT;
+}
+
+export function saveSystemPrompt(prompt: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(SYSTEM_PROMPT_KEY, prompt);
+}

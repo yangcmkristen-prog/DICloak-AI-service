@@ -1,29 +1,61 @@
 "use client";
 
-import { useState } from "react";
-import { FileText, Link2, Trash2, Plus, ExternalLink } from "lucide-react";
+import { useState, useEffect } from "react";
+import { FileText, Link2, Trash2, Plus, ExternalLink, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { KnowledgeItem } from "@/lib/types";
+import { DEFAULT_SYSTEM_PROMPT } from "@/lib/store";
 import { toast } from "sonner";
+
+const PROMPT_KEY = "diclok_system_prompt";
 
 interface KnowledgeManagerProps {
   items: KnowledgeItem[];
   onAddItem: (item: Omit<KnowledgeItem, "id" | "createdAt">) => void;
   onDeleteItem: (id: string) => void;
+  onPromptChange?: (prompt: string) => void;
 }
 
 export function KnowledgeManager({
   items,
   onAddItem,
   onDeleteItem,
+  onPromptChange,
 }: KnowledgeManagerProps) {
   const [feishuUrl, setFeishuUrl] = useState("");
   const [documentName, setDocumentName] = useState("");
   const [documentContent, setDocumentContent] = useState("");
+  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
+  const [tempPrompt, setTempPrompt] = useState("");
+  const [isAlertOpen, setIsAlertOpen] = useState(false);
+
+  // 加载保存的 prompt
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedPrompt = localStorage.getItem(PROMPT_KEY);
+      if (savedPrompt) {
+        setSystemPrompt(savedPrompt);
+        setTempPrompt(savedPrompt);
+      } else {
+        setTempPrompt(DEFAULT_SYSTEM_PROMPT);
+      }
+    }
+  }, []);
 
   const handleAddFeishu = () => {
     if (!feishuUrl.trim()) {
@@ -60,6 +92,23 @@ export function KnowledgeManager({
     setDocumentName("");
     setDocumentContent("");
     toast.success("文档已添加");
+  };
+
+  const handleConfirmPrompt = () => {
+    setSystemPrompt(tempPrompt);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(PROMPT_KEY, tempPrompt);
+    }
+    if (onPromptChange) {
+      onPromptChange(tempPrompt);
+    }
+    setIsAlertOpen(false);
+    toast.success("系统 Prompt 已更新");
+  };
+
+  const handleOpenAlert = () => {
+    setTempPrompt(systemPrompt);
+    setIsAlertOpen(true);
   };
 
   const isValidUrl = (url: string): boolean => {
@@ -213,6 +262,72 @@ export function KnowledgeManager({
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Prompt 设置区域 */}
+      <div className="mt-8 pt-6 border-t">
+        <Card className="p-6 space-y-4">
+          <div className="flex items-center gap-2">
+            <Settings className="w-5 h-5 text-gray-600" />
+            <h3 className="font-medium text-lg">系统 Prompt 设置</h3>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            设置 AI 客服助手的系统提示词，用于定义 AI 的角色和行为规范。
+          </p>
+
+          <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+            <p className="text-sm text-blue-800 dark:text-blue-200 font-medium mb-2">
+              当前 Prompt 预览
+            </p>
+            <p className="text-sm text-blue-700 dark:text-blue-300 whitespace-pre-wrap line-clamp-3">
+              {systemPrompt}
+            </p>
+          </div>
+
+          <AlertDialog open={isAlertOpen} onOpenChange={setIsAlertOpen}>
+            <AlertDialogTrigger asChild>
+              <Button onClick={handleOpenAlert} variant="outline" className="w-full">
+                <Settings className="w-4 h-4 mr-2" />
+                修改 Prompt
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+              <AlertDialogHeader>
+                <AlertDialogTitle>修改系统 Prompt</AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                  <div>
+                    <p className="mb-2">
+                      修改 AI 客服助手的系统提示词，这将影响 AI 生成回复的风格和内容。
+                    </p>
+                    <p className="text-amber-600 dark:text-amber-400 font-medium">
+                      修改后新的对话将使用新的 Prompt，已有的对话历史不受影响。
+                    </p>
+                  </div>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+
+              <div className="py-4">
+                <Label htmlFor="prompt-content" className="text-base font-medium">
+                  Prompt 内容
+                </Label>
+                <textarea
+                  id="prompt-content"
+                  value={tempPrompt}
+                  onChange={(e) => setTempPrompt(e.target.value)}
+                  placeholder="输入系统提示词..."
+                  className="mt-2 w-full min-h-[300px] p-3 rounded-md border border-input bg-background text-sm resize-y font-mono"
+                />
+              </div>
+
+              <AlertDialogFooter>
+                <AlertDialogCancel>取消</AlertDialogCancel>
+                <AlertDialogAction onClick={handleConfirmPrompt}>
+                  确认修改
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </Card>
+      </div>
     </div>
   );
 }
