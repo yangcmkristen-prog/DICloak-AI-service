@@ -79,25 +79,38 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                   {message.role === "user" ? (
                     <p className="whitespace-pre-wrap">{message.content}</p>
                   ) : (
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       {message.content.split("\n\n").filter(Boolean).map((reply, index) => (
-                        <div key={index} className="group">
-                          <Card className="p-3 relative hover:border-blue-300 transition-colors">
-                            <p className="text-sm whitespace-pre-wrap pr-8">
-                              {reply.trim()}
-                            </p>
+                        <div key={index} className="space-y-2">
+                          {/* 回复标题 */}
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                              回复 {index + 1}
+                            </h4>
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 p-0"
+                              className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
                               onClick={() => handleCopy(reply.trim(), `${message.id}-${index}`)}
                             >
                               {copiedId === `${message.id}-${index}` ? (
-                                <Check className="w-4 h-4 text-green-600" />
+                                <>
+                                  <Check className="w-3 h-3 mr-1" />
+                                  <span className="text-xs">已复制</span>
+                                </>
                               ) : (
-                                <Copy className="w-4 h-4 text-gray-500" />
+                                <>
+                                  <Copy className="w-3 h-3 mr-1" />
+                                  <span className="text-xs">复制</span>
+                                </>
                               )}
                             </Button>
+                          </div>
+                          {/* 回复内容卡片 */}
+                          <Card className="p-3 hover:border-blue-300 transition-colors">
+                            <p className="text-sm whitespace-pre-wrap">
+                              {reply.trim()}
+                            </p>
                           </Card>
                         </div>
                       ))}
