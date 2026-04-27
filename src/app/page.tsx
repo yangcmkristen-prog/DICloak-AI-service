@@ -1,35 +1,292 @@
-import type { Metadata } from 'next';
-import Image from 'next/image';
+"use client";
 
-export const metadata: Metadata = {
-  title: '扣子编程 - AI 开发伙伴',
-  description: '扣子编程，你的 AI 开发伙伴已就位',
-};
+import { useState, useEffect, useCallback } from "react";
+import { MessageSquare, BookOpen } from "lucide-react";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ConversationList } from "@/components/conversation-list";
+import { ChatArea } from "@/components/chat-area";
+import { KnowledgeManager } from "@/components/knowledge-manager";
+import { Conversation, KnowledgeItem, Message, generateId } from "@/lib/types";
+import {
+  getConversations,
+  saveConversations,
+  createConversation,
+  deleteConversation as removeConversation,
+  updateConversation,
+  getCurrentConversationId,
+  setCurrentConversationId,
+  getKnowledgeItems,
+  saveKnowledgeItems,
+  addKnowledgeItem as addItemToStore,
+  deleteKnowledgeItem as removeItemFromStore,
+} from "@/lib/store";
+import { toast } from "sonner";
 
 export default function Home() {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [currentConversationId, setCurrentConversationIdState] = useState<string | null>(null);
+  const [knowledgeItems, setKnowledgeItems] = useState<KnowledgeItem[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  // 初始化加载数据
+  useEffect(() => {
+    const loadedConversations = getConversations();
+    setConversations(loadedConversations);
+
+    const loadedKnowledge = getKnowledgeItems();
+    setKnowledgeItems(loadedKnowledge);
+
+    const currentId = getCurrentConversationId();
+    if (currentId) {
+      setCurrentConversationIdState(currentId);
+    } else if (loadedConversations.length > 0) {
+      setCurrentConversationIdState(loadedConversations[0].id);
+      setCurrentConversationId(loadedConversations[0].id);
+    }
+  }, []);
+
+  // 获取当前对话
+  const currentConversation = conversations.find((c) => c.id === currentConversationId);
+
+  // 创建新对话
+  const handleCreateConversation = () => {
+    const newConversation = createConversation();
+    setConversations((prev) => [newConversation, ...prev]);
+    setCurrentConversationIdState(newConversation.id);
+    setCurrentConversationId(newConversation.id);
+    toast.success("新对话已创建");
+  };
+
+  // 选择对话
+  const handleSelectConversation = (id: string) => {
+    setCurrentConversationIdState(id);
+    setCurrentConversationId(id);
+  };
+
+  // 删除对话
+  const handleDeleteConversation = (id: string) => {
+    removeConversation(id);
+    setConversations((prev) => {
+      const updated = prev.filter((c) => c.id !== id);
+      if (id === currentConversationId) {
+        if (updated.length > 0) {
+          setCurrentConversationIdState(updated[0].id);
+          setCurrentConversationId(updated[0].id);
+        } else {
+          setCurrentConversationIdState(null);
+          setCurrentConversationId(null);
+        }
+      }
+      return updated;
+    });
+    toast.success("对话已删除");
+  };
+
+  // 重命名对话
+  const handleRenameConversation = (id: string, title: string) => {
+    updateConversation(id, { title });
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, title } : c))
+    );
+    toast.success("对话已重命名");
+  };
+
+  // 发送消息并生成推荐回复
+  const handleSendMessage = async (content: string) => {
+    if (!currentConversationId) {
+      toast.error("请先选择一个对话");
+      return;
+    }
+
+    // 添加用户消息
+    const userMessage: Message = {
+      id: generateId(),
+      role: "user",
+      content,
+      timestamp: Date.now(),
+    };
+
+    setConversations((prev) => {
+      const updated = prev.map((c) => {
+        if (c.id === currentConversationId) {
+          return { ...c, messages: [...c.messages, userMessage] };
+        }
+        return c;
+      });
+      saveConversations(updated);
+      return updated;
+    });
+
+    setIsGenerating(true);
+
+    try {
+      // 构建请求
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: content,
+          history: currentConversation?.messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+          knowledge: knowledgeItems,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("生成回复失败");
+      }
+
+      // 处理流式响应
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = "";
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          fullContent += decoder.decode(value, { stream: true });
+        }
+      }
+
+      // 添加助手消息
+      const assistantMessage: Message = {
+        id: generateId(),
+        role: "assistant",
+        content: fullContent,
+        timestamp: Date.now(),
+      };
+
+      setConversations((prev) => {
+        const updated = prev.map((c) => {
+          if (c.id === currentConversationId) {
+            return { ...c, messages: [...c.messages, assistantMessage] };
+          }
+          return c;
+        });
+        saveConversations(updated);
+        return updated;
+      });
+    } catch (error) {
+      console.error("生成回复失败:", error);
+      toast.error("生成回复失败，请稍后重试");
+
+      // 移除失败的用户消息
+      setConversations((prev) => {
+        const updated = prev.map((c) => {
+          if (c.id === currentConversationId) {
+            return { ...c, messages: c.messages.filter((m) => m.id !== userMessage.id) };
+          }
+          return c;
+        });
+        saveConversations(updated);
+        return updated;
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // 添加知识库项
+  const handleAddKnowledgeItem = (item: Omit<KnowledgeItem, "id" | "createdAt">) => {
+    const newItem = addItemToStore(item);
+    setKnowledgeItems((prev) => [...prev, newItem]);
+  };
+
+  // 删除知识库项
+  const handleDeleteKnowledgeItem = (id: string) => {
+    removeItemFromStore(id);
+    setKnowledgeItems((prev) => prev.filter((i) => i.id !== id));
+  };
+
   return (
-    <div className="flex h-full items-center justify-center bg-background text-foreground transition-colors duration-300 dark:bg-background dark:text-foreground overflow-hidden min-h-screen">
-      {/* 主容器 */}
-      <main className="flex w-full h-full max-w-3xl flex-col items-center justify-center px-16 py-32 sm:items-center">
-        <div className="flex flex-col items-center justify-between gap-4">
-           <Image
-            src="https://lf-coze-web-cdn.coze.cn/obj/eden-cn/lm-lgvj/ljhwZthlaukjlkulzlp/coze-coding/icon/coze-coding.gif"
-            alt="扣子编程 Logo"
-            width={156}
-            height={130}
-          />
-          <div>
-            <div className="flex flex-col items-center gap-2 text-center sm:items-center sm:text-center">
-              <h1 className="max-w-xl text-base font-semibold leading-tight tracking-tight text-foreground dark:text-foreground">
-                应用开发中
-              </h1>
-              <p className="max-w-2xl text-sm leading-8 text-muted-foreground dark:text-muted-foreground">
-                请稍后，页面即将呈现
-              </p>
-            </div>
+    <div className="h-screen flex flex-col bg-background">
+      {/* 顶部标题栏 */}
+      <header className="border-b px-4 py-3 flex items-center justify-between bg-background">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+            <MessageSquare className="w-5 h-5 text-white" />
           </div>
+          <h1 className="text-xl font-semibold">DICloak 客服助手</h1>
         </div>
-      </main>
+        <span className="text-xs text-muted-foreground bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
+          内部版
+        </span>
+      </header>
+
+      {/* 主内容区 */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* 左侧边栏 */}
+        <aside className="w-72 border-r bg-gray-50/50 dark:bg-gray-900/50 hidden md:flex md:flex-col">
+          <ConversationList
+            conversations={conversations}
+            currentConversationId={currentConversationId}
+            onSelectConversation={handleSelectConversation}
+            onCreateConversation={handleCreateConversation}
+            onDeleteConversation={handleDeleteConversation}
+            onRenameConversation={handleRenameConversation}
+          />
+        </aside>
+
+        {/* 右侧主区域 */}
+        <main className="flex-1 flex flex-col overflow-hidden">
+          <Tabs defaultValue="chat" className="flex-1 flex flex-col">
+            <TabsList className="w-full justify-start rounded-none border-b px-4 bg-transparent h-12">
+              <TabsTrigger
+                value="chat"
+                className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600 data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none"
+              >
+                <MessageSquare className="w-4 h-4 mr-2" />
+                对话助手
+              </TabsTrigger>
+              <TabsTrigger
+                value="knowledge"
+                className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600 data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none"
+              >
+                <BookOpen className="w-4 h-4 mr-2" />
+                知识库
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="chat" className="flex-1 flex flex-col m-0">
+              {/* 移动端对话选择器 */}
+              <div className="md:hidden p-4 border-b">
+                <select
+                  value={currentConversationId || ""}
+                  onChange={(e) => handleSelectConversation(e.target.value)}
+                  className="w-full p-2 border rounded-md bg-background"
+                >
+                  <option value="" disabled>
+                    选择对话
+                  </option>
+                  {conversations.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <ChatArea
+                messages={currentConversation?.messages || []}
+                onSendMessage={handleSendMessage}
+                isGenerating={isGenerating}
+              />
+            </TabsContent>
+
+            <TabsContent value="knowledge" className="flex-1 overflow-auto m-0">
+              <KnowledgeManager
+                items={knowledgeItems}
+                onAddItem={handleAddKnowledgeItem}
+                onDeleteItem={handleDeleteKnowledgeItem}
+              />
+            </TabsContent>
+          </Tabs>
+        </main>
+      </div>
     </div>
   );
 }

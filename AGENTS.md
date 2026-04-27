@@ -63,3 +63,64 @@
 
 - 模板默认预装核心组件库 `shadcn/ui`，位于`src/components/ui/`目录下
 - Next.js 项目**必须默认**采用 shadcn/ui 组件、风格和规范，**除非用户指定用其他的组件和规范。**
+
+---
+
+# DICloak 客服助手项目规范
+
+## 项目概述
+
+DICloak 客服助手（内部版）是一个帮助客服人员快速生成专业回复的 AI 工具。
+
+### 核心功能
+
+1. **AI 回复生成**：输入客户问题，AI 根据知识库和对话历史生成 3 条推荐回复
+2. **多对话管理**：支持新建、删除、重命名多个独立对话
+3. **对话记忆**：同一对话内支持多轮对话上下文
+4. **知识库配置**：支持飞书多维表格链接和自定义文档内容
+
+### 文件结构
+
+```
+src/
+├── app/
+│   ├── api/
+│   │   ├── chat/route.ts         # AI 回复生成 API (流式)
+│   │   ├── conversations/route.ts # 对话管理 API
+│   │   └── knowledge/route.ts    # 知识库管理 API
+│   ├── page.tsx                  # 主页面
+│   └── layout.tsx                # 布局
+├── components/
+│   ├── conversation-list.tsx     # 左侧对话列表
+│   ├── chat-area.tsx             # 聊天区域
+│   └── knowledge-manager.tsx     # 知识库管理
+└── lib/
+    ├── types.ts                  # 类型定义
+    └── store.ts                  # localStorage 存储
+```
+
+### API 接口
+
+| 接口 | 方法 | 描述 |
+|------|------|------|
+| `/api/chat` | POST | 生成推荐回复（流式输出） |
+| `/api/conversations` | GET | 获取对话列表 |
+| `/api/conversations` | POST | 创建新对话 |
+| `/api/conversations` | PUT | 更新对话（重命名等） |
+| `/api/conversations` | DELETE | 删除对话 |
+| `/api/knowledge` | GET | 获取知识库列表 |
+| `/api/knowledge` | POST | 添加知识库项 |
+| `/api/knowledge` | DELETE | 删除知识库项 |
+
+### 数据存储
+
+- 对话数据存储在浏览器 `localStorage`（键名：`diclok_conversations`）
+- 知识库数据存储在浏览器 `localStorage`（键名：`diclok_knowledge`）
+- 当前对话 ID 存储在 `localStorage`（键名：`diclok_current_conversation`）
+
+### LLM 配置
+
+- 使用 `coze-coding-dev-sdk` 的流式接口
+- 模型：`doubao-seed-2-0-lite-260215`
+- Temperature: 0.7
+- System Prompt: 客服助手角色定义
