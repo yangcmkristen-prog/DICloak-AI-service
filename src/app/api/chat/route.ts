@@ -1,19 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
-import { getSystemPrompt } from "@/lib/store";
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, history, knowledge } = await request.json();
+    const { message, history, knowledge, systemPrompt } = await request.json();
 
     if (!message) {
       return NextResponse.json({ error: "消息不能为空" }, { status: 400 });
     }
 
-    // 获取存储的系统 Prompt
-    const systemPrompt = getSystemPrompt();
+    // 优先使用前端传递的 System Prompt，其次使用默认 Prompt
+    const finalSystemPrompt = systemPrompt || `你是 DICloak 客服助手，专注于帮助客服人员快速生成专业、友好的客户回复。
 
-    // 优先使用前端传递的知识库数据（存储在 localStorage）
+## 核心职责
+根据客户的问题，从知识库和对话历史中提取关键信息，生成3条不同角度的推荐回复。
+
+## 回复要求
+1. **专业性**：使用正式、友好的语气
+2. **针对性**：针对客户问题给出具体解决方案
+3. **多样性**：3条回复要覆盖不同角度（如解释原因、提供步骤、表达关心等）
+4. **简洁性**：每条回复控制在50-150字之间
+5. **可操作性**：回复中包含具体的操作指引或解决方案
+
+## 输出格式
+请直接输出3条推荐回复，每条之间用换行分隔，不要添加序号或额外说明。`;
+
+    // 优先使用前端传递的知识库数据
     const knowledgeBase = knowledge || {
       faqItems: [],
       troubleshootingItems: [],
@@ -118,7 +130,7 @@ export async function POST(request: NextRequest) {
 请根据以上知识库信息，生成3条推荐回复。如果问题属于"超范围"类别，请先说明无法支持后再给出适当的建议。`;
 
     const messages = [
-      { role: "system" as const, content: systemPrompt },
+      { role: "system" as const, content: finalSystemPrompt },
       { role: "user" as const, content: fullPrompt },
     ];
 

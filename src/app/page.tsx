@@ -16,6 +16,7 @@ import {
   getCurrentConversationId,
   setCurrentConversationId,
   getKnowledgeBase,
+  getSystemPrompt,
 } from "@/lib/store";
 import { toast } from "sonner";
 
@@ -113,10 +114,11 @@ export default function Home() {
     setIsGenerating(true);
 
     try {
-      // 从 localStorage 获取知识库数据
+      // 从 localStorage 获取知识库数据和 System Prompt
       const knowledgeData = getKnowledgeBase();
+      const systemPrompt = getSystemPrompt();
 
-      // 构建请求（知识库数据从 localStorage 获取并传递给后端）
+      // 构建请求（知识库和 Prompt 从 localStorage 获取并传递给后端）
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -127,6 +129,7 @@ export default function Home() {
             content: m.content,
           })),
           knowledge: knowledgeData,
+          systemPrompt: systemPrompt,
         }),
       });
 
