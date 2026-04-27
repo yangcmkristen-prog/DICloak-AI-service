@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Copy, Check } from "lucide-react";
+import { Send, Loader2, Copy, Check, Tag, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Message } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -12,6 +13,71 @@ interface ChatAreaProps {
   messages: Message[];
   onSendMessage: (content: string) => Promise<void>;
   isGenerating: boolean;
+}
+
+// 解析 AI 回复内容
+interface ParsedReply {
+  type: 'question_type' | 'reply';
+  label?: string;      // 【问题类型】或【回复1】等
+  content: string;     // 具体内容
+}
+
+function parseAIResponse(content: string): { questionType: string; replies: { label: string; content: string }[] } {
+  let questionType = '通用问题';
+  const replies: { label: string; content: string }[] = [];
+  
+  // 按换行分割
+  const lines = content.split('\n');
+  
+  let currentReply: { label: string; content: string } | null = null;
+  
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    
+    // 匹配【问题类型：xxx】或【问题类型】xxx
+    const questionTypeMatch = trimmedLine.match(/^【?\s*问题类型\s*】?\s*[:：]?\s*(.+)/);
+    if (questionTypeMatch) {
+      questionType = questionTypeMatch[1].trim();
+      continue;
+    }
+    
+    // 匹配【回复1】xxx 或 【回复 1】xxx 等格式
+    const replyMatch = trimmedLine.match(/^【?\s*回复\s*[（(]?\d*[）)]?\s*】?\s*(.+)/);
+    if (replyMatch) {
+      // 保存之前的回复
+      if (currentReply) {
+        replies.push(currentReply);
+      }
+      currentReply = {
+        label: `回复${replies.length + 1}`,
+        content: replyMatch[1].trim(),
+      };
+      continue;
+    }
+    
+    // 如果没有匹配到回复标题，且有当前回复在进行中，追加内容
+    if (currentReply && !replyMatch) {
+      // 检查是否是空行或另一个回复的开始
+      if (trimmedLine && !trimmedLine.startsWith('【')) {
+        currentReply.content += '\n' + trimmedLine;
+      }
+    }
+  }
+  
+  // 保存最后一个回复
+  if (currentReply) {
+    replies.push(currentReply);
+  }
+  
+  // 如果没有解析到任何回复，整个内容作为一个回复
+  if (replies.length === 0 && content.trim()) {
+    replies.push({
+      label: '回复',
+      content: content.trim(),
+    });
+  }
+  
+  return { questionType, replies };
 }
 
 export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProps) {
@@ -51,6 +117,58 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
     }
   };
 
+  // 渲染 AI 回复
+  const renderAIResponse = (message: Message) => {
+    const { questionType, replies } = parseAIResponse(message.content);
+
+    return (
+      <div className="space-y-4">
+        {/* 问题类型 - 固定展示 */}
+        <div className="flex items-center gap-2">
+          <Tag className="w-4 h-4 text-blue-600" />
+          <span className="text-sm font-medium text-muted-foreground">问题类型：</span>
+          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+            {questionType}
+          </Badge>
+        </div>
+
+        {/* 回复列表 */}
+        <div className="space-y-3">
+          {replies.map((reply, index) => (
+            <Card key={index} className="group hover:border-blue-300 transition-colors">
+              {/* 回复标题 - 不在复制范围内 */}
+              <CardHeader className="py-2 px-4 bg-gray-50 dark:bg-gray-800/50 border-b">
+                <CardTitle className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                  <MessageSquare className="w-4 h-4" />
+                  {reply.label}
+                </CardTitle>
+              </CardHeader>
+              
+              {/* 回复内容 - 可复制 */}
+              <CardContent className="py-3 px-4 relative">
+                <p className="text-sm whitespace-pre-wrap pr-10">
+                  {reply.content}
+                </p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 p-0"
+                  onClick={() => handleCopy(reply.content, `${message.id}-${index}`)}
+                >
+                  {copiedId === `${message.id}-${index}` ? (
+                    <Check className="w-4 h-4 text-green-600" />
+                  ) : (
+                    <Copy className="w-4 h-4 text-gray-500" />
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* 消息列表 - 支持滚动 */}
@@ -70,7 +188,7 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[80%] rounded-lg p-4 ${
+                  className={`max-w-[85%] rounded-lg p-4 ${
                     message.role === "user"
                       ? "bg-blue-600 text-white"
                       : "bg-gray-100 dark:bg-gray-800"
@@ -79,29 +197,7 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                   {message.role === "user" ? (
                     <p className="whitespace-pre-wrap">{message.content}</p>
                   ) : (
-                    <div className="space-y-3">
-                      {message.content.split("\n\n").filter(Boolean).map((reply, index) => (
-                        <div key={index} className="group">
-                          <Card className="p-3 relative hover:border-blue-300 transition-colors">
-                            <p className="text-sm whitespace-pre-wrap pr-8">
-                              {reply.trim()}
-                            </p>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 p-0"
-                              onClick={() => handleCopy(reply.trim(), `${message.id}-${index}`)}
-                            >
-                              {copiedId === `${message.id}-${index}` ? (
-                                <Check className="w-4 h-4 text-green-600" />
-                              ) : (
-                                <Copy className="w-4 h-4 text-gray-500" />
-                              )}
-                            </Button>
-                          </Card>
-                        </div>
-                      ))}
-                    </div>
+                    renderAIResponse(message)
                   )}
                 </div>
               </div>
