@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Copy, Check, Tag, MessageSquare } from "lucide-react";
+import { Send, Loader2, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Message } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -12,87 +12,6 @@ interface ChatAreaProps {
   messages: Message[];
   onSendMessage: (content: string) => Promise<void>;
   isGenerating: boolean;
-}
-
-// 解析 AI 回复内容
-interface ParsedReply {
-  type: 'question_type' | 'reply';
-  label?: string;      // 【问题类型】或【回复1】等
-  content: string;     // 具体内容
-}
-
-function parseAIResponse(content: string): { questionType: string; replies: { label: string; content: string }[] } {
-  let questionType = '通用问题';
-  const replies: { label: string; content: string }[] = [];
-  
-  // 按换行分割
-  const lines = content.split('\n');
-  
-  let currentReply: { label: string; content: string } | null = null;
-  
-  for (const line of lines) {
-    const trimmedLine = line.trim();
-    
-    if (!trimmedLine) {
-      // 空行时保存当前回复
-      if (currentReply) {
-        replies.push(currentReply);
-        currentReply = null;
-      }
-      continue;
-    }
-    
-    // 匹配【问题类型：xxx】或【问题类型】xxx
-    const questionTypeMatch = trimmedLine.match(/^【\s*问题类型\s*[：:]\s*(.+?)】?$/);
-    if (questionTypeMatch) {
-      questionType = questionTypeMatch[1].trim();
-      continue;
-    }
-    
-    // 匹配 回复1：xxx 格式
-    if (trimmedLine.startsWith('回复1：') || trimmedLine.startsWith('回复1：') || trimmedLine.match(/^回复\s*1[：:]/)) {
-      if (currentReply) replies.push(currentReply);
-      const match = trimmedLine.match(/^回复\s*1[：:]\s*(.+)$/);
-      currentReply = { label: '回复1', content: match ? match[1] : trimmedLine.replace(/^回复\s*1[：:]\s*/, '') };
-      continue;
-    }
-    
-    // 匹配 回复2：xxx 格式
-    if (trimmedLine.startsWith('回复2：') || trimmedLine.startsWith('回复2：') || trimmedLine.match(/^回复\s*2[：:]/)) {
-      if (currentReply) replies.push(currentReply);
-      const match = trimmedLine.match(/^回复\s*2[：:]\s*(.+)$/);
-      currentReply = { label: '回复2', content: match ? match[1] : trimmedLine.replace(/^回复\s*2[：:]\s*/, '') };
-      continue;
-    }
-    
-    // 匹配 回复3：xxx 格式
-    if (trimmedLine.startsWith('回复3：') || trimmedLine.startsWith('回复3：') || trimmedLine.match(/^回复\s*3[：:]/)) {
-      if (currentReply) replies.push(currentReply);
-      const match = trimmedLine.match(/^回复\s*3[：:]\s*(.+)$/);
-      currentReply = { label: '回复3', content: match ? match[1] : trimmedLine.replace(/^回复\s*3[：:]\s*/, '') };
-      continue;
-    }
-    
-    // 如果当前有回复在处理中，追加内容
-    if (currentReply) {
-      currentReply.content += '\n' + trimmedLine;
-    }
-  }
-  
-  // 保存最后一个回复
-  if (currentReply) {
-    replies.push(currentReply);
-  }
-  
-  // 如果没有解析到任何回复，整个内容作为一个回复
-  if (replies.length === 0 && content.trim()) {
-    replies.push({
-      label: '回复1',
-      content: content.trim(),
-    });
-  }
-  
-  return { questionType, replies };
 }
 
 export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProps) {
@@ -132,52 +51,6 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
     }
   };
 
-  // 渲染 AI 回复
-  const renderAIResponse = (message: Message) => {
-    const { questionType, replies } = parseAIResponse(message.content);
-
-    return (
-      <div className="space-y-4">
-        {/* 问题类型 - 固定展示 */}
-        <div className="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
-          <div className="flex items-center gap-2 mb-1">
-            <Tag className="w-4 h-4 text-blue-600" />
-            <span className="text-sm font-semibold text-blue-800 dark:text-blue-200">【问题类型】</span>
-          </div>
-          <p className="text-blue-700 dark:text-blue-300 font-medium">{questionType}</p>
-        </div>
-
-        {/* 回复列表 */}
-        <div className="space-y-3">
-          {replies.map((reply, index) => (
-            <Card key={index} className="group hover:border-blue-300 transition-colors">
-              {/* 回复标题 - 固定展示 */}
-              <div className="py-2 px-4 bg-gray-100 dark:bg-gray-700/50 border-b">
-                <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
-                  【{reply.label}】
-                </span>
-              </div>
-              
-              {/* 回复内容 - 可复制 */}
-              <CardContent className="py-3 px-4 relative">
-                <p 
-                  className="text-sm whitespace-pre-wrap cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 p-2 -m-2 rounded transition-colors"
-                  onClick={() => handleCopy(reply.content, `${message.id}-${index}`)}
-                >
-                  {reply.content}
-                </p>
-                <div className="absolute top-2 right-2 flex items-center gap-1 text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Copy className="w-3 h-3" />
-                  <span>点击复制</span>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* 消息列表 - 支持滚动 */}
@@ -197,7 +70,7 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[85%] rounded-lg p-4 ${
+                  className={`max-w-[80%] rounded-lg p-4 ${
                     message.role === "user"
                       ? "bg-blue-600 text-white"
                       : "bg-gray-100 dark:bg-gray-800"
@@ -206,7 +79,29 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                   {message.role === "user" ? (
                     <p className="whitespace-pre-wrap">{message.content}</p>
                   ) : (
-                    renderAIResponse(message)
+                    <div className="space-y-3">
+                      {message.content.split("\n\n").filter(Boolean).map((reply, index) => (
+                        <div key={index} className="group">
+                          <Card className="p-3 relative hover:border-blue-300 transition-colors">
+                            <p className="text-sm whitespace-pre-wrap pr-8">
+                              {reply.trim()}
+                            </p>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8 p-0"
+                              onClick={() => handleCopy(reply.trim(), `${message.id}-${index}`)}
+                            >
+                              {copiedId === `${message.id}-${index}` ? (
+                                <Check className="w-4 h-4 text-green-600" />
+                              ) : (
+                                <Copy className="w-4 h-4 text-gray-500" />
+                              )}
+                            </Button>
+                          </Card>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
