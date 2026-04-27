@@ -209,10 +209,10 @@ export default function Home() {
           />
         </aside>
 
-        {/* 右侧主区域 */}
-        <main className="flex-1 flex flex-col overflow-hidden">
-          <Tabs defaultValue="chat" className="flex-1 flex flex-col">
-            <TabsList className="w-full justify-start rounded-none border-b px-4 bg-transparent h-12">
+        {/* 右侧主区域 - 支持页面滚动 */}
+        <main className="flex-1 flex flex-col overflow-y-auto">
+          <Tabs defaultValue="chat" className="flex-1 flex flex-col min-h-0">
+            <TabsList className="w-full justify-start rounded-none border-b px-4 bg-background h-12 shrink-0">
               <TabsTrigger
                 value="chat"
                 className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600 data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none"
@@ -229,9 +229,9 @@ export default function Home() {
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="chat" className="flex-1 flex flex-col m-0">
+            <TabsContent value="chat" className="flex-1 flex flex-col m-0 min-h-0">
               {/* 移动端对话选择器 */}
-              <div className="md:hidden p-4 border-b">
+              <div className="md:hidden p-4 border-b shrink-0">
                 <select
                   value={currentConversationId || ""}
                   onChange={(e) => handleSelectConversation(e.target.value)}
@@ -255,7 +255,7 @@ export default function Home() {
               />
             </TabsContent>
 
-            <TabsContent value="knowledge" className="flex-1 overflow-auto m-0">
+            <TabsContent value="knowledge" className="flex-1 m-0">
               <KnowledgeManager />
             </TabsContent>
           </Tabs>

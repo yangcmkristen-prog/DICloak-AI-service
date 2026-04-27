@@ -4,7 +4,6 @@ import { useState, useRef, useEffect } from "react";
 import { Send, Loader2, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card } from "@/components/ui/card";
 import { Message } from "@/lib/types";
 import { toast } from "sonner";
@@ -53,9 +52,9 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* 消息列表 */}
-      <ScrollArea className="flex-1 p-4">
+    <div className="flex flex-col h-full min-h-0">
+      {/* 消息列表 - 支持滚动 */}
+      <div className="flex-1 overflow-y-auto p-4">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
             <div className="text-center space-y-2">
@@ -122,7 +121,7 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
             <div ref={scrollRef} />
           </div>
         )}
-      </ScrollArea>
+      </div>
 
       {/* 输入区域 */}
       <div className="border-t p-4 bg-background">
