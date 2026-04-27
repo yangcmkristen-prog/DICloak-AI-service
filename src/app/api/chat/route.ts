@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
-import { getSystemPrompt, getKnowledgeBase } from "@/lib/store";
+import { getSystemPrompt } from "@/lib/store";
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, history } = await request.json();
+    const { message, history, knowledge } = await request.json();
 
     if (!message) {
       return NextResponse.json({ error: "消息不能为空" }, { status: 400 });
@@ -13,8 +13,15 @@ export async function POST(request: NextRequest) {
     // 获取存储的系统 Prompt
     const systemPrompt = getSystemPrompt();
 
-    // 获取知识库数据
-    const knowledgeBase = getKnowledgeBase();
+    // 优先使用前端传递的知识库数据（存储在 localStorage）
+    const knowledgeBase = knowledge || {
+      faqItems: [],
+      troubleshootingItems: [],
+      outOfScopeItems: [],
+      mappingItems: [],
+      functionKnowledge: [],
+      termItems: [],
+    };
 
     const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
     const config = new Config();
@@ -24,9 +31,9 @@ export async function POST(request: NextRequest) {
     let knowledgeContext = "";
 
     // 添加 FAQ 数据
-    if (knowledgeBase.faqItems.length > 0) {
+    if (knowledgeBase.faqItems && knowledgeBase.faqItems.length > 0) {
       knowledgeContext += "\n\n## FAQ 知识库\n";
-      knowledgeBase.faqItems.forEach((item, index) => {
+      knowledgeBase.faqItems.forEach((item: { questionCN: string; answer: string; functionId?: string }, index: number) => {
         knowledgeContext += `【FAQ ${index + 1}】\n`;
         knowledgeContext += `问题: ${item.questionCN}\n`;
         knowledgeContext += `标准答案: ${item.answer}\n`;
@@ -36,9 +43,9 @@ export async function POST(request: NextRequest) {
     }
 
     // 添加 Troubleshooting 数据
-    if (knowledgeBase.troubleshootingItems.length > 0) {
+    if (knowledgeBase.troubleshootingItems && knowledgeBase.troubleshootingItems.length > 0) {
       knowledgeContext += "\n\n## 排障知识库\n";
-      knowledgeBase.troubleshootingItems.forEach((item, index) => {
+      knowledgeBase.troubleshootingItems.forEach((item: { questionCN: string; answer: string; answerClient?: string; answerEndUser?: string }, index: number) => {
         knowledgeContext += `【排障 ${index + 1}】\n`;
         knowledgeContext += `问题: ${item.questionCN}\n`;
         knowledgeContext += `通用答案: ${item.answer}\n`;
@@ -49,9 +56,9 @@ export async function POST(request: NextRequest) {
     }
 
     // 添加 Out of Scope 数据
-    if (knowledgeBase.outOfScopeItems.length > 0) {
+    if (knowledgeBase.outOfScopeItems && knowledgeBase.outOfScopeItems.length > 0) {
       knowledgeContext += "\n\n## 超范围问题库\n";
-      knowledgeBase.outOfScopeItems.forEach((item, index) => {
+      knowledgeBase.outOfScopeItems.forEach((item: { questionCN: string; answer: string }, index: number) => {
         knowledgeContext += `【超范围 ${index + 1}】\n`;
         knowledgeContext += `问题: ${item.questionCN}\n`;
         knowledgeContext += `标准回复: ${item.answer}\n`;
@@ -60,9 +67,9 @@ export async function POST(request: NextRequest) {
     }
 
     // 添加功能知识库
-    if (knowledgeBase.functionKnowledge.length > 0) {
+    if (knowledgeBase.functionKnowledge && knowledgeBase.functionKnowledge.length > 0) {
       knowledgeContext += "\n\n## 功能知识库\n";
-      knowledgeBase.functionKnowledge.slice(0, 20).forEach((item, index) => {
+      knowledgeBase.functionKnowledge.slice(0, 20).forEach((item: { functionName: string; description: string; entryPath?: string; steps?: string }, index: number) => {
         knowledgeContext += `【功能 ${index + 1}】\n`;
         knowledgeContext += `功能名称: ${item.functionName}\n`;
         knowledgeContext += `功能说明: ${item.description}\n`;
@@ -76,10 +83,10 @@ export async function POST(request: NextRequest) {
     }
 
     // 添加术语库
-    if (knowledgeBase.termItems.length > 0) {
+    if (knowledgeBase.termItems && knowledgeBase.termItems.length > 0) {
       knowledgeContext += "\n\n## 术语库\n";
-      const visibleTerms = knowledgeBase.termItems.filter(t => t.isUiVisible).slice(0, 30);
-      visibleTerms.forEach((item) => {
+      const visibleTerms = knowledgeBase.termItems.filter((t: { isUiVisible: boolean }) => t.isUiVisible).slice(0, 30);
+      visibleTerms.forEach((item: { termCN: string; termEN: string }) => {
         knowledgeContext += `- ${item.termCN}: ${item.termEN}\n`;
       });
       if (knowledgeBase.termItems.length > 30) {
@@ -88,11 +95,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 添加映射表
-    if (knowledgeBase.mappingItems.length > 0) {
+    if (knowledgeBase.mappingItems && knowledgeBase.mappingItems.length > 0) {
       knowledgeContext += "\n\n## 问题分类映射\n";
-      knowledgeBase.mappingItems.forEach((item) => {
+      knowledgeBase.mappingItems.forEach((item: { category2: string; domainKeywords?: string; keywordsEN?: string }) => {
         if (item.category2) {
-          knowledgeContext += `- ${item.category2}: ${item.domainKeywords || item.keywordsEN}\n`;
+          knowledgeContext += `- ${item.category2}: ${item.domainKeywords || item.keywordsEN || ''}\n`;
         }
       });
     }

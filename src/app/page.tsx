@@ -15,6 +15,7 @@ import {
   updateConversation,
   getCurrentConversationId,
   setCurrentConversationId,
+  getKnowledgeBase,
 } from "@/lib/store";
 import { toast } from "sonner";
 
@@ -112,7 +113,10 @@ export default function Home() {
     setIsGenerating(true);
 
     try {
-      // 构建请求（知识库数据现在由后端直接获取）
+      // 从 localStorage 获取知识库数据
+      const knowledgeData = getKnowledgeBase();
+
+      // 构建请求（知识库数据从 localStorage 获取并传递给后端）
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -122,6 +126,7 @@ export default function Home() {
             role: m.role,
             content: m.content,
           })),
+          knowledge: knowledgeData,
         }),
       });
 
