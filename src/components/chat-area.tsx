@@ -29,44 +29,36 @@ function parseAIResponse(content: string): { questionType: string; replies: { la
   // 按换行分割
   const lines = content.split('\n');
   
-  let currentReply: { label: string; content: string } | null = null;
-  
   for (const line of lines) {
     const trimmedLine = line.trim();
     
+    if (!trimmedLine) continue;
+    
     // 匹配【问题类型：xxx】或【问题类型】xxx
-    const questionTypeMatch = trimmedLine.match(/^【?\s*问题类型\s*】?\s*[:：]?\s*(.+)/);
+    const questionTypeMatch = trimmedLine.match(/^【\s*问题类型\s*[：:]\s*(.+?)】?$/);
     if (questionTypeMatch) {
       questionType = questionTypeMatch[1].trim();
       continue;
     }
     
-    // 匹配【回复1】xxx 或 【回复 1】xxx 等格式
-    const replyMatch = trimmedLine.match(/^【?\s*回复\s*[（(]?\d*[）)]?\s*】?\s*(.+)/);
+    // 匹配回复1：xxx 或 回复1）xxx 等格式
+    const replyMatch = trimmedLine.match(/^回复\s*1[）):：]\s*(.+)$/);
     if (replyMatch) {
-      // 保存之前的回复
-      if (currentReply) {
-        replies.push(currentReply);
-      }
-      currentReply = {
-        label: `回复${replies.length + 1}`,
-        content: replyMatch[1].trim(),
-      };
+      replies.push({ label: '回复1', content: replyMatch[1].trim() });
       continue;
     }
     
-    // 如果没有匹配到回复标题，且有当前回复在进行中，追加内容
-    if (currentReply && !replyMatch) {
-      // 检查是否是空行或另一个回复的开始
-      if (trimmedLine && !trimmedLine.startsWith('【')) {
-        currentReply.content += '\n' + trimmedLine;
-      }
+    const reply2Match = trimmedLine.match(/^回复\s*2[）):：]\s*(.+)$/);
+    if (reply2Match) {
+      replies.push({ label: '回复2', content: reply2Match[1].trim() });
+      continue;
     }
-  }
-  
-  // 保存最后一个回复
-  if (currentReply) {
-    replies.push(currentReply);
+    
+    const reply3Match = trimmedLine.match(/^回复\s*3[）):：]\s*(.+)$/);
+    if (reply3Match) {
+      replies.push({ label: '回复3', content: reply3Match[1].trim() });
+      continue;
+    }
   }
   
   // 如果没有解析到任何回复，整个内容作为一个回复
