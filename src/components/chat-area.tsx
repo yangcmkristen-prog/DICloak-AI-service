@@ -14,6 +14,30 @@ interface ChatAreaProps {
   isGenerating: boolean;
 }
 
+// 提取纯内容（去除标题）
+function extractPureContent(text: string): string {
+  // 去除首尾空白
+  let content = text.trim();
+
+  // 匹配标题模式：
+  // - [回复1]、[回复 1]、[回复1] 等带方括号的
+  // - 回复1、回复 1、回复1 等纯文字开头的
+  // - 1.、1、 等数字开头的
+  const patterns = [
+    /^\[回复\s*\d+\]\s*/i,      // [回复1]、[回复 1]、[回复1]
+    /^\[回复\d+\]\s*/i,          // [回复1]、[回复1]
+    /^回复\s*\d+\s*[:：]?\s*/i,  // 回复1：、回复1:、回复1
+    /^\d+\s*[:：.、]\s*/,        // 1.、1:、1、1
+    /^\[.*?\]\s*/,               // 其他方括号开头
+  ];
+
+  for (const pattern of patterns) {
+    content = content.replace(pattern, "");
+  }
+
+  return content.trim();
+}
+
 export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProps) {
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -80,40 +104,44 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                     <p className="whitespace-pre-wrap">{message.content}</p>
                   ) : (
                     <div className="space-y-4">
-                      {message.content.split("\n\n").filter(Boolean).map((reply, index) => (
-                        <div key={index} className="space-y-2">
-                          {/* 回复标题 */}
-                          <div className="flex items-center justify-between">
-                            <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                              回复 {index + 1}
-                            </h4>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
-                              onClick={() => handleCopy(reply.trim(), `${message.id}-${index}`)}
-                            >
-                              {copiedId === `${message.id}-${index}` ? (
-                                <>
-                                  <Check className="w-3 h-3 mr-1" />
-                                  <span className="text-xs">已复制</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Copy className="w-3 h-3 mr-1" />
-                                  <span className="text-xs">复制</span>
-                                </>
-                              )}
-                            </Button>
+                      {message.content.split("\n\n").filter(Boolean).map((reply, index) => {
+                        // 提取纯内容用于复制
+                        const pureContent = extractPureContent(reply);
+                        return (
+                          <div key={index} className="space-y-2">
+                            {/* 回复标题 */}
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                                回复 {index + 1}
+                              </h4>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
+                                onClick={() => handleCopy(pureContent, `${message.id}-${index}`)}
+                              >
+                                {copiedId === `${message.id}-${index}` ? (
+                                  <>
+                                    <Check className="w-3 h-3 mr-1" />
+                                    <span className="text-xs">已复制</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3 mr-1" />
+                                    <span className="text-xs">复制</span>
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                            {/* 回复内容卡片 */}
+                            <Card className="p-3 hover:border-blue-300 transition-colors">
+                              <p className="text-sm whitespace-pre-wrap">
+                                {reply.trim()}
+                              </p>
+                            </Card>
                           </div>
-                          {/* 回复内容卡片 */}
-                          <Card className="p-3 hover:border-blue-300 transition-colors">
-                            <p className="text-sm whitespace-pre-wrap">
-                              {reply.trim()}
-                            </p>
-                          </Card>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
