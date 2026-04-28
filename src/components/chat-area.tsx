@@ -107,12 +107,14 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                       {message.content.split("\n\n").filter(Boolean).map((reply, index) => {
                         // 提取纯内容用于显示和复制
                         const pureContent = extractPureContent(reply);
+                        // 第一条显示"问题类型"，其余显示"回复1/2/3"
+                        const title = index === 0 ? "问题类型" : `回复${index}`;
                         return (
                           <div key={index} className="space-y-2">
                             {/* 回复标题 */}
                             <div className="flex items-center justify-between">
                               <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                                回复 {index + 1}
+                                {title}
                               </h4>
                               <Button
                                 size="sm"
