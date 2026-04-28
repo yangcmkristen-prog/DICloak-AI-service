@@ -105,7 +105,7 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                   ) : (
                     <div className="space-y-4">
                       {message.content.split("\n\n").filter(Boolean).map((reply, index) => {
-                        // 提取纯内容用于复制
+                        // 提取纯内容用于显示和复制
                         const pureContent = extractPureContent(reply);
                         return (
                           <div key={index} className="space-y-2">
@@ -133,10 +133,10 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                                 )}
                               </Button>
                             </div>
-                            {/* 回复内容卡片 */}
+                            {/* 回复内容卡片 - 显示纯内容 */}
                             <Card className="p-3 hover:border-blue-300 transition-colors">
                               <p className="text-sm whitespace-pre-wrap">
-                                {reply.trim()}
+                                {pureContent}
                               </p>
                             </Card>
                           </div>
