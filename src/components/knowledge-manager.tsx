@@ -5,6 +5,7 @@ import { Upload, FileSpreadsheet, Trash2, RefreshCw, CheckCircle, XCircle, Setti
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,16 +18,17 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
-import { DEFAULT_SYSTEM_PROMPT, getKnowledgeStats, replaceKnowledgeData, getKnowledgeBase } from "@/lib/store";
+import { DEFAULT_SYSTEM_PROMPT, getKnowledgeStats, replaceKnowledgeData, getKnowledgeBase, getApiConfig, saveApiConfig, ApiConfig, DEFAULT_API_CONFIG, MODEL_OPTIONS, PROVIDER_INFO } from "@/lib/store";
 import { importExcelFile, importMultipleExcelFiles, ImportResult } from "@/lib/excel-parser";
 import { KnowledgeBase } from "@/lib/types";
 import { toast } from "sonner";
 
 interface KnowledgeManagerProps {
   onPromptChange?: (prompt: string) => void;
+  onApiConfigChange?: (config: ApiConfig) => void;
 }
 
-export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
+export function KnowledgeManager({ onPromptChange, onApiConfigChange }: KnowledgeManagerProps) {
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
   const [tempPrompt, setTempPrompt] = useState("");
   const [isAlertOpen, setIsAlertOpen] = useState(false);
@@ -44,6 +46,10 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     lastUpdated: 0,
   });
 
+  // API 配置状态
+  const [apiConfig, setApiConfig] = useState<ApiConfig>(DEFAULT_API_CONFIG);
+  const [showApiConfig, setShowApiConfig] = useState(false);
+
   // 加载数据
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -51,9 +57,15 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
       if (savedPrompt) {
         setSystemPrompt(savedPrompt);
       }
+      // 加载 API 配置
+      const savedApiConfig = getApiConfig();
+      setApiConfig(savedApiConfig);
+      if (onApiConfigChange) {
+        onApiConfigChange(savedApiConfig);
+      }
       updateStats();
     }
-  }, []);
+  }, [onApiConfigChange]);
 
   const updateStats = useCallback(() => {
     const currentStats = getKnowledgeStats();
@@ -165,6 +177,27 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
       hour: "2-digit",
       minute: "2-digit",
     });
+  };
+
+  // 保存 API 配置
+  const handleSaveApiConfig = () => {
+    saveApiConfig(apiConfig);
+    if (onApiConfigChange) {
+      onApiConfigChange(apiConfig);
+    }
+    toast.success("API 配置已保存");
+    setShowApiConfig(false);
+  };
+
+  // 处理 provider 切换
+  const handleProviderChange = (provider: ApiConfig['provider']) => {
+    const providerInfo = PROVIDER_INFO[provider];
+    setApiConfig(prev => ({
+      ...prev,
+      provider,
+      model: providerInfo.defaultModel,
+      baseUrl: providerInfo.baseUrl,
+    }));
   };
 
   const totalItems = stats.faqCount + stats.troubleshootingCount + stats.outOfScopeCount + 
@@ -359,6 +392,116 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+        </CardContent>
+      </Card>
+
+      {/* API 配置区域 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="w-5 h-5" />
+            AI 模型配置
+          </CardTitle>
+          <CardDescription>
+            选择 AI 模型并配置 API Key，支持豆包、GPT、DeepSeek、Kimi 等
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* 当前配置预览 */}
+          <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-blue-800 dark:text-blue-200 font-medium mb-1">
+                  当前配置
+                </p>
+                <p className="text-sm text-blue-700 dark:text-blue-300">
+                  {PROVIDER_INFO[apiConfig.provider].name} - {apiConfig.model}
+                  {!apiConfig.apiKey && ' (使用默认 API)'}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowApiConfig(!showApiConfig)}
+                className="shrink-0"
+              >
+                {showApiConfig ? "收起" : "配置"}
+              </Button>
+            </div>
+          </div>
+
+          {/* 配置表单 */}
+          {showApiConfig && (
+            <div className="space-y-4 border-t pt-4">
+              {/* Provider 选择 */}
+              <div className="space-y-2">
+                <Label htmlFor="provider">AI 提供商</Label>
+                <select
+                  id="provider"
+                  value={apiConfig.provider}
+                  onChange={(e) => handleProviderChange(e.target.value as ApiConfig['provider'])}
+                  className="w-full p-2 rounded-md border border-input bg-background text-sm"
+                >
+                  {Object.entries(PROVIDER_INFO).map(([key, info]) => (
+                    <option key={key} value={key}>{info.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 模型选择 */}
+              <div className="space-y-2">
+                <Label htmlFor="model">模型</Label>
+                <select
+                  id="model"
+                  value={apiConfig.model}
+                  onChange={(e) => setApiConfig(prev => ({ ...prev, model: e.target.value }))}
+                  className="w-full p-2 rounded-md border border-input bg-background text-sm"
+                >
+                  {MODEL_OPTIONS.filter(opt => opt.provider === apiConfig.provider).map(opt => (
+                    <option key={opt.model} value={opt.model}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* API Key */}
+              <div className="space-y-2">
+                <Label htmlFor="apiKey">API Key</Label>
+                <Input
+                  id="apiKey"
+                  type="password"
+                  value={apiConfig.apiKey}
+                  onChange={(e) => setApiConfig(prev => ({ ...prev, apiKey: e.target.value }))}
+                  placeholder={PROVIDER_INFO[apiConfig.provider].keyPlaceholder}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {apiConfig.provider === 'coze' 
+                    ? '使用内置 API，无需填写 Key'
+                    : '请填入您的 API Key，费用由您自行承担'
+                  }
+                </p>
+              </div>
+
+              {/* Base URL (可选) */}
+              {apiConfig.provider !== 'coze' && (
+                <div className="space-y-2">
+                  <Label htmlFor="baseUrl">API 地址（可选）</Label>
+                  <Input
+                    id="baseUrl"
+                    value={apiConfig.baseUrl}
+                    onChange={(e) => setApiConfig(prev => ({ ...prev, baseUrl: e.target.value }))}
+                    placeholder={PROVIDER_INFO[apiConfig.provider].baseUrl}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    使用默认地址可不填，如需代理请填写代理地址
+                  </p>
+                </div>
+              )}
+
+              <Button onClick={handleSaveApiConfig} className="w-full bg-blue-600 hover:bg-blue-700">
+                保存配置
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

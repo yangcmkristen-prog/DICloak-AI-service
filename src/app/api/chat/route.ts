@@ -3,11 +3,14 @@ import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, history, knowledge, systemPrompt } = await request.json();
+    const { message, history, knowledge, systemPrompt, apiConfig } = await request.json();
 
     if (!message) {
       return NextResponse.json({ error: "消息不能为空" }, { status: 400 });
     }
+
+    // API 配置
+    const config = apiConfig || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
 
     // 优先使用前端传递的 System Prompt，其次使用默认 Prompt
     const finalSystemPrompt = systemPrompt || `你是 DICloak 客服助手，专注于帮助客服人员快速生成专业、友好的客户回复。
@@ -34,10 +37,6 @@ export async function POST(request: NextRequest) {
       functionKnowledge: [],
       termItems: [],
     };
-
-    const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
-    const config = new Config();
-    const client = new LLMClient(config, customHeaders);
 
     // 构建知识库上下文
     let knowledgeContext = "";
@@ -134,44 +133,157 @@ export async function POST(request: NextRequest) {
       { role: "user" as const, content: fullPrompt },
     ];
 
-    // 使用流式输出
-    const stream = client.stream(messages, {
-      model: "doubao-seed-2-0-lite-260215",
-      temperature: 0.7,
-    });
+    // 根据 provider 选择不同的 API 调用方式
+    if (config.provider === 'coze' || !config.apiKey) {
+      // 使用 Coze 内置 API
+      const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
+      const cozeConfig = new Config();
+      const client = new LLMClient(cozeConfig, customHeaders);
 
-    let fullContent = "";
-    const encoder = new TextEncoder();
+      const stream = client.stream(messages, {
+        model: config.model || "doubao-seed-2-0-lite-260215",
+        temperature: 0.7,
+      });
 
-    const readable = new ReadableStream({
-      async start(controller) {
-        try {
-          for await (const chunk of stream) {
-            if (chunk.content) {
-              const text = chunk.content.toString();
-              fullContent += text;
-              controller.enqueue(encoder.encode(text));
+      let fullContent = "";
+      const encoder = new TextEncoder();
+
+      const readable = new ReadableStream({
+        async start(controller) {
+          try {
+            for await (const chunk of stream) {
+              if (chunk.content && typeof chunk.content === 'string') {
+                fullContent += chunk.content;
+                controller.enqueue(encoder.encode(chunk.content));
+              }
             }
+          } catch (error) {
+            console.error("Stream error:", error);
+          } finally {
+            controller.close();
           }
-          controller.close();
-        } catch (error) {
-          controller.error(error);
-        }
-      },
-    });
+        },
+      });
 
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-      },
-    });
+      return new Response(readable, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    } else {
+      // 使用第三方 API (OpenAI / DeepSeek / Kimi)
+      return await handleThirdPartyAPI(config, messages);
+    }
   } catch (error) {
     console.error("Chat API error:", error);
     return NextResponse.json(
       { error: "生成回复失败，请稍后重试" },
       { status: 500 }
     );
+  }
+}
+
+// 处理第三方 API 调用
+async function handleThirdPartyAPI(
+  config: { provider: string; apiKey: string; model: string; baseUrl?: string },
+  messages: Array<{ role: string; content: string }>
+) {
+  const baseUrl = config.baseUrl || getDefaultBaseUrl(config.provider);
+  
+  const requestBody: Record<string, unknown> = {
+    model: config.model,
+    messages: messages,
+    stream: true,
+    temperature: 0.7,
+  };
+
+  // DeepSeek R1 需要特殊处理
+  if (config.provider === 'deepseek' && config.model.includes('reasoner')) {
+    requestBody.model = 'deepseek-reasoner';
+    requestBody.temperature = 1;
+  }
+
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Third-party API error:", response.status, errorText);
+    return NextResponse.json(
+      { error: `API 调用失败: ${response.status} ${errorText}` },
+      { status: response.status }
+    );
+  }
+
+  // 转换 SSE 格式
+  const reader = response.body?.getReader();
+  const encoder = new TextEncoder();
+
+  const readable = new ReadableStream({
+    async start(controller) {
+      try {
+        while (true) {
+          const { done, value } = await reader!.read();
+          if (done) break;
+
+          // 解析 SSE 数据
+          const text = new TextDecoder().decode(value);
+          const lines = text.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') {
+                controller.close();
+                return;
+              }
+              try {
+                const json = JSON.parse(data);
+                const content = json.choices?.[0]?.delta?.content;
+                if (content) {
+                  controller.enqueue(encoder.encode(content));
+                }
+              } catch {
+                // 忽略解析错误
+              }
+            }
+          }
+        }
+        controller.close();
+      } catch (error) {
+        console.error("Stream error:", error);
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(readable, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+}
+
+// 获取默认 Base URL
+function getDefaultBaseUrl(provider: string): string {
+  switch (provider) {
+    case 'openai':
+      return 'https://api.openai.com/v1';
+    case 'deepseek':
+      return 'https://api.deepseek.com/v1';
+    case 'kimi':
+      return 'https://api.moonshot.cn/v1';
+    default:
+      return 'https://api.openai.com/v1';
   }
 }

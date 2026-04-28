@@ -210,3 +210,80 @@ export function saveSystemPrompt(prompt: string): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(SYSTEM_PROMPT_KEY, prompt);
 }
+
+// ============ API Key 存储 ============
+
+const API_CONFIG_KEY = 'diclok_api_config';
+
+export interface ApiConfig {
+  provider: 'coze' | 'openai' | 'deepseek' | 'kimi';
+  apiKey: string;
+  model: string;
+  baseUrl?: string;
+}
+
+export const DEFAULT_API_CONFIG: ApiConfig = {
+  provider: 'coze',
+  apiKey: '',
+  model: 'doubao-seed-2-0-lite-260215',
+  baseUrl: '',
+};
+
+export function getApiConfig(): ApiConfig {
+  if (typeof window === 'undefined') return DEFAULT_API_CONFIG;
+  const data = localStorage.getItem(API_CONFIG_KEY);
+  if (!data) return DEFAULT_API_CONFIG;
+  
+  try {
+    return { ...DEFAULT_API_CONFIG, ...JSON.parse(data) };
+  } catch {
+    return DEFAULT_API_CONFIG;
+  }
+}
+
+export function saveApiConfig(config: ApiConfig): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(API_CONFIG_KEY, JSON.stringify(config));
+}
+
+// 支持的模型列表
+export const MODEL_OPTIONS = [
+  // Coze / 豆包
+  { provider: 'coze', label: '豆包 (Coze)', model: 'doubao-seed-2-0-lite-260215' },
+  // OpenAI
+  { provider: 'openai', label: 'GPT-4o', model: 'gpt-4o' },
+  { provider: 'openai', label: 'GPT-4o Mini', model: 'gpt-4o-mini' },
+  { provider: 'openai', label: 'GPT-4 Turbo', model: 'gpt-4-turbo' },
+  // DeepSeek
+  { provider: 'deepseek', label: 'DeepSeek V3', model: 'deepseek-chat' },
+  { provider: 'deepseek', label: 'DeepSeek R1', model: 'deepseek-reasoner' },
+  // Kimi
+  { provider: 'kimi', label: 'Kimi (月之暗面)', model: 'moonshot-v1-8k' },
+];
+
+export const PROVIDER_INFO = {
+  coze: {
+    name: '豆包 (Coze)',
+    defaultModel: 'doubao-seed-2-0-lite-260215',
+    baseUrl: '',
+    keyPlaceholder: '使用内置 API（无需填写）',
+  },
+  openai: {
+    name: 'OpenAI',
+    defaultModel: 'gpt-4o',
+    baseUrl: 'https://api.openai.com/v1',
+    keyPlaceholder: 'sk-xxxxxxxxxxxxxxxx',
+  },
+  deepseek: {
+    name: 'DeepSeek',
+    defaultModel: 'deepseek-chat',
+    baseUrl: 'https://api.deepseek.com/v1',
+    keyPlaceholder: 'sk-xxxxxxxxxxxxxxxx',
+  },
+  kimi: {
+    name: 'Kimi (月之暗面)',
+    defaultModel: 'moonshot-v1-8k',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    keyPlaceholder: 'sk-xxxxxxxxxxxxxxxx',
+  },
+};
