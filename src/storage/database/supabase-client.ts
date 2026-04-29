@@ -3,6 +3,7 @@ import { execSync } from 'child_process';
 import { getReportBuffer, createWrappedFetch } from 'coze-coding-dev-sdk';
 
 let envLoaded = false;
+let envLoadAttempted = false;
 
 interface SupabaseCredentials {
   url: string;
@@ -10,10 +11,24 @@ interface SupabaseCredentials {
 }
 
 function loadEnv(): void {
-  if (envLoaded || (process.env.COZE_SUPABASE_URL && process.env.COZE_SUPABASE_ANON_KEY)) {
+  // 已经加载过，直接返回
+  if (envLoaded) {
+    return;
+  }
+  
+  // 已经尝试加载过且失败了，不再重试
+  if (envLoadAttempted) {
+    return;
+  }
+  
+  // 已经有环境变量，跳过
+  if (process.env.COZE_SUPABASE_URL && process.env.COZE_SUPABASE_ANON_KEY) {
+    envLoaded = true;
     return;
   }
 
+  envLoadAttempted = true;
+  
   try {
     try {
       require('dotenv').config();
@@ -41,7 +56,7 @@ except Exception as e:
 
     const output = execSync(`python3 -c '${pythonCode.replace(/'/g, "'\"'\"'")}'`, {
       encoding: 'utf-8',
-      timeout: 10000,
+      timeout: 3000, // 减少超时时间到3秒
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -64,24 +79,29 @@ except Exception as e:
 
     envLoaded = true;
   } catch {
-    // Silently fail
+    // 静默失败
   }
 }
 
-function getSupabaseCredentials(): SupabaseCredentials {
+function getSupabaseCredentials(): SupabaseCredentials | null {
   loadEnv();
 
   const url = process.env.COZE_SUPABASE_URL;
   const anonKey = process.env.COZE_SUPABASE_ANON_KEY;
 
-  if (!url) {
-    throw new Error('COZE_SUPABASE_URL is not set');
-  }
-  if (!anonKey) {
-    throw new Error('COZE_SUPABASE_ANON_KEY is not set');
+  if (!url || !anonKey) {
+    return null;
   }
 
   return { url, anonKey };
+}
+
+// 自定义错误类型，表示 Supabase 未配置
+export class SupabaseNotConfiguredError extends Error {
+  constructor(message = 'Supabase is not configured') {
+    super(message);
+    this.name = 'SupabaseNotConfiguredError';
+  }
 }
 
 function getSupabaseServiceRoleKey(): string | undefined {
@@ -89,8 +109,14 @@ function getSupabaseServiceRoleKey(): string | undefined {
   return process.env.COZE_SUPABASE_SERVICE_ROLE_KEY;
 }
 
-function getSupabaseClient(token?: string): SupabaseClient {
-  const { url, anonKey } = getSupabaseCredentials();
+export function getSupabaseClient(token?: string): SupabaseClient {
+  const credentials = getSupabaseCredentials();
+  
+  if (!credentials) {
+    throw new SupabaseNotConfiguredError('COZE_SUPABASE_URL or COZE_SUPABASE_ANON_KEY is not set');
+  }
+  
+  const { url, anonKey } = credentials;
 
   let key: string;
   if (token) {
@@ -125,4 +151,4 @@ function getSupabaseClient(token?: string): SupabaseClient {
   });
 }
 
-export { loadEnv, getSupabaseCredentials, getSupabaseServiceRoleKey, getSupabaseClient };
+export { loadEnv, getSupabaseCredentials, getSupabaseServiceRoleKey };

@@ -1,12 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { getSupabaseClient, SupabaseNotConfiguredError } from '@/storage/database/supabase-client';
 
 const CONFIG_KEY = 'default';
 
 // 获取知识库配置
 export async function GET() {
   try {
-    const client = getSupabaseClient();
+    let client;
+    try {
+      client = getSupabaseClient();
+    } catch (error) {
+      if (error instanceof SupabaseNotConfiguredError) {
+        // Supabase 未配置，返回空数据
+        console.log('Supabase 未配置，跳过知识库同步');
+        return NextResponse.json({
+          success: true,
+          data: {
+            faqItems: [],
+            troubleshootingItems: [],
+            outOfScopeItems: [],
+            mappingItems: [],
+            functionKnowledge: [],
+            termItems: [],
+            lastUpdated: null,
+          },
+          isEmpty: true,
+        });
+      }
+      throw error;
+    }
+
     const { data, error } = await client
       .from('knowledge_configs')
       .select('*')
@@ -63,7 +86,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '缺少知识库数据' }, { status: 400 });
     }
 
-    const client = getSupabaseClient();
+    let client;
+    try {
+      client = getSupabaseClient();
+    } catch (error) {
+      if (error instanceof SupabaseNotConfiguredError) {
+        // Supabase 未配置，返回错误
+        console.log('Supabase 未配置，无法保存知识库');
+        return NextResponse.json({ error: '数据库未配置，请联系管理员' }, { status: 503 });
+      }
+      throw error;
+    }
 
     // 使用 upsert 插入或更新
     const { data, error } = await client

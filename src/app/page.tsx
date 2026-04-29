@@ -32,34 +32,43 @@ import { toast } from "sonner";
 async function syncConfigFromDatabase() {
   try {
     // 同步知识库
-    const knowledgeRes = await fetch("/api/config/knowledge");
-    const knowledgeData = await knowledgeRes.json();
-    if (knowledgeData.success && knowledgeData.data && !knowledgeData.isEmpty) {
-      const localKnowledge = getKnowledgeBase();
-      // 如果数据库有数据且 localStorage 为空，则同步
-      if (isKnowledgeBaseEmpty(localKnowledge)) {
-        saveKnowledgeBase(knowledgeData.data);
+    const knowledgeRes = await fetch("/api/config/knowledge", { 
+      signal: AbortSignal.timeout(5000) // 5秒超时
+    });
+    if (knowledgeRes.ok) {
+      const knowledgeData = await knowledgeRes.json();
+      if (knowledgeData.success && knowledgeData.data && !knowledgeData.isEmpty) {
+        const localKnowledge = getKnowledgeBase();
+        // 如果数据库有数据且 localStorage 为空，则同步
+        if (isKnowledgeBaseEmpty(localKnowledge)) {
+          saveKnowledgeBase(knowledgeData.data);
+        }
       }
     }
 
     // 同步系统配置
-    const systemRes = await fetch("/api/config/system");
-    const systemData = await systemRes.json();
-    if (systemData.success && systemData.data && !systemData.isEmpty) {
-      const localPrompt = getSystemPrompt();
-      const localApiConfig = getApiConfig();
-      // 如果数据库有数据，则同步
-      if (!localPrompt || (localApiConfig === null && systemData.data.apiConfig)) {
-        if (systemData.data.systemPrompt) {
-          saveSystemPrompt(systemData.data.systemPrompt);
-        }
-        if (systemData.data.apiConfig) {
-          saveApiConfig(systemData.data.apiConfig);
+    const systemRes = await fetch("/api/config/system", { 
+      signal: AbortSignal.timeout(5000) // 5秒超时
+    });
+    if (systemRes.ok) {
+      const systemData = await systemRes.json();
+      if (systemData.success && systemData.data && !systemData.isEmpty) {
+        const localPrompt = getSystemPrompt();
+        const localApiConfig = getApiConfig();
+        // 如果数据库有数据，则同步
+        if (!localPrompt || (localApiConfig === null && systemData.data.apiConfig)) {
+          if (systemData.data.systemPrompt) {
+            saveSystemPrompt(systemData.data.systemPrompt);
+          }
+          if (systemData.data.apiConfig) {
+            saveApiConfig(systemData.data.apiConfig);
+          }
         }
       }
     }
   } catch (error) {
-    console.error("同步配置失败:", error);
+    // 静默失败，不显示错误提示
+    console.log("数据库同步跳过（Supabase未配置或连接失败）");
   }
 }
 
