@@ -24,9 +24,33 @@ export async function POST(request: NextRequest) {
 3. **多样性**：3条回复要覆盖不同角度（如解释原因、提供步骤、表达关心等）
 4. **简洁性**：每条回复控制在50-150字之间
 5. **可操作性**：回复中包含具体的操作指引或解决方案
+6. **语言适配**：回复语言必须与客户问题语言一致
 
-## 输出格式
-请直接输出3条推荐回复，每条之间用换行分隔，不要添加序号或额外说明。`;
+## 输出格式 [重要]
+请严格输出 JSON 格式，不要输出任何其他内容：
+{
+  "detected_language": "检测到的客户语言，如 Spanish、English、Chinese 等",
+  "replies": [
+    {
+      "reply_text": "推荐回复内容（客户语言，如西班牙语、英语等）",
+      "zh_translation": "该回复的中文翻译（忠实翻译，不要改写或补充）"
+    },
+    {
+      "reply_text": "推荐回复内容2",
+      "zh_translation": "中文翻译2"
+    },
+    {
+      "reply_text": "推荐回复内容3",
+      "zh_translation": "中文翻译3"
+    }
+  ]
+}
+
+## 翻译规则
+- zh_translation 必须忠实翻译 reply_text，不要添加原文中没有的信息
+- 如果客户语言是中文，zh_translation 可以与 reply_text 相同，或显示"客户语言为中文，无需翻译"
+- 翻译时要保留原文的语气和表达风格
+- 不要改写成新的客服话术，只做语言翻译`;
 
     // 优先使用前端传递的知识库数据
     const knowledgeBase = knowledge || {
@@ -126,7 +150,10 @@ export async function POST(request: NextRequest) {
 
     const fullPrompt = `客户问题: ${message}${knowledgeContext}${historyContext}
 
-请根据以上知识库信息，生成3条推荐回复。如果问题属于"超范围"类别，请先说明无法支持后再给出适当的建议。`;
+请根据以上知识库信息，生成3条推荐回复。
+- 如果问题属于"超范围"类别，请先说明无法支持后再给出适当的建议
+- 回复语言必须与客户问题语言一致
+- 同时输出每条回复的中文翻译（zh_translation 字段），忠实翻译，不改写`;
 
     const messages = [
       { role: "system" as const, content: finalSystemPrompt },
