@@ -79,14 +79,22 @@ export default function Home() {
   // 初始化加载数据
   useEffect(() => {
     const loadedConversations = getConversations();
-    setConversations(loadedConversations);
-
-    const currentId = getCurrentConversationId();
-    if (currentId) {
-      setCurrentConversationIdState(currentId);
-    } else if (loadedConversations.length > 0) {
-      setCurrentConversationIdState(loadedConversations[0].id);
-      setCurrentConversationId(loadedConversations[0].id);
+    
+    // 如果没有对话，自动创建一个
+    if (loadedConversations.length === 0) {
+      const newConversation = createConversation();
+      setConversations([newConversation]);
+      setCurrentConversationIdState(newConversation.id);
+      setCurrentConversationId(newConversation.id);
+    } else {
+      setConversations(loadedConversations);
+      const currentId = getCurrentConversationId();
+      if (currentId) {
+        setCurrentConversationIdState(currentId);
+      } else {
+        setCurrentConversationIdState(loadedConversations[0].id);
+        setCurrentConversationId(loadedConversations[0].id);
+      }
     }
 
     // 从数据库同步配置到 localStorage

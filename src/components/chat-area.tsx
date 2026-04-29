@@ -170,30 +170,30 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
       </div>
 
       {/* 输入区域 */}
-      <div className="border-t p-4 bg-background">
-        <div className="flex gap-2 max-w-3xl mx-auto">
+      <div className="border-t p-3 md:p-4 bg-background safe-bottom">
+        <div className="flex gap-2 md:gap-3 max-w-3xl mx-auto">
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="输入客户问题..."
-            className="min-h-[60px] max-h-[120px] resize-none"
+            className="min-h-[56px] md:min-h-[60px] max-h-[150px] md:max-h-[120px] resize-none text-base md:text-sm"
             disabled={isGenerating}
           />
           <Button
             size="icon"
-            className="h-[60px] w-[60px] bg-blue-600 hover:bg-blue-700 shrink-0"
+            className="h-[56px] w-[56px] md:h-[60px] md:w-[60px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shrink-0 touch-manipulation"
             onClick={handleSend}
             disabled={!input.trim() || isGenerating}
           >
             {isGenerating ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
+              <Loader2 className="w-5 h-5 md:w-6 md:h-6" />
             ) : (
-              <Send className="w-5 h-5" />
+              <Send className="w-5 h-5 md:w-6 md:h-6" />
             )}
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground text-center mt-2">
+        <p className="text-xs text-muted-foreground text-center mt-2 hidden md:block">
           按 Enter 发送，Shift + Enter 换行
         </p>
       </div>

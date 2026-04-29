@@ -135,3 +135,53 @@
 body {
   @apply font-sans;
 }
+
+/* 移动端优化 */
+@media (max-width: 768px) {
+  /* 防止iOS Safari中的橡皮筋滚动 */
+  html, body {
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* 触摸友好的按钮 */
+  button, .touch-manipulation {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  /* 更大的触摸目标 */
+  input, textarea, select {
+    font-size: 16px !important; /* 防止iOS缩放 */
+  }
+  
+  /* 移动端安全区域 */
+  .safe-bottom {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+  
+  /* 隐藏桌面端侧边栏 */
+  .md\:hidden {
+    display: block;
+  }
+  
+  /* 优化移动端滚动 */
+  .overflow-y-auto, .overflow-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* 隐藏移动端不需要的元素 */
+@media (max-width: 768px) {
+  .mobile-hidden {
+    display: none !important;
+  }
+}
+
+/* 触摸反馈 */
+@media (hover: none) {
+  button:active {
+    opacity: 0.8;
+    transform: scale(0.98);
+  }
+}
