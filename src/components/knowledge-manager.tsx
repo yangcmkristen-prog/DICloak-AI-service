@@ -78,6 +78,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
         const kb = knowledgeData.data;
         replaceKnowledgeData(kb);
         saveKnowledgeBase(kb);
+        // 更新 UI 状态
+        updateStats();
       } else {
         // 否则使用 localStorage
         updateStats();
