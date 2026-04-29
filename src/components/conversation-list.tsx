@@ -28,15 +28,27 @@ export function ConversationList({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [isTouchDevice, setIsTouchDevice] = useState(false);
+  const [isTouchDevice, setIsTouchDevice] = useState(() => {
+    // 初始检测：使用媒体查询和触摸点检测
+    if (typeof window !== 'undefined') {
+      const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      const isSmallScreen = window.matchMedia('(max-width: 768px)').matches;
+      return isTouch || isSmallScreen;
+    }
+    return false;
+  });
 
-  // 检测是否为触摸设备
+  // 检测是否为触摸设备（持续监听）
   useEffect(() => {
     const checkTouch = () => {
-      setIsTouchDevice("ontouchstart" in window || navigator.maxTouchPoints > 0);
+      const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      const isSmallScreen = window.matchMedia('(max-width: 768px)').matches;
+      setIsTouchDevice(isTouch || isSmallScreen);
     };
     checkTouch();
-    window.addEventListener("touchstart", checkTouch, { once: true });
+    // 监听屏幕大小变化
+    window.addEventListener('resize', checkTouch);
+    return () => window.removeEventListener('resize', checkTouch);
   }, []);
 
   const handleStartEdit = (conversation: Conversation) => {
