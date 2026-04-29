@@ -18,7 +18,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
-import { DEFAULT_SYSTEM_PROMPT, getKnowledgeStats, replaceKnowledgeData, getKnowledgeBase, getApiConfig, saveApiConfig, ApiConfig, DEFAULT_API_CONFIG, MODEL_OPTIONS, PROVIDER_INFO } from "@/lib/store";
+import { DEFAULT_SYSTEM_PROMPT, getKnowledgeStats, replaceKnowledgeData, getKnowledgeBase, getApiConfig, saveApiConfig, ApiConfig, DEFAULT_API_CONFIG, MODEL_OPTIONS, PROVIDER_INFO, saveKnowledgeBase } from "@/lib/store";
 import { importExcelFile, importMultipleExcelFiles, ImportResult } from "@/lib/excel-parser";
 import { KnowledgeBase } from "@/lib/types";
 import { toast } from "sonner";
@@ -52,23 +52,109 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   const [customEndpoint, setCustomEndpoint] = useState("");
   const [customModelName, setCustomModelName] = useState("");
 
-  // 加载数据
+  // 加载数据 - 从数据库和 localStorage 同步
   useEffect(() => {
     if (typeof window !== "undefined") {
+      // 从数据库加载配置
+      loadFromDatabase();
+    }
+  }, []);
+
+  const loadFromDatabase = async () => {
+    try {
+      // 并行加载知识库和系统配置
+      const [knowledgeRes, systemRes] = await Promise.all([
+        fetch('/api/config/knowledge'),
+        fetch('/api/config/system'),
+      ]);
+
+      const knowledgeData = await knowledgeRes.json();
+      const systemData = await systemRes.json();
+
+      // 如果数据库有数据，使用数据库数据
+      if (knowledgeData.success && !knowledgeData.isEmpty) {
+        const kb = knowledgeData.data;
+        replaceKnowledgeData(kb);
+        saveKnowledgeBase(kb);
+      } else {
+        // 否则使用 localStorage
+        updateStats();
+      }
+
+      // 处理系统配置（Prompt 和 API）
+      if (systemData.success && !systemData.isEmpty) {
+        const config = systemData.data;
+        // 设置 Prompt
+        if (config.systemPrompt) {
+          setSystemPrompt(config.systemPrompt);
+          localStorage.setItem("diclok_system_prompt", config.systemPrompt);
+        }
+        // 设置 API 配置
+        if (config.apiConfig) {
+          setApiConfig(config.apiConfig);
+          saveApiConfig(config.apiConfig);
+          if (config.apiConfig.customConfig) {
+            setCustomEndpoint(config.apiConfig.customConfig.endpoint || "");
+            setCustomModelName(config.apiConfig.customConfig.modelName || "");
+          }
+        }
+      } else {
+        // 使用 localStorage
+        const savedPrompt = localStorage.getItem("diclok_system_prompt");
+        if (savedPrompt) {
+          setSystemPrompt(savedPrompt);
+        }
+        const savedApiConfig = getApiConfig();
+        setApiConfig(savedApiConfig);
+        if (savedApiConfig.customConfig) {
+          setCustomEndpoint(savedApiConfig.customConfig.endpoint || "");
+          setCustomModelName(savedApiConfig.customConfig.modelName || "");
+        }
+      }
+    } catch (error) {
+      console.error('从数据库加载配置失败:', error);
+      // 降级使用 localStorage
       const savedPrompt = localStorage.getItem("diclok_system_prompt");
       if (savedPrompt) {
         setSystemPrompt(savedPrompt);
       }
-      // 加载 API 配置
       const savedApiConfig = getApiConfig();
       setApiConfig(savedApiConfig);
-      if (savedApiConfig.customConfig) {
-        setCustomEndpoint(savedApiConfig.customConfig.endpoint || "");
-        setCustomModelName(savedApiConfig.customConfig.modelName || "");
-      }
       updateStats();
     }
-  }, []);
+  };
+
+  // 同步知识库到数据库
+  const syncKnowledgeToDatabase = async (data: KnowledgeBase) => {
+    try {
+      const response = await fetch('/api/config/knowledge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ knowledgeData: data }),
+      });
+      if (!response.ok) {
+        console.error('同步知识库到数据库失败');
+      }
+    } catch (error) {
+      console.error('同步知识库到数据库失败:', error);
+    }
+  };
+
+  // 同步系统配置到数据库
+  const syncSystemConfigToDatabase = async (prompt: string, apiCfg: ApiConfig | null) => {
+    try {
+      const response = await fetch('/api/config/system', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ systemPrompt: prompt, apiConfig: apiCfg }),
+      });
+      if (!response.ok) {
+        console.error('同步系统配置到数据库失败');
+      }
+    } catch (error) {
+      console.error('同步系统配置到数据库失败:', error);
+    }
+  };
 
   const updateStats = useCallback(() => {
     const currentStats = getKnowledgeStats();
@@ -85,6 +171,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     if (typeof window !== "undefined") {
       localStorage.setItem("diclok_system_prompt", tempPrompt);
     }
+    // 同步到数据库
+    syncSystemConfigToDatabase(tempPrompt, apiConfig);
     if (onPromptChange) {
       onPromptChange(tempPrompt);
     }
@@ -142,6 +230,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
         }
 
         replaceKnowledgeData(combinedData as KnowledgeBase);
+        // 同步到数据库
+        syncKnowledgeToDatabase(combinedData as KnowledgeBase);
         updateStats();
         toast.success(`成功导入 ${successResults.length} 个文件`);
       }
@@ -162,10 +252,20 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     }
   };
 
-  const handleClearKnowledge = () => {
+  const handleClearKnowledge = async () => {
     if (typeof window !== "undefined") {
       localStorage.removeItem("diclok_knowledge");
       updateStats();
+      // 同步清空到数据库
+      await syncKnowledgeToDatabase({
+        faqItems: [],
+        troubleshootingItems: [],
+        outOfScopeItems: [],
+        mappingItems: [],
+        functionKnowledge: [],
+        termItems: [],
+        lastUpdated: Date.now(),
+      });
       toast.success("知识库已清空");
     }
   };
@@ -183,7 +283,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   };
 
   // 保存 API 配置
-  const handleSaveApiConfig = () => {
+  const handleSaveApiConfig = async () => {
     if (!apiConfig) return;
     
     // 如果是自定义 HTTP，保存自定义配置
@@ -200,8 +300,12 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
         },
       };
       saveApiConfig(configToSave);
+      // 同步到数据库
+      await syncSystemConfigToDatabase(systemPrompt, configToSave);
     } else {
       saveApiConfig(apiConfig);
+      // 同步到数据库
+      await syncSystemConfigToDatabase(systemPrompt, apiConfig);
     }
     toast.success("API 配置已保存");
     setShowApiConfig(false);
