@@ -166,13 +166,13 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     setIsAlertOpen(true);
   };
 
-  const handleConfirmPrompt = () => {
+  const handleConfirmPrompt = async () => {
     setSystemPrompt(tempPrompt);
     if (typeof window !== "undefined") {
       localStorage.setItem("diclok_system_prompt", tempPrompt);
     }
-    // 同步到数据库
-    syncSystemConfigToDatabase(tempPrompt, apiConfig);
+    // 同步到数据库，等待完成后再关闭
+    await syncSystemConfigToDatabase(tempPrompt, apiConfig);
     if (onPromptChange) {
       onPromptChange(tempPrompt);
     }
@@ -230,8 +230,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
         }
 
         replaceKnowledgeData(combinedData as KnowledgeBase);
-        // 同步到数据库
-        syncKnowledgeToDatabase(combinedData as KnowledgeBase);
+        // 同步到数据库，等待完成后再切换标签页
+        await syncKnowledgeToDatabase(combinedData as KnowledgeBase);
         updateStats();
         toast.success(`成功导入 ${successResults.length} 个文件`);
       }
