@@ -216,10 +216,17 @@ export function saveSystemPrompt(prompt: string): void {
 const API_CONFIG_KEY = 'diclok_api_config';
 
 export interface ApiConfig {
-  provider: 'coze' | 'openai' | 'deepseek' | 'kimi';
+  provider: 'coze' | 'openai' | 'deepseek' | 'kimi' | 'custom';
   apiKey: string;
   model: string;
   baseUrl?: string;
+  // 自定义 HTTP 配置
+  customConfig?: {
+    endpoint: string;      // 完整 API 端点 URL
+    modelName: string;     // 模型名称
+    headers?: Record<string, string>;  // 自定义请求头
+    bodyTemplate?: string;  // 请求体模板（JSON 格式）
+  };
 }
 
 export const DEFAULT_API_CONFIG: ApiConfig = {
@@ -254,11 +261,14 @@ export const MODEL_OPTIONS = [
   { provider: 'openai', label: 'GPT-4o', model: 'gpt-4o' },
   { provider: 'openai', label: 'GPT-4o Mini', model: 'gpt-4o-mini' },
   { provider: 'openai', label: 'GPT-4 Turbo', model: 'gpt-4-turbo' },
+  { provider: 'openai', label: 'GPT-5.4', model: 'gpt-5.4' },
   // DeepSeek
   { provider: 'deepseek', label: 'DeepSeek V3', model: 'deepseek-chat' },
   { provider: 'deepseek', label: 'DeepSeek R1', model: 'deepseek-reasoner' },
   // Kimi
   { provider: 'kimi', label: 'Kimi (月之暗面)', model: 'moonshot-v1-8k' },
+  // 自定义 HTTP
+  { provider: 'custom', label: '自定义 HTTP', model: 'custom' },
 ];
 
 export const PROVIDER_INFO = {
@@ -285,5 +295,11 @@ export const PROVIDER_INFO = {
     defaultModel: 'moonshot-v1-8k',
     baseUrl: 'https://api.moonshot.cn/v1',
     keyPlaceholder: 'sk-xxxxxxxxxxxxxxxx',
+  },
+  custom: {
+    name: '自定义 HTTP',
+    defaultModel: '',
+    baseUrl: '',
+    keyPlaceholder: '输入你的 API Key',
   },
 };

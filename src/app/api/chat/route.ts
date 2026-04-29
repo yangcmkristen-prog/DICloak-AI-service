@@ -172,6 +172,15 @@ export async function POST(request: NextRequest) {
           Connection: "keep-alive",
         },
       });
+    } else if (config.provider === 'custom') {
+      // 使用自定义 HTTP API
+      if (!config.customConfig?.endpoint) {
+        return NextResponse.json(
+          { error: "请配置自定义 API 端点" },
+          { status: 400 }
+        );
+      }
+      return await handleCustomHTTP(config, messages);
     } else {
       // 使用第三方 API (OpenAI / DeepSeek / Kimi)
       return await handleThirdPartyAPI(config, messages);
@@ -285,5 +294,120 @@ function getDefaultBaseUrl(provider: string): string {
       return 'https://api.moonshot.cn/v1';
     default:
       return 'https://api.openai.com/v1';
+  }
+}
+
+// 处理自定义 HTTP API 调用
+async function handleCustomHTTP(
+  config: { apiKey: string; customConfig?: { endpoint: string; modelName: string; headers?: Record<string, string> } },
+  messages: Array<{ role: string; content: string }>
+) {
+  const endpoint = config.customConfig?.endpoint;
+  const modelName = config.customConfig?.modelName || 'default-model';
+  
+  if (!endpoint) {
+    return NextResponse.json(
+      { error: "API 端点未配置" },
+      { status: 400 }
+    );
+  }
+
+  // 构建请求头
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(config.customConfig?.headers || {}),
+  };
+  
+  // 如果没有自定义 Authorization 头，添加 Bearer Token
+  if (!headers["Authorization"] && config.apiKey) {
+    headers["Authorization"] = `Bearer ${config.apiKey}`;
+  }
+
+  // 构建请求体（OpenAI 兼容格式）
+  const requestBody: Record<string, unknown> = {
+    model: modelName,
+    messages: messages,
+    stream: true,
+    temperature: 0.7,
+  };
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: headers,
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Custom HTTP API error:", response.status, errorText);
+      return NextResponse.json(
+        { error: `API 调用失败: ${response.status} ${errorText}` },
+        { status: response.status }
+      );
+    }
+
+    // 转换 SSE 格式（处理 OpenAI 兼容格式）
+    const reader = response.body?.getReader();
+    const encoder = new TextEncoder();
+
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          while (true) {
+            const { done, value } = await reader!.read();
+            if (done) break;
+
+            // 解析 SSE 数据
+            const text = new TextDecoder().decode(value);
+            const lines = text.split('\n');
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6);
+                if (data === '[DONE]') {
+                  controller.close();
+                  return;
+                }
+                try {
+                  const json = JSON.parse(data);
+                  // 支持多种响应格式
+                  const content = 
+                    json.choices?.[0]?.delta?.content ||
+                    json.choices?.[0]?.text ||
+                    json.content;
+                  if (content) {
+                    controller.enqueue(encoder.encode(content));
+                  }
+                } catch {
+                  // 忽略解析错误
+                }
+              } else if (line.trim()) {
+                // 非 SSE 行，直接发送
+                controller.enqueue(encoder.encode(line));
+              }
+            }
+          }
+          controller.close();
+        } catch (error) {
+          console.error("Stream error:", error);
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  } catch (error) {
+    console.error("Custom HTTP error:", error);
+    return NextResponse.json(
+      { error: `请求失败: ${error instanceof Error ? error.message : '未知错误'}` },
+      { status: 500 }
+    );
   }
 }

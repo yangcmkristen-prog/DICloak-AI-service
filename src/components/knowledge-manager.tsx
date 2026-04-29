@@ -47,8 +47,14 @@ export function KnowledgeManager({ onPromptChange, onApiConfigChange }: Knowledg
   });
 
   // API 配置状态
-  const [apiConfig, setApiConfig] = useState<ApiConfig>(DEFAULT_API_CONFIG);
+  const [apiConfig, setApiConfig] = useState<ApiConfig>({
+    ...DEFAULT_API_CONFIG,
+    provider: 'coze',
+  });
   const [showApiConfig, setShowApiConfig] = useState(false);
+  // 自定义 HTTP 配置
+  const [customEndpoint, setCustomEndpoint] = useState("");
+  const [customModelName, setCustomModelName] = useState("");
 
   // 加载数据
   useEffect(() => {
@@ -60,6 +66,10 @@ export function KnowledgeManager({ onPromptChange, onApiConfigChange }: Knowledg
       // 加载 API 配置
       const savedApiConfig = getApiConfig();
       setApiConfig(savedApiConfig);
+      if (savedApiConfig.customConfig) {
+        setCustomEndpoint(savedApiConfig.customConfig.endpoint || "");
+        setCustomModelName(savedApiConfig.customConfig.modelName || "");
+      }
       if (onApiConfigChange) {
         onApiConfigChange(savedApiConfig);
       }
@@ -181,9 +191,28 @@ export function KnowledgeManager({ onPromptChange, onApiConfigChange }: Knowledg
 
   // 保存 API 配置
   const handleSaveApiConfig = () => {
-    saveApiConfig(apiConfig);
-    if (onApiConfigChange) {
-      onApiConfigChange(apiConfig);
+    // 如果是自定义 HTTP，保存自定义配置
+    if (apiConfig.provider === 'custom') {
+      const configToSave: ApiConfig = {
+        ...apiConfig,
+        customConfig: {
+          endpoint: customEndpoint,
+          modelName: customModelName,
+          headers: {
+            "Content-Type": "application/json",
+            ...(apiConfig.apiKey ? { "Authorization": `Bearer ${apiConfig.apiKey}` } : {}),
+          },
+        },
+      };
+      saveApiConfig(configToSave);
+      if (onApiConfigChange) {
+        onApiConfigChange(configToSave);
+      }
+    } else {
+      saveApiConfig(apiConfig);
+      if (onApiConfigChange) {
+        onApiConfigChange(apiConfig);
+      }
     }
     toast.success("API 配置已保存");
     setShowApiConfig(false);
@@ -448,53 +477,100 @@ export function KnowledgeManager({ onPromptChange, onApiConfigChange }: Knowledg
                 </select>
               </div>
 
-              {/* 模型选择 */}
-              <div className="space-y-2">
-                <Label htmlFor="model">模型</Label>
-                <select
-                  id="model"
-                  value={apiConfig.model}
-                  onChange={(e) => setApiConfig(prev => ({ ...prev, model: e.target.value }))}
-                  className="w-full p-2 rounded-md border border-input bg-background text-sm"
-                >
-                  {MODEL_OPTIONS.filter(opt => opt.provider === apiConfig.provider).map(opt => (
-                    <option key={opt.model} value={opt.model}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
+              {/* 自定义 HTTP 配置 */}
+              {apiConfig.provider === 'custom' ? (
+                <>
+                  {/* 自定义 HTTP 端点 */}
+                  <div className="space-y-2">
+                    <Label htmlFor="customEndpoint">API 端点 URL</Label>
+                    <Input
+                      id="customEndpoint"
+                      value={customEndpoint}
+                      onChange={(e) => setCustomEndpoint(e.target.value)}
+                      placeholder="https://api.example.com/v1/chat/completions"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      输入完整的 API 端点 URL，支持 OpenAI 兼容格式
+                    </p>
+                  </div>
 
-              {/* API Key */}
-              <div className="space-y-2">
-                <Label htmlFor="apiKey">API Key</Label>
-                <Input
-                  id="apiKey"
-                  type="password"
-                  value={apiConfig.apiKey}
-                  onChange={(e) => setApiConfig(prev => ({ ...prev, apiKey: e.target.value }))}
-                  placeholder={PROVIDER_INFO[apiConfig.provider].keyPlaceholder}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {apiConfig.provider === 'coze' 
-                    ? '使用内置 API，无需填写 Key'
-                    : '请填入您的 API Key，费用由您自行承担'
-                  }
-                </p>
-              </div>
+                  {/* 自定义模型名称 */}
+                  <div className="space-y-2">
+                    <Label htmlFor="customModel">模型名称</Label>
+                    <Input
+                      id="customModel"
+                      value={customModelName}
+                      onChange={(e) => setCustomModelName(e.target.value)}
+                      placeholder="gpt-5.4 / claude-3-opus / 自定义模型名"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      输入要调用的模型名称
+                    </p>
+                  </div>
 
-              {/* Base URL (可选) */}
-              {apiConfig.provider !== 'coze' && (
-                <div className="space-y-2">
-                  <Label htmlFor="baseUrl">API 地址（可选）</Label>
-                  <Input
-                    id="baseUrl"
-                    value={apiConfig.baseUrl}
-                    onChange={(e) => setApiConfig(prev => ({ ...prev, baseUrl: e.target.value }))}
-                    placeholder={PROVIDER_INFO[apiConfig.provider].baseUrl}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    使用默认地址可不填，如需代理请填写代理地址
-                  </p>
-                </div>
+                  {/* 自定义 API Key */}
+                  <div className="space-y-2">
+                    <Label htmlFor="customApiKey">API Key</Label>
+                    <Input
+                      id="customApiKey"
+                      type="password"
+                      value={apiConfig.apiKey}
+                      onChange={(e) => setApiConfig(prev => ({ ...prev, apiKey: e.target.value }))}
+                      placeholder="输入 API Key（根据服务端要求）"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* 模型选择 */}
+                  <div className="space-y-2">
+                    <Label htmlFor="model">模型</Label>
+                    <select
+                      id="model"
+                      value={apiConfig.model}
+                      onChange={(e) => setApiConfig(prev => ({ ...prev, model: e.target.value }))}
+                      className="w-full p-2 rounded-md border border-input bg-background text-sm"
+                    >
+                      {MODEL_OPTIONS.filter(opt => opt.provider === apiConfig.provider).map(opt => (
+                        <option key={opt.model} value={opt.model}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* API Key */}
+                  <div className="space-y-2">
+                    <Label htmlFor="apiKey">API Key</Label>
+                    <Input
+                      id="apiKey"
+                      type="password"
+                      value={apiConfig.apiKey}
+                      onChange={(e) => setApiConfig(prev => ({ ...prev, apiKey: e.target.value }))}
+                      placeholder={PROVIDER_INFO[apiConfig.provider].keyPlaceholder}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {apiConfig.provider === 'coze' 
+                        ? '使用内置 API，无需填写 Key'
+                        : '请填入您的 API Key，费用由您自行承担'
+                      }
+                    </p>
+                  </div>
+
+                  {/* Base URL (可选) */}
+                  {apiConfig.provider !== 'coze' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="baseUrl">API 地址（可选）</Label>
+                      <Input
+                        id="baseUrl"
+                        value={apiConfig.baseUrl || ''}
+                        onChange={(e) => setApiConfig(prev => ({ ...prev, baseUrl: e.target.value }))}
+                        placeholder={PROVIDER_INFO[apiConfig.provider].baseUrl}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        使用默认地址可不填，如需代理请填写代理地址
+                      </p>
+                    </div>
+                  )}
+                </>
               )}
 
               <Button onClick={handleSaveApiConfig} className="w-full bg-blue-600 hover:bg-blue-700">
