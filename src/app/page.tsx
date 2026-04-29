@@ -16,10 +16,60 @@ import {
   getCurrentConversationId,
   setCurrentConversationId,
   getKnowledgeBase,
+  saveKnowledgeBase,
   getSystemPrompt,
+  saveSystemPrompt,
   getApiConfig,
+  saveApiConfig,
 } from "@/lib/store";
 import { toast } from "sonner";
+
+// 从数据库同步配置到 localStorage
+async function syncConfigFromDatabase() {
+  try {
+    // 同步知识库
+    const knowledgeRes = await fetch("/api/config/knowledge");
+    const knowledgeData = await knowledgeRes.json();
+    if (knowledgeData.success && knowledgeData.data && !knowledgeData.isEmpty) {
+      const localKnowledge = getKnowledgeBase();
+      // 如果数据库有数据且 localStorage 为空，则同步
+      if (isKnowledgeBaseEmpty(localKnowledge)) {
+        saveKnowledgeBase(knowledgeData.data);
+      }
+    }
+
+    // 同步系统配置
+    const systemRes = await fetch("/api/config/system");
+    const systemData = await systemRes.json();
+    if (systemData.success && systemData.data && !systemData.isEmpty) {
+      const localPrompt = getSystemPrompt();
+      const localApiConfig = getApiConfig();
+      // 如果数据库有数据，则同步
+      if (!localPrompt || (localApiConfig === null && systemData.data.apiConfig)) {
+        if (systemData.data.systemPrompt) {
+          saveSystemPrompt(systemData.data.systemPrompt);
+        }
+        if (systemData.data.apiConfig) {
+          saveApiConfig(systemData.data.apiConfig);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("同步配置失败:", error);
+  }
+}
+
+// 检查知识库是否为空
+function isKnowledgeBaseEmpty(kb: any): boolean {
+  return !kb || (
+    (!kb.faqItems || kb.faqItems.length === 0) &&
+    (!kb.troubleshootingItems || kb.troubleshootingItems.length === 0) &&
+    (!kb.outOfScopeItems || kb.outOfScopeItems.length === 0) &&
+    (!kb.mappingItems || kb.mappingItems.length === 0) &&
+    (!kb.functionKnowledge || kb.functionKnowledge.length === 0) &&
+    (!kb.termItems || kb.termItems.length === 0)
+  );
+}
 
 export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -38,6 +88,9 @@ export default function Home() {
       setCurrentConversationIdState(loadedConversations[0].id);
       setCurrentConversationId(loadedConversations[0].id);
     }
+
+    // 从数据库同步配置到 localStorage
+    syncConfigFromDatabase();
   }, []);
 
   // 获取当前对话
