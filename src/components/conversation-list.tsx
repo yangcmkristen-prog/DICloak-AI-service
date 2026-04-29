@@ -28,6 +28,16 @@ export function ConversationList({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+
+  // 检测是否为触摸设备
+  useEffect(() => {
+    const checkTouch = () => {
+      setIsTouchDevice("ontouchstart" in window || navigator.maxTouchPoints > 0);
+    };
+    checkTouch();
+    window.addEventListener("touchstart", checkTouch, { once: true });
+  }, []);
 
   const handleStartEdit = (conversation: Conversation) => {
     setEditingId(conversation.id);
@@ -88,9 +98,23 @@ export function ConversationList({
                 }`}
                 onMouseEnter={() => setHoveredId(conversation.id)}
                 onMouseLeave={() => setHoveredId(null)}
+                onTouchStart={() => setHoveredId(conversation.id)}
                 onClick={() => {
                   if (editingId !== conversation.id) {
-                    onSelectConversation(conversation.id);
+                    // 移动端：第一次点击显示操作按钮，第二次点击才选择对话
+                    // PC端：hover 时已显示操作按钮，点击即选择对话
+                    if (isTouchDevice) {
+                      if (hoveredId === conversation.id) {
+                        // 已显示操作按钮，再点击才选择对话
+                        onSelectConversation(conversation.id);
+                        setHoveredId(null);
+                      } else {
+                        // 第一次点击，显示操作按钮
+                        setHoveredId(conversation.id);
+                      }
+                    } else {
+                      onSelectConversation(conversation.id);
+                    }
                   }
                 }}
               >
@@ -135,8 +159,8 @@ export function ConversationList({
                       {conversation.title}
                     </span>
 
-                    {/* 操作按钮 */}
-                    {hoveredId === conversation.id && (
+                    {/* 操作按钮 - PC端hover或移动端触摸时显示 */}
+                    {(hoveredId === conversation.id || isTouchDevice) && (
                       <div className="flex items-center gap-1 shrink-0">
                         <Button
                           size="icon"
