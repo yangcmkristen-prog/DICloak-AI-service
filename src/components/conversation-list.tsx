@@ -159,33 +159,31 @@ export function ConversationList({
                       {conversation.title}
                     </span>
 
-                    {/* 操作按钮 - PC端hover或移动端触摸时显示 */}
-                    {(hoveredId === conversation.id || isTouchDevice) && (
-                      <div className="flex items-center gap-1 shrink-0">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleStartEdit(conversation);
-                          }}
-                        >
-                          <Edit3 className="w-3 h-3 text-gray-500" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteConversation(conversation.id);
-                          }}
-                        >
-                          <Trash2 className="w-3 h-3 text-red-500" />
-                        </Button>
-                      </div>
-                    )}
+                    {/* 操作按钮 - PC端hover显示，移动端始终显示 */}
+                    <div className={`flex items-center gap-1 shrink-0 ${isTouchDevice ? '' : 'md:opacity-0 md:group-hover:opacity-100'}`}>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleStartEdit(conversation);
+                        }}
+                      >
+                        <Edit3 className="w-3 h-3 text-gray-500" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteConversation(conversation.id);
+                        }}
+                      >
+                        <Trash2 className="w-3 h-3 text-red-500" />
+                      </Button>
+                    </div>
                   </>
                 )}
               </div>
