@@ -260,18 +260,27 @@ export function saveApiConfig(config: ApiConfig): void {
 
 // 支持的模型列表
 export const MODEL_OPTIONS = [
-  // Coze / 豆包
-  { provider: 'coze', label: '豆包 (Coze)', model: 'doubao-seed-2-0-lite-260215' },
+  // Coze / 豆包 - 旗舰级
+  { provider: 'coze', label: '豆包 Pro (旗舰全能)', model: 'doubao-seed-2-0-pro-260215' },
+  // Coze / 豆包 - 均衡型
+  { provider: 'coze', label: '豆包 Lite (均衡性价比)', model: 'doubao-seed-2-0-lite-260215' },
+  // Coze / 豆包 - 轻量级
+  { provider: 'coze', label: '豆包 Mini (轻量快速)', model: 'doubao-seed-2-0-mini-260215' },
+  // Coze / 豆包 - 1.x 系列
+  { provider: 'coze', label: '豆包 1.8 (多模态)', model: 'doubao-seed-1-8-251228' },
+  { provider: 'coze', label: '豆包 1.6 (全能)', model: 'doubao-seed-1-6-251015' },
+  { provider: 'coze', label: '豆包 1.6 Vision (视觉)', model: 'doubao-seed-1-6-vision-250815' },
+  { provider: 'coze', label: '豆包 1.6 Lite (轻量)', model: 'doubao-seed-1-6-lite-251015' },
   // OpenAI
   { provider: 'openai', label: 'GPT-4o', model: 'gpt-4o' },
   { provider: 'openai', label: 'GPT-4o Mini', model: 'gpt-4o-mini' },
   { provider: 'openai', label: 'GPT-4 Turbo', model: 'gpt-4-turbo' },
   { provider: 'openai', label: 'GPT-5.4', model: 'gpt-5.4' },
   // DeepSeek
-  { provider: 'deepseek', label: 'DeepSeek V3', model: 'deepseek-chat' },
-  { provider: 'deepseek', label: 'DeepSeek R1', model: 'deepseek-reasoner' },
+  { provider: 'deepseek', label: 'DeepSeek V3', model: 'deepseek-v3-2-251201' },
+  { provider: 'deepseek', label: 'DeepSeek R1', model: 'deepseek-r1-250528' },
   // Kimi
-  { provider: 'kimi', label: 'Kimi (月之暗面)', model: 'moonshot-v1-8k' },
+  { provider: 'kimi', label: 'Kimi K2 (全能)', model: 'kimi-k2-5-260127' },
   // 自定义 HTTP
   { provider: 'custom', label: '自定义 HTTP', model: 'custom' },
 ];
