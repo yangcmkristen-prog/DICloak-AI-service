@@ -35,10 +35,17 @@ export async function GET() {
       });
     }
 
+    // 检查知识库是否为空
+    const kb = data.knowledge_data;
+    const isEmpty = !kb.faqItems?.length && !kb.troubleshootingItems?.length && 
+                    !kb.outOfScopeItems?.length && !kb.mappingItems?.length && 
+                    !kb.functionKnowledge?.length && !kb.termItems?.length;
+
     return NextResponse.json({
       success: true,
-      data: data.knowledge_data,
+      data: kb,
       updatedAt: data.updated_at,
+      isEmpty,
     });
   } catch (error) {
     console.error('获取知识库配置异常:', error);
