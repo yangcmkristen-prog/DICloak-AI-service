@@ -48,10 +48,10 @@ function parseStructuredReplies(content: string): ParsedReplies | null {
   return null;
 }
 
-// 判断是否需要显示中文翻译（检测是否包含汉字）
-function needsTranslation(text: string): boolean {
-  // 检查是否包含汉字
-  return !/[\u4e00-\u9fa5]/.test(text);
+// 判断是否需要显示中文翻译
+function hasTranslation(reply: StructuredReply): boolean {
+  // 只要 zh_translation 有内容就显示翻译区域
+  return !!reply.zh_translation && reply.zh_translation.trim() !== "";
 }
 
 interface ChatAreaProps {
@@ -158,14 +158,16 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                               {parsed.replies.map((reply, index) => {
                                 const replyId = `${message.id}-reply-${index}`;
                                 const isExpanded = expandedTranslations.has(replyId);
-                                const showTranslation = needsTranslation(reply.reply_text) && reply.zh_translation;
+                                const showTranslation = hasTranslation(reply);
+                                // 第一条显示"问题类型"，其余显示"回复1/2/3"
+                                const title = index === 0 ? "问题类型" : `回复${index}`;
                                 
                                 return (
                                   <div key={index} className="space-y-2">
                                     {/* 回复标题 */}
                                     <div className="flex items-center justify-between">
                                       <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                                        推荐回复 {index + 1}
+                                        {title}
                                       </h4>
                                       <Button
                                         size="sm"
@@ -229,38 +231,42 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                           paragraphs.push(message.content);
                         }
                         
-                        return paragraphs.map((reply, index) => (
-                          <div key={index} className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                                回复 {index + 1}
-                              </h4>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
-                                onClick={() => handleCopy(reply.trim(), `${message.id}-${index}`)}
-                              >
-                                {copiedId === `${message.id}-${index}` ? (
-                                  <>
-                                    <Check className="w-3 h-3 mr-1" />
-                                    <span className="text-xs">已复制</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy className="w-3 h-3 mr-1" />
-                                    <span className="text-xs">复制</span>
-                                  </>
-                                )}
-                              </Button>
+                        return paragraphs.map((reply, index) => {
+                          // 第一条显示"问题类型"，其余显示"回复1/2/3"
+                          const title = index === 0 ? "问题类型" : `回复${index}`;
+                          return (
+                            <div key={index} className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                                  {title}
+                                </h4>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
+                                  onClick={() => handleCopy(reply.trim(), `${message.id}-${index}`)}
+                                >
+                                  {copiedId === `${message.id}-${index}` ? (
+                                    <>
+                                      <Check className="w-3 h-3 mr-1" />
+                                      <span className="text-xs">已复制</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3 mr-1" />
+                                      <span className="text-xs">复制</span>
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                              <Card className="p-3 hover:border-blue-300 transition-colors">
+                                <p className="text-sm whitespace-pre-wrap">
+                                  {reply.trim()}
+                                </p>
+                              </Card>
                             </div>
-                            <Card className="p-3 hover:border-blue-300 transition-colors">
-                              <p className="text-sm whitespace-pre-wrap">
-                                {reply.trim()}
-                              </p>
-                            </Card>
-                          </div>
-                        ));
+                          );
+                        });
                       })()}
                     </div>
                   )}
