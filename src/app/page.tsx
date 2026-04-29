@@ -174,10 +174,14 @@ export default function Home() {
         fetch("/api/config/system"),
       ]);
       
-      const [knowledgeDataResult, systemDataResult] = await Promise.all([
-        knowledgeRes.json(),
-        systemRes.json(),
-      ]);
+      // 检查响应是否为 JSON（不是 HTML 或错误页面）
+      const knowledgeContentType = knowledgeRes.headers.get('content-type');
+      const knowledgeDataResult = (!knowledgeContentType || !knowledgeContentType.includes('application/json'))
+        ? { success: false, isEmpty: true }
+        : await knowledgeRes.json();
+      const systemDataResult = (!knowledgeContentType || !knowledgeContentType.includes('application/json'))
+        ? { success: false, isEmpty: true }
+        : await systemRes.json();
       
       const knowledgeData = knowledgeDataResult.success && !knowledgeDataResult.isEmpty 
         ? knowledgeDataResult.data 

@@ -70,6 +70,14 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
         fetch('/api/config/system'),
       ]);
 
+      // 检查响应是否为 JSON（不是 HTML 或错误页面）
+      const contentType = knowledgeRes.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.warn('API 返回的不是 JSON，跳过数据库加载');
+        updateStats();
+        return;
+      }
+
       const knowledgeData = await knowledgeRes.json();
       const systemData = await systemRes.json();
 
