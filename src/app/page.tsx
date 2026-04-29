@@ -1,11 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { MessageSquare, BookOpen } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { MessageSquare, BookOpen, Plus, Pencil, Trash2, Edit } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConversationList } from "@/components/conversation-list";
 import { ChatArea } from "@/components/chat-area";
 import { KnowledgeManager } from "@/components/knowledge-manager";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Conversation, Message, generateId } from "@/lib/types";
 import {
   getConversations,
@@ -76,6 +80,18 @@ export default function Home() {
   const [currentConversationId, setCurrentConversationIdState] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
+  // 移动端编辑对话框状态
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editConversationName, setEditConversationName] = useState("");
+
+  // 重命名对话
+  const handleRenameConversation = useCallback((id: string, newName: string) => {
+    if (!newName.trim()) return;
+    updateConversation(id, { title: newName.trim() });
+    setConversations(getConversations());
+    setIsEditDialogOpen(false);
+  }, []);
+
   // 初始化加载数据
   useEffect(() => {
     const loadedConversations = getConversations();
@@ -136,15 +152,6 @@ export default function Home() {
       return updated;
     });
     toast.success("对话已删除");
-  };
-
-  // 重命名对话
-  const handleRenameConversation = (id: string, title: string) => {
-    updateConversation(id, { title });
-    setConversations((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, title } : c))
-    );
-    toast.success("对话已重命名");
   };
 
   // 发送消息并生成推荐回复
@@ -322,8 +329,10 @@ export default function Home() {
             </TabsList>
 
             <TabsContent value="chat" className="flex-1 flex flex-col m-0 min-h-0">
-              {/* 移动端对话选择器 */}
-              <div className="md:hidden p-4 border-b shrink-0">
+              {/* 移动端对话选择区域 */}
+              <div className="md:hidden p-4 border-b shrink-0 space-y-3">
+                <p className="text-red-500 text-sm">mobile-actions-v2</p>
+                {/* 第一行：对话选择 */}
                 <select
                   value={currentConversationId || ""}
                   onChange={(e) => handleSelectConversation(e.target.value)}
@@ -338,6 +347,47 @@ export default function Home() {
                     </option>
                   ))}
                 </select>
+                {/* 第二行：操作按钮 */}
+                <div className="flex items-center gap-2">
+                  {/* 新建对话 */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCreateConversation}
+                    className="flex-1"
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    新建对话
+                  </Button>
+                  {/* 编辑当前对话 */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (currentConversation) {
+                        setEditConversationName(currentConversation.title);
+                        setIsEditDialogOpen(true);
+                      }
+                    }}
+                    disabled={!currentConversation}
+                  >
+                    <Edit className="w-4 h-4" />
+                  </Button>
+                  {/* 删除当前对话 */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (currentConversation && confirm(`确定要删除「${currentConversation.title}」吗？`)) {
+                        handleDeleteConversation(currentConversation.id);
+                      }
+                    }}
+                    disabled={!currentConversation}
+                    className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
 
               <ChatArea
@@ -346,6 +396,35 @@ export default function Home() {
                 isGenerating={isGenerating}
               />
             </TabsContent>
+
+            {/* 移动端编辑对话框 */}
+            <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>编辑对话</DialogTitle>
+                  <DialogDescription>修改对话名称</DialogDescription>
+                </DialogHeader>
+                <div className="py-4">
+                  <Input
+                    value={editConversationName}
+                    onChange={(e) => setEditConversationName(e.target.value)}
+                    placeholder="输入对话名称"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleRenameConversation(currentConversationId!, editConversationName);
+                      }
+                    }}
+                  />
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                    取消
+                  </Button>
+                  <Button onClick={() => handleRenameConversation(currentConversationId!, editConversationName)}>保存</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             <TabsContent value="knowledge" className="flex-1 m-0">
               <KnowledgeManager />
