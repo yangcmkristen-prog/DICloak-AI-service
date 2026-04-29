@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Upload, FileSpreadsheet, Trash2, RefreshCw, CheckCircle, XCircle, Settings, AlertCircle } from "lucide-react";
+import { Upload, FileSpreadsheet, Trash2, RefreshCw, CheckCircle, XCircle, Settings, AlertCircle, Loader2, Cloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -51,6 +51,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   // 自定义 HTTP 配置
   const [customEndpoint, setCustomEndpoint] = useState("");
   const [customModelName, setCustomModelName] = useState("");
+  // 同步状态
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
 
   // 加载数据 - 从数据库和 localStorage 同步
   useEffect(() => {
@@ -125,7 +127,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   };
 
   // 同步知识库到数据库
-  const syncKnowledgeToDatabase = async (data: KnowledgeBase) => {
+  const syncKnowledgeToDatabase = async (data: KnowledgeBase): Promise<boolean> => {
+    setSyncStatus('syncing');
     try {
       const response = await fetch('/api/config/knowledge', {
         method: 'POST',
@@ -134,9 +137,15 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
       });
       if (!response.ok) {
         console.error('同步知识库到数据库失败');
+        setSyncStatus('error');
+        return false;
       }
+      setSyncStatus('synced');
+      return true;
     } catch (error) {
       console.error('同步知识库到数据库失败:', error);
+      setSyncStatus('error');
+      return false;
     }
   };
 
@@ -231,9 +240,13 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
 
         replaceKnowledgeData(combinedData as KnowledgeBase);
         // 同步到数据库，等待完成后再切换标签页
-        await syncKnowledgeToDatabase(combinedData as KnowledgeBase);
+        const syncSuccess = await syncKnowledgeToDatabase(combinedData as KnowledgeBase);
         updateStats();
-        toast.success(`成功导入 ${successResults.length} 个文件`);
+        if (syncSuccess) {
+          toast.success(`成功导入 ${successResults.length} 个文件，已同步到云端`);
+        } else {
+          toast.error('导入成功但同步失败，请刷新重试');
+        }
       }
 
       // 显示失败信息
@@ -410,6 +423,32 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                   </div>
                 </div>
               ))}
+
+              {/* 同步状态标注 */}
+              {syncStatus === 'synced' && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800">
+                  <Cloud className="w-5 h-5 text-green-600" />
+                  <span className="text-sm text-green-700 dark:text-green-300 font-medium">
+                    已同步到云端
+                  </span>
+                </div>
+              )}
+              {syncStatus === 'syncing' && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
+                  <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+                  <span className="text-sm text-blue-700 dark:text-blue-300 font-medium">
+                    正在同步...
+                  </span>
+                </div>
+              )}
+              {syncStatus === 'error' && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
+                  <AlertCircle className="w-5 h-5 text-red-600" />
+                  <span className="text-sm text-red-700 dark:text-red-300 font-medium">
+                    同步失败，请重试
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
