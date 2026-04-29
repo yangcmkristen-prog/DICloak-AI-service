@@ -18,7 +18,6 @@ import {
   getKnowledgeBase,
   getSystemPrompt,
   getApiConfig,
-  ApiConfig,
 } from "@/lib/store";
 import { toast } from "sonner";
 
@@ -26,7 +25,6 @@ export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationIdState] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [apiConfig, setApiConfig] = useState<ApiConfig | null>(null);
 
   // 初始化加载数据
   useEffect(() => {
@@ -40,9 +38,6 @@ export default function Home() {
       setCurrentConversationIdState(loadedConversations[0].id);
       setCurrentConversationId(loadedConversations[0].id);
     }
-
-    // 加载 API 配置
-    setApiConfig(getApiConfig());
   }, []);
 
   // 获取当前对话
@@ -91,11 +86,6 @@ export default function Home() {
     toast.success("对话已重命名");
   };
 
-  // 更新 API 配置
-  const handleApiConfigChange = (config: ApiConfig) => {
-    setApiConfig(config);
-  };
-
   // 发送消息并生成推荐回复
   const handleSendMessage = async (content: string) => {
     if (!currentConversationId) {
@@ -128,7 +118,7 @@ export default function Home() {
       // 从 localStorage 获取知识库数据、System Prompt 和 API 配置
       const knowledgeData = getKnowledgeBase();
       const systemPrompt = getSystemPrompt();
-      const currentApiConfig = apiConfig || getApiConfig();
+      const currentApiConfig = getApiConfig();
 
       // 构建请求（知识库、Prompt 和 API 配置从 localStorage 获取并传递给后端）
       const response = await fetch("/api/chat", {
@@ -277,7 +267,7 @@ export default function Home() {
             </TabsContent>
 
             <TabsContent value="knowledge" className="flex-1 m-0">
-              <KnowledgeManager onApiConfigChange={handleApiConfigChange} />
+              <KnowledgeManager />
             </TabsContent>
           </Tabs>
         </main>

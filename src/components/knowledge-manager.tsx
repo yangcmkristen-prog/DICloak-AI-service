@@ -25,10 +25,9 @@ import { toast } from "sonner";
 
 interface KnowledgeManagerProps {
   onPromptChange?: (prompt: string) => void;
-  onApiConfigChange?: (config: ApiConfig) => void;
 }
 
-export function KnowledgeManager({ onPromptChange, onApiConfigChange }: KnowledgeManagerProps) {
+export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
   const [tempPrompt, setTempPrompt] = useState("");
   const [isAlertOpen, setIsAlertOpen] = useState(false);
@@ -67,12 +66,9 @@ export function KnowledgeManager({ onPromptChange, onApiConfigChange }: Knowledg
         setCustomEndpoint(savedApiConfig.customConfig.endpoint || "");
         setCustomModelName(savedApiConfig.customConfig.modelName || "");
       }
-      if (onApiConfigChange) {
-        onApiConfigChange(savedApiConfig);
-      }
       updateStats();
     }
-  }, [onApiConfigChange]);
+  }, []);
 
   const updateStats = useCallback(() => {
     const currentStats = getKnowledgeStats();
@@ -204,14 +200,8 @@ export function KnowledgeManager({ onPromptChange, onApiConfigChange }: Knowledg
         },
       };
       saveApiConfig(configToSave);
-      if (onApiConfigChange) {
-        onApiConfigChange(configToSave);
-      }
     } else {
       saveApiConfig(apiConfig);
-      if (onApiConfigChange) {
-        onApiConfigChange(apiConfig);
-      }
     }
     toast.success("API 配置已保存");
     setShowApiConfig(false);
