@@ -172,7 +172,7 @@ export function ConversationList({
                     </span>
 
                     {/* 操作按钮 - PC端hover显示，移动端始终显示 */}
-                    <div className={`flex items-center gap-1 shrink-0 ${isTouchDevice ? '' : 'md:opacity-0 md:group-hover:opacity-100'}`}>
+                    <div className="flex items-center gap-1 shrink-0 md:opacity-0 md:group-hover:opacity-100">
                       <Button
                         size="icon"
                         variant="ghost"
