@@ -168,12 +168,28 @@ export default function Home() {
     setIsGenerating(true);
 
     try {
-      // 从 localStorage 获取知识库数据、System Prompt 和 API 配置
-      const knowledgeData = getKnowledgeBase();
-      const systemPrompt = getSystemPrompt();
-      const currentApiConfig = getApiConfig();
+      // 直接从数据库获取最新配置，确保切换标签页后数据同步
+      const [knowledgeRes, systemRes] = await Promise.all([
+        fetch("/api/config/knowledge"),
+        fetch("/api/config/system"),
+      ]);
+      
+      const [knowledgeDataResult, systemDataResult] = await Promise.all([
+        knowledgeRes.json(),
+        systemRes.json(),
+      ]);
+      
+      const knowledgeData = knowledgeDataResult.success && !knowledgeDataResult.isEmpty 
+        ? knowledgeDataResult.data 
+        : getKnowledgeBase();
+      const systemPrompt = systemDataResult.success && !systemDataResult.isEmpty && systemDataResult.data.systemPrompt
+        ? systemDataResult.data.systemPrompt
+        : getSystemPrompt();
+      const currentApiConfig = systemDataResult.success && !systemDataResult.isEmpty && systemDataResult.data.apiConfig
+        ? systemDataResult.data.apiConfig
+        : getApiConfig();
 
-      // 构建请求（知识库、Prompt 和 API 配置从 localStorage 获取并传递给后端）
+      // 构建请求
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
