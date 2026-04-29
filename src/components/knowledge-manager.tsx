@@ -46,11 +46,8 @@ export function KnowledgeManager({ onPromptChange, onApiConfigChange }: Knowledg
     lastUpdated: 0,
   });
 
-  // API 配置状态
-  const [apiConfig, setApiConfig] = useState<ApiConfig>({
-    ...DEFAULT_API_CONFIG,
-    provider: 'coze',
-  });
+  // API 配置状态 - 初始为 null，避免 SSR/CSR mismatch
+  const [apiConfig, setApiConfig] = useState<ApiConfig | null>(null);
   const [showApiConfig, setShowApiConfig] = useState(false);
   // 自定义 HTTP 配置
   const [customEndpoint, setCustomEndpoint] = useState("");
@@ -191,6 +188,8 @@ export function KnowledgeManager({ onPromptChange, onApiConfigChange }: Knowledg
 
   // 保存 API 配置
   const handleSaveApiConfig = () => {
+    if (!apiConfig) return;
+    
     // 如果是自定义 HTTP，保存自定义配置
     if (apiConfig.provider === 'custom') {
       const configToSave: ApiConfig = {
@@ -220,13 +219,14 @@ export function KnowledgeManager({ onPromptChange, onApiConfigChange }: Knowledg
 
   // 处理 provider 切换
   const handleProviderChange = (provider: ApiConfig['provider']) => {
+    if (!apiConfig) return;
     const providerInfo = PROVIDER_INFO[provider];
-    setApiConfig(prev => ({
+    setApiConfig(prev => prev ? {
       ...prev,
       provider,
       model: providerInfo.defaultModel,
       baseUrl: providerInfo.baseUrl,
-    }));
+    } : null);
   };
 
   const totalItems = stats.faqCount + stats.troubleshootingCount + stats.outOfScopeCount + 
@@ -436,147 +436,154 @@ export function KnowledgeManager({ onPromptChange, onApiConfigChange }: Knowledg
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* 当前配置预览 */}
-          <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-blue-800 dark:text-blue-200 font-medium mb-1">
-                  当前配置
-                </p>
-                <p className="text-sm text-blue-700 dark:text-blue-300">
-                  {PROVIDER_INFO[apiConfig.provider].name} - {apiConfig.model}
-                  {!apiConfig.apiKey && ' (使用默认 API)'}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowApiConfig(!showApiConfig)}
-                className="shrink-0"
-              >
-                {showApiConfig ? "收起" : "配置"}
-              </Button>
-            </div>
-          </div>
-
-          {/* 配置表单 */}
-          {showApiConfig && (
-            <div className="space-y-4 border-t pt-4">
-              {/* Provider 选择 */}
-              <div className="space-y-2">
-                <Label htmlFor="provider">AI 提供商</Label>
-                <select
-                  id="provider"
-                  value={apiConfig.provider}
-                  onChange={(e) => handleProviderChange(e.target.value as ApiConfig['provider'])}
-                  className="w-full p-2 rounded-md border border-input bg-background text-sm"
-                >
-                  {Object.entries(PROVIDER_INFO).map(([key, info]) => (
-                    <option key={key} value={key}>{info.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* 自定义 HTTP 配置 */}
-              {apiConfig.provider === 'custom' ? (
-                <>
-                  {/* 自定义 HTTP 端点 */}
-                  <div className="space-y-2">
-                    <Label htmlFor="customEndpoint">API 端点 URL</Label>
-                    <Input
-                      id="customEndpoint"
-                      value={customEndpoint}
-                      onChange={(e) => setCustomEndpoint(e.target.value)}
-                      placeholder="https://api.example.com/v1/chat/completions"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      输入完整的 API 端点 URL，支持 OpenAI 兼容格式
+          {/* 加载中状态 */}
+          {!apiConfig ? (
+            <div className="text-center py-4 text-muted-foreground">加载中...</div>
+          ) : (
+            <>
+              {/* 当前配置预览 */}
+              <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-blue-800 dark:text-blue-200 font-medium mb-1">
+                      当前配置
+                    </p>
+                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                      {PROVIDER_INFO[apiConfig.provider]?.name || apiConfig.provider} - {apiConfig.model}
+                      {!apiConfig.apiKey && ' (使用默认 API)'}
                     </p>
                   </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowApiConfig(!showApiConfig)}
+                    className="shrink-0"
+                  >
+                    {showApiConfig ? "收起" : "配置"}
+                  </Button>
+                </div>
+              </div>
 
-                  {/* 自定义模型名称 */}
+              {/* 配置表单 */}
+              {showApiConfig && (
+                <div className="space-y-4 border-t pt-4">
+                  {/* Provider 选择 */}
                   <div className="space-y-2">
-                    <Label htmlFor="customModel">模型名称</Label>
-                    <Input
-                      id="customModel"
-                      value={customModelName}
-                      onChange={(e) => setCustomModelName(e.target.value)}
-                      placeholder="gpt-5.4 / claude-3-opus / 自定义模型名"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      输入要调用的模型名称
-                    </p>
-                  </div>
-
-                  {/* 自定义 API Key */}
-                  <div className="space-y-2">
-                    <Label htmlFor="customApiKey">API Key</Label>
-                    <Input
-                      id="customApiKey"
-                      type="password"
-                      value={apiConfig.apiKey}
-                      onChange={(e) => setApiConfig(prev => ({ ...prev, apiKey: e.target.value }))}
-                      placeholder="输入 API Key（根据服务端要求）"
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  {/* 模型选择 */}
-                  <div className="space-y-2">
-                    <Label htmlFor="model">模型</Label>
+                    <Label htmlFor="provider">AI 提供商</Label>
                     <select
-                      id="model"
-                      value={apiConfig.model}
-                      onChange={(e) => setApiConfig(prev => ({ ...prev, model: e.target.value }))}
+                      id="provider"
+                      value={apiConfig.provider}
+                      onChange={(e) => handleProviderChange(e.target.value as ApiConfig['provider'])}
                       className="w-full p-2 rounded-md border border-input bg-background text-sm"
                     >
-                      {MODEL_OPTIONS.filter(opt => opt.provider === apiConfig.provider).map(opt => (
-                        <option key={opt.model} value={opt.model}>{opt.label}</option>
+                      {Object.entries(PROVIDER_INFO).map(([key, info]) => (
+                        <option key={key} value={key}>{info.name}</option>
                       ))}
                     </select>
                   </div>
 
-                  {/* API Key */}
-                  <div className="space-y-2">
-                    <Label htmlFor="apiKey">API Key</Label>
-                    <Input
-                      id="apiKey"
-                      type="password"
-                      value={apiConfig.apiKey}
-                      onChange={(e) => setApiConfig(prev => ({ ...prev, apiKey: e.target.value }))}
-                      placeholder={PROVIDER_INFO[apiConfig.provider].keyPlaceholder}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {apiConfig.provider === 'coze' 
-                        ? '使用内置 API，无需填写 Key'
-                        : '请填入您的 API Key，费用由您自行承担'
-                      }
-                    </p>
-                  </div>
+                  {/* 自定义 HTTP 配置 */}
+                  {apiConfig.provider === 'custom' ? (
+                    <>
+                      {/* 自定义 HTTP 端点 */}
+                      <div className="space-y-2">
+                        <Label htmlFor="customEndpoint">API 端点 URL</Label>
+                        <Input
+                          id="customEndpoint"
+                          value={customEndpoint}
+                          onChange={(e) => setCustomEndpoint(e.target.value)}
+                          placeholder="https://api.example.com/v1/chat/completions"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          输入完整的 API 端点 URL，支持 OpenAI 兼容格式
+                        </p>
+                      </div>
 
-                  {/* Base URL (可选) */}
-                  {apiConfig.provider !== 'coze' && (
-                    <div className="space-y-2">
-                      <Label htmlFor="baseUrl">API 地址（可选）</Label>
-                      <Input
-                        id="baseUrl"
-                        value={apiConfig.baseUrl || ''}
-                        onChange={(e) => setApiConfig(prev => ({ ...prev, baseUrl: e.target.value }))}
-                        placeholder={PROVIDER_INFO[apiConfig.provider].baseUrl}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        使用默认地址可不填，如需代理请填写代理地址
-                      </p>
-                    </div>
+                      {/* 自定义模型名称 */}
+                      <div className="space-y-2">
+                        <Label htmlFor="customModel">模型名称</Label>
+                        <Input
+                          id="customModel"
+                          value={customModelName}
+                          onChange={(e) => setCustomModelName(e.target.value)}
+                          placeholder="gpt-5.4 / claude-3-opus / 自定义模型名"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          输入要调用的模型名称
+                        </p>
+                      </div>
+
+                      {/* 自定义 API Key */}
+                      <div className="space-y-2">
+                        <Label htmlFor="customApiKey">API Key</Label>
+                        <Input
+                          id="customApiKey"
+                          type="password"
+                          value={apiConfig.apiKey}
+                          onChange={(e) => setApiConfig(prev => prev ? { ...prev, apiKey: e.target.value } : prev)}
+                          placeholder="输入 API Key（根据服务端要求）"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* 模型选择 */}
+                      <div className="space-y-2">
+                        <Label htmlFor="model">模型</Label>
+                        <select
+                          id="model"
+                          value={apiConfig.model}
+                          onChange={(e) => setApiConfig(prev => prev ? { ...prev, model: e.target.value } : prev)}
+                          className="w-full p-2 rounded-md border border-input bg-background text-sm"
+                        >
+                          {MODEL_OPTIONS.filter(opt => opt.provider === apiConfig.provider).map(opt => (
+                            <option key={opt.model} value={opt.model}>{opt.label}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* API Key */}
+                      <div className="space-y-2">
+                        <Label htmlFor="apiKey">API Key</Label>
+                        <Input
+                          id="apiKey"
+                          type="password"
+                          value={apiConfig.apiKey}
+                          onChange={(e) => setApiConfig(prev => prev ? { ...prev, apiKey: e.target.value } : prev)}
+                          placeholder={PROVIDER_INFO[apiConfig.provider]?.keyPlaceholder}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          {apiConfig.provider === 'coze' 
+                            ? '使用内置 API，无需填写 Key'
+                            : '请填入您的 API Key，费用由您自行承担'
+                          }
+                        </p>
+                      </div>
+
+                      {/* Base URL (可选) */}
+                      {apiConfig.provider !== 'coze' && (
+                        <div className="space-y-2">
+                          <Label htmlFor="baseUrl">API 地址（可选）</Label>
+                          <Input
+                            id="baseUrl"
+                            value={apiConfig.baseUrl || ''}
+                            onChange={(e) => setApiConfig(prev => prev ? { ...prev, baseUrl: e.target.value } : prev)}
+                            placeholder={PROVIDER_INFO[apiConfig.provider]?.baseUrl}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            使用默认地址可不填，如需代理请填写代理地址
+                          </p>
+                        </div>
+                      )}
+                    </>
                   )}
-                </>
-              )}
 
-              <Button onClick={handleSaveApiConfig} className="w-full bg-blue-600 hover:bg-blue-700">
-                保存配置
-              </Button>
-            </div>
+                  <Button onClick={handleSaveApiConfig} className="w-full bg-blue-600 hover:bg-blue-700">
+                    保存配置
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
