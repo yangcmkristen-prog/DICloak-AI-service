@@ -76,6 +76,10 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
       // 如果数据库有数据，使用数据库数据
       if (knowledgeData.success && !knowledgeData.isEmpty) {
         const kb = knowledgeData.data;
+        // 使用数据库的 updatedAt 作为 lastUpdated（确保跨设备同步）
+        if (knowledgeData.updatedAt) {
+          kb.lastUpdated = new Date(knowledgeData.updatedAt).getTime();
+        }
         replaceKnowledgeData(kb);
         saveKnowledgeBase(kb);
         // 更新 UI 状态

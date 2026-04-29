@@ -154,9 +154,14 @@ export function importKnowledgeData(data: Partial<KnowledgeBase>): void {
 
 // 替换所有知识库数据（导入时使用）
 export function replaceKnowledgeData(data: KnowledgeBase): void {
+  // 保留原有的 lastUpdated（如果不是 0），否则使用当前时间
+  const lastUpdated = data.lastUpdated && data.lastUpdated !== 0 
+    ? data.lastUpdated 
+    : Date.now();
+  
   saveKnowledgeBase({
     ...data,
-    lastUpdated: Date.now(),
+    lastUpdated,
   });
 }
 
