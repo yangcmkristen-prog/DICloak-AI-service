@@ -26,7 +26,7 @@ export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationIdState] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [apiConfig, setApiConfig] = useState<ApiConfig>(getApiConfig());
+  const [apiConfig, setApiConfig] = useState<ApiConfig | null>(null);
 
   // 初始化加载数据
   useEffect(() => {
@@ -125,9 +125,10 @@ export default function Home() {
     setIsGenerating(true);
 
     try {
-      // 从 localStorage 获取知识库数据和 System Prompt
+      // 从 localStorage 获取知识库数据、System Prompt 和 API 配置
       const knowledgeData = getKnowledgeBase();
       const systemPrompt = getSystemPrompt();
+      const currentApiConfig = apiConfig || getApiConfig();
 
       // 构建请求（知识库、Prompt 和 API 配置从 localStorage 获取并传递给后端）
       const response = await fetch("/api/chat", {
@@ -141,7 +142,7 @@ export default function Home() {
           })),
           knowledge: knowledgeData,
           systemPrompt: systemPrompt,
-          apiConfig: apiConfig,
+          apiConfig: currentApiConfig,
         }),
       });
 
