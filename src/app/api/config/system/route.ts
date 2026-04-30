@@ -1,30 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseClient, SupabaseNotConfiguredError } from '@/storage/database/supabase-client';
+import { getSupabaseClient } from '@/storage/database/supabase-client';
 
 const CONFIG_KEY = 'default';
 
 // 获取系统配置
 export async function GET() {
   try {
-    let client;
-    try {
-      client = getSupabaseClient();
-    } catch (error) {
-      if (error instanceof SupabaseNotConfiguredError) {
-        // Supabase 未配置，返回空数据
-        console.log('Supabase 未配置，跳过系统配置同步');
-        return NextResponse.json({
-          success: true,
-          data: {
-            systemPrompt: '',
-            apiConfig: null,
-          },
-          isEmpty: true,
-        });
-      }
-      throw error;
-    }
-
+    const client = getSupabaseClient();
     const { data, error } = await client
       .from('system_configs')
       .select('*')
@@ -65,17 +47,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { systemPrompt, apiConfig } = body;
 
-    let client;
-    try {
-      client = getSupabaseClient();
-    } catch (error) {
-      if (error instanceof SupabaseNotConfiguredError) {
-        // Supabase 未配置，返回错误
-        console.log('Supabase 未配置，无法保存系统配置');
-        return NextResponse.json({ error: '数据库未配置，请联系管理员' }, { status: 503 });
-      }
-      throw error;
-    }
+    const client = getSupabaseClient();
 
     // 使用 upsert 插入或更新
     const { data, error } = await client

@@ -1,58 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Copy, Check, ChevronDown, ChevronUp } from "lucide-react";
+import { Send, Loader2, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Message } from "@/lib/types";
 import { toast } from "sonner";
-
-// 结构化回复格式
-interface StructuredReply {
-  reply_text: string;
-  zh_translation: string;
-}
-
-interface ParsedReplies {
-  detected_language: string;
-  replies: StructuredReply[];
-}
-
-// 解析结构化 JSON 回复
-function parseStructuredReplies(content: string): ParsedReplies | null {
-  try {
-    // 尝试提取 JSON（支持多行 JSON）
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed.detected_language && Array.isArray(parsed.replies)) {
-        // 验证每条回复都有必要字段
-        const validReplies = parsed.replies.filter(
-          (r: unknown) => typeof r === 'object' && r !== null && 'reply_text' in r
-        );
-        if (validReplies.length > 0) {
-          return {
-            detected_language: parsed.detected_language,
-            replies: validReplies.map((r: Record<string, unknown>) => ({
-              reply_text: String(r.reply_text || ''),
-              zh_translation: String(r.zh_translation || ''),
-            })),
-          };
-        }
-      }
-    }
-  } catch {
-    // JSON 解析失败，忽略
-  }
-  return null;
-}
-
-// 判断是否需要显示中文翻译
-function hasTranslation(reply: StructuredReply): boolean {
-  // 只要 zh_translation 有内容就显示翻译区域
-  return !!reply.zh_translation && reply.zh_translation.trim() !== "";
-}
 
 interface ChatAreaProps {
   messages: Message[];
@@ -60,11 +14,33 @@ interface ChatAreaProps {
   isGenerating: boolean;
 }
 
+// 提取纯内容（去除标题）
+function extractPureContent(text: string): string {
+  // 去除首尾空白
+  let content = text.trim();
+
+  // 匹配标题模式：
+  // - [回复1]、[回复 1]、[回复1] 等带方括号的
+  // - 回复1、回复 1、回复1 等纯文字开头的
+  // - 1.、1、 等数字开头的
+  const patterns = [
+    /^\[回复\s*\d+\]\s*/i,      // [回复1]、[回复 1]、[回复1]
+    /^\[回复\d+\]\s*/i,          // [回复1]、[回复1]
+    /^回复\s*\d+\s*[:：]?\s*/i,  // 回复1：、回复1:、回复1
+    /^\d+\s*[:：.、]\s*/,        // 1.、1:、1、1
+    /^\[.*?\]\s*/,               // 其他方括号开头
+  ];
+
+  for (const pattern of patterns) {
+    content = content.replace(pattern, "");
+  }
+
+  return content.trim();
+}
+
 export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProps) {
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  // 控制中文释义的展开/折叠状态
-  const [expandedTranslations, setExpandedTranslations] = useState<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -73,19 +49,6 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
       scrollRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
-
-  // 切换翻译展开/折叠
-  const toggleTranslation = (id: string) => {
-    setExpandedTranslations(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
-      } else {
-        newSet.add(id);
-      }
-      return newSet;
-    });
-  };
 
   const handleSend = async () => {
     if (input.trim() && !isGenerating) {
@@ -101,14 +64,13 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
     }
   };
 
-  // 复制回复文本（只复制 reply_text，不复制翻译）
   const handleCopy = async (content: string, id: string) => {
     try {
       await navigator.clipboard.writeText(content);
       setCopiedId(id);
       toast.success("已复制到剪贴板", { duration: 1500 });
       setTimeout(() => setCopiedId(null), 1500);
-    } catch {
+    } catch (error) {
       toast.error("复制失败，请手动复制");
     }
   };
@@ -132,7 +94,7 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[85%] rounded-lg p-4 ${
+                  className={`max-w-[80%] rounded-lg p-4 ${
                     message.role === "user"
                       ? "bg-blue-600 text-white"
                       : "bg-gray-100 dark:bg-gray-800"
@@ -142,109 +104,25 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                     <p className="whitespace-pre-wrap">{message.content}</p>
                   ) : (
                     <div className="space-y-4">
-                      {/* 尝试解析结构化 JSON 回复 */}
-                      {(() => {
-                        const parsed = parseStructuredReplies(message.content);
-                        
-                        if (parsed && parsed.replies.length > 0) {
-                          // 结构化回复渲染
-                          return (
-                            <>
-                              {parsed.detected_language && (
-                                <div className="text-xs text-muted-foreground mb-3">
-                                  客户语言：{parsed.detected_language}
-                                </div>
-                              )}
-                              {parsed.replies.map((reply, index) => {
-                                const replyId = `${message.id}-reply-${index}`;
-                                const isExpanded = expandedTranslations.has(replyId);
-                                const showTranslation = hasTranslation(reply);
-                                // 第一条显示"问题类型"，其余显示"回复1/2/3"
-                                const title = index === 0 ? "问题类型" : `回复${index}`;
-                                
-                                return (
-                                  <div key={index} className="space-y-2">
-                                    {/* 回复标题 */}
-                                    <div className="flex items-center justify-between">
-                                      <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                                        {title}
-                                      </h4>
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
-                                        onClick={() => handleCopy(reply.reply_text, replyId)}
-                                      >
-                                        {copiedId === replyId ? (
-                                          <>
-                                            <Check className="w-3 h-3 mr-1" />
-                                            <span className="text-xs">已复制</span>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <Copy className="w-3 h-3 mr-1" />
-                                            <span className="text-xs">复制</span>
-                                          </>
-                                        )}
-                                      </Button>
-                                    </div>
-                                    
-                                    {/* 回复内容卡片 */}
-                                    <Card className="p-3 hover:border-blue-300 transition-colors">
-                                      <p className="text-sm whitespace-pre-wrap leading-relaxed">
-                                        {reply.reply_text}
-                                      </p>
-                                    </Card>
-                                    
-                                    {/* 中文释义（可折叠） */}
-                                    {showTranslation && (
-                                      <div className="text-xs">
-                                        <button
-                                          type="button"
-                                          onClick={() => toggleTranslation(replyId)}
-                                          className="flex items-center gap-1 text-blue-600 hover:text-blue-700 mb-1"
-                                        >
-                                          {isExpanded ? (
-                                            <ChevronUp className="w-3 h-3" />
-                                          ) : (
-                                            <ChevronDown className="w-3 h-3" />
-                                          )}
-                                          <span>中文释义（内部参考）</span>
-                                        </button>
-                                        {isExpanded && (
-                                          <div className="pl-4 py-2 px-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-md text-gray-700 dark:text-gray-300">
-                                            {reply.zh_translation}
-                                          </div>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </>
-                          );
-                        }
-                        
-                        // 降级：解析文本格式回复（兼容旧格式）
-                        const paragraphs = message.content.split(/\n\n+/).filter(Boolean);
-                        if (paragraphs.length === 0) {
-                          paragraphs.push(message.content);
-                        }
-                        
-                        return paragraphs.map((reply, index) => {
-                          // 第一条显示"问题类型"，其余显示"回复1/2/3"
-                          const title = index === 0 ? "问题类型" : `回复${index}`;
-                          return (
-                            <div key={index} className="space-y-2">
-                              <div className="flex items-center justify-between">
-                                <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                                  {title}
-                                </h4>
+                      {message.content.split("\n\n").filter(Boolean).map((reply, index) => {
+                        // 提取纯内容用于显示和复制
+                        const pureContent = extractPureContent(reply);
+                        // 第一条显示"问题类型"，其余显示"回复1/2/3"
+                        const title = index === 0 ? "问题类型" : `回复${index}`;
+                        const isFirst = index === 0; // 第一条（问题类型）不显示复制按钮
+                        return (
+                          <div key={index} className="space-y-2">
+                            {/* 回复标题 */}
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                                {title}
+                              </h4>
+                              {!isFirst && (
                                 <Button
                                   size="sm"
                                   variant="ghost"
                                   className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
-                                  onClick={() => handleCopy(reply.trim(), `${message.id}-${index}`)}
+                                  onClick={() => handleCopy(pureContent, `${message.id}-${index}`)}
                                 >
                                   {copiedId === `${message.id}-${index}` ? (
                                     <>
@@ -258,16 +136,17 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                                     </>
                                   )}
                                 </Button>
-                              </div>
-                              <Card className="p-3 hover:border-blue-300 transition-colors">
-                                <p className="text-sm whitespace-pre-wrap">
-                                  {reply.trim()}
-                                </p>
-                              </Card>
+                              )}
                             </div>
-                          );
-                        });
-                      })()}
+                            {/* 回复内容卡片 - 显示纯内容 */}
+                            <Card className="p-3 hover:border-blue-300 transition-colors">
+                              <p className="text-sm whitespace-pre-wrap">
+                                {pureContent}
+                              </p>
+                            </Card>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
