@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Copy, Check } from "lucide-react";
+import { Send, Loader2, Copy, Check, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -41,6 +41,9 @@ function extractPureContent(text: string): string {
 export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProps) {
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [expandedTranslations, setExpandedTranslations] = useState<Record<string, boolean>>({});
+  const [translations, setTranslations] = useState<Record<string, string>>({});
+  const [translatingIds, setTranslatingIds] = useState<Record<string, boolean>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -72,6 +75,50 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
       setTimeout(() => setCopiedId(null), 1500);
     } catch (error) {
       toast.error("复制失败，请手动复制");
+    }
+  };
+
+  const handleTranslate = async (content: string, id: string) => {
+    // 如果已经展开，则收起
+    if (expandedTranslations[id]) {
+      setExpandedTranslations(prev => ({ ...prev, [id]: false }));
+      return;
+    }
+
+    // 如果已有翻译结果，直接展开
+    if (translations[id]) {
+      setExpandedTranslations(prev => ({ ...prev, [id]: true }));
+      return;
+    }
+
+    // 开始翻译
+    setTranslatingIds(prev => ({ ...prev, [id]: true }));
+    try {
+      const response = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: content })
+      });
+
+      const data = await response.json();
+
+      if (data.isChinese) {
+        toast.info("内容已是中文，无需翻译");
+        setTranslatingIds(prev => ({ ...prev, [id]: false }));
+        return;
+      }
+
+      if (data.translation) {
+        setTranslations(prev => ({ ...prev, [id]: data.translation }));
+        setExpandedTranslations(prev => ({ ...prev, [id]: true }));
+        toast.success("翻译成功");
+      } else if (data.error) {
+        toast.error(data.error);
+      }
+    } catch (error) {
+      toast.error("翻译失败，请重试");
+    } finally {
+      setTranslatingIds(prev => ({ ...prev, [id]: false }));
     }
   };
 
@@ -110,6 +157,10 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                         // 第一条显示"问题类型"，其余显示"回复1/2/3"
                         const title = index === 0 ? "问题类型" : `回复${index}`;
                         const isFirst = index === 0; // 第一条（问题类型）不显示复制按钮
+                        const translationId = `${message.id}-${index}`;
+                        const isExpanded = expandedTranslations[translationId];
+                        const hasTranslation = !!translations[translationId];
+                        const isTranslating = translatingIds[translationId];
                         return (
                           <div key={index} className="space-y-2">
                             {/* 回复标题 */}
@@ -118,24 +169,43 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                                 {title}
                               </h4>
                               {!isFirst && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
-                                  onClick={() => handleCopy(pureContent, `${message.id}-${index}`)}
-                                >
-                                  {copiedId === `${message.id}-${index}` ? (
-                                    <>
-                                      <Check className="w-3 h-3 mr-1" />
-                                      <span className="text-xs">已复制</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Copy className="w-3 h-3 mr-1" />
-                                      <span className="text-xs">复制</span>
-                                    </>
-                                  )}
-                                </Button>
+                                <div className="flex items-center gap-1">
+                                  {/* 翻译按钮 */}
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
+                                    onClick={() => handleTranslate(pureContent, translationId)}
+                                    disabled={isTranslating}
+                                  >
+                                    {isTranslating ? (
+                                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                    ) : isExpanded ? (
+                                      <ChevronUp className="w-3 h-3 mr-1" />
+                                    ) : (
+                                      <span className="text-xs">译</span>
+                                    )}
+                                  </Button>
+                                  {/* 复制按钮 */}
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
+                                    onClick={() => handleCopy(pureContent, translationId)}
+                                  >
+                                    {copiedId === translationId ? (
+                                      <>
+                                        <Check className="w-3 h-3 mr-1" />
+                                        <span className="text-xs">已复制</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy className="w-3 h-3 mr-1" />
+                                        <span className="text-xs">复制</span>
+                                      </>
+                                    )}
+                                  </Button>
+                                </div>
                               )}
                             </div>
                             {/* 回复内容卡片 - 显示纯内容 */}
@@ -143,6 +213,15 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                               <p className="text-sm whitespace-pre-wrap">
                                 {pureContent}
                               </p>
+                              {/* 中文释义 */}
+                              {isExpanded && hasTranslation && (
+                                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                                  <p className="text-xs text-gray-500 mb-1">中文释义</p>
+                                  <p className="text-sm whitespace-pre-wrap text-gray-700 dark:text-gray-300">
+                                    {translations[translationId]}
+                                  </p>
+                                </div>
+                              )}
                             </Card>
                           </div>
                         );
