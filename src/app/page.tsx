@@ -46,16 +46,12 @@ async function syncConfigFromDatabase() {
     const systemRes = await fetch("/api/config/system");
     const systemData = await systemRes.json();
     if (systemData.success && systemData.data && !systemData.isEmpty) {
-      const localPrompt = getSystemPrompt();
-      const localApiConfig = getApiConfig();
-      // 如果数据库有数据，则同步
-      if (!localPrompt || (localApiConfig === null && systemData.data.apiConfig)) {
-        if (systemData.data.systemPrompt) {
-          saveSystemPrompt(systemData.data.systemPrompt);
-        }
-        if (systemData.data.apiConfig) {
-          saveApiConfig(systemData.data.apiConfig);
-        }
+      // 始终同步最新的 system prompt 和 api config（无论 localStorage 是否有数据）
+      if (systemData.data.systemPrompt) {
+        saveSystemPrompt(systemData.data.systemPrompt);
+      }
+      if (systemData.data.apiConfig) {
+        saveApiConfig(systemData.data.apiConfig);
       }
     }
   } catch (error) {
@@ -191,10 +187,11 @@ export default function Home() {
       
       // 检查响应是否为 JSON（不是 HTML 或错误页面）
       const knowledgeContentType = knowledgeRes.headers.get('content-type');
+      const systemContentType = systemRes.headers.get('content-type');
       const knowledgeDataResult = (!knowledgeContentType || !knowledgeContentType.includes('application/json'))
         ? { success: false, isEmpty: true }
         : await knowledgeRes.json();
-      const systemDataResult = (!knowledgeContentType || !knowledgeContentType.includes('application/json'))
+      const systemDataResult = (!systemContentType || !systemContentType.includes('application/json'))
         ? { success: false, isEmpty: true }
         : await systemRes.json();
       
