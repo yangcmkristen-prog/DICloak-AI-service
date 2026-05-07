@@ -117,7 +117,7 @@ export async function saveKnowledgeBase(data: Record<string, any>): Promise<void
   localStorage.setItem('diclok_knowledge', JSON.stringify(data));
 }
 
-export function getKnowledgeStats(data: Record<string, any>): Record<string, number> {
+export function getKnowledgeStats(data?: Record<string, any>): Record<string, number> {
   const stats: Record<string, number> = {
     feature_faq: 0,
     troubleshooting: 0,
@@ -128,6 +128,8 @@ export function getKnowledgeStats(data: Record<string, any>): Record<string, num
     术语: 0,
     total: 0
   };
+  
+  if (!data) return stats;
   
   for (const item of Object.values(data)) {
     const category = (item as any).category || 'unknown';
@@ -140,8 +142,10 @@ export function getKnowledgeStats(data: Record<string, any>): Record<string, num
   return stats;
 }
 
-export function replaceKnowledgeData(existing: Record<string, any>, newData: Record<string, any>): Record<string, any> {
+export function replaceKnowledgeData(existing: Record<string, any>, newData?: Record<string, any>): Record<string, any> {
   const result = { ...existing };
+  
+  if (!newData) return result;
   
   for (const [id, item] of Object.entries(newData)) {
     result[id] = item;
