@@ -279,20 +279,87 @@ export type DetectedLanguage =
   | 'ko'      // 韩语
   | 'mixed';  // 混合语言
 
+// 语言检测辅助函数 - 检测拉丁字母文字所属语言
+function detectLatinScript(text: string): { language: DetectedLanguage; confidence: number } | null {
+  const latinText = text.replace(/[^a-zA-ZáéíóúüñÁÉÍÓÚÜÑãõâêôûàèìòùäöüßãẽĩõũỹãẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹãõãẽ]/g, ' ');
+  
+  if (latinText.length < 3) return null;
+  
+  // 西班牙语特征词汇和字母组合
+  const spanishPatterns = [
+    /\b(hola|gracias|por|favor|como|que|esta|con|para|trabajo|problema|tengo|necesito|ayuda|senal|error|no funciona|login|iniciar|sesion)\b/gi,
+    /[ñÑ]/,
+    /[ü]/,
+    /\b(es|la|el|los|las|un|una|del|al|se|le|me|te|que|pero|como|cuando|donde|porque|si|no)\b.*\b(es|la|el|los|las|un|una|del|al|se|le|me|te|que|pero|como|cuando|donde|porque|si|no)\b/gi,
+  ];
+  
+  // 葡萄牙语特征词汇
+  const portuguesePatterns = [
+    /\b(ola|obrigado|por|favor|como|esta|trabalho|problema.tenho|preciso|ajuda|sinal|erro|nao funciona|login|entrar|sessao)\b/gi,
+    /[ãõ]/,
+    /[ê]/,
+    /\b(e|o|a|os|as|um|uma|de|da|do|em|se|le|me|te|que|mas|como|quando|onde|porque|se|nao)\b.*\b(e|o|a|os|as|um|uma|de|da|do|em|se|le|me|te|que|mas|como|quando|onde|porque|se|nao)\b/gi,
+  ];
+  
+  // 越南语特征
+  const vietnamesePatterns = [
+    /[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/,
+  ];
+  
+  // 计算各语言匹配度
+  let spanishScore = 0;
+  for (const pattern of spanishPatterns) {
+    if (pattern.test(latinText)) spanishScore += 1;
+  }
+  
+  let portugueseScore = 0;
+  for (const pattern of portuguesePatterns) {
+    if (pattern.test(latinText)) portugueseScore += 1;
+  }
+  
+  const vietnameseScore = vietnamesePatterns.some(p => p.test(latinText)) ? 2 : 0;
+  
+  // 越南语检测
+  if (vietnameseScore > 0) {
+    return { language: 'vi', confidence: 0.6 };
+  }
+  
+  // 西班牙语 vs 葡萄牙语
+  if (spanishScore > portugueseScore && spanishScore >= 1) {
+    return { language: 'es', confidence: Math.min(0.5 + spanishScore * 0.15, 0.9) };
+  }
+  
+  if (portugueseScore > 0) {
+    return { language: 'pt', confidence: Math.min(0.5 + portugueseScore * 0.15, 0.9) };
+  }
+  
+  // 印尼语检测（简单模式）
+  if (/\b(ini|yang|dan|untuk|dari|dengan|adalah|dalam|ke|di|pada|atau|tidak|ada|keuangan)\b/gi.test(latinText)) {
+    return { language: 'id', confidence: 0.6 };
+  }
+  
+  // 俄语辅助检测（Cyrillic 旁边的拉丁字母可能是音译）
+  if (text.match(/[\u0400-\u04FF]/) && /[a-zA-Z]/.test(text)) {
+    const cyrillicRatio = (text.match(/[\u0400-\u04FF]/g) || []).length / text.replace(/\s/g, '').length;
+    if (cyrillicRatio > 0.3) {
+      return { language: 'ru', confidence: 0.7 };
+    }
+  }
+  
+  return null;
+}
+
 export function detectLanguage(text: string): DetectedLanguage {
   if (!text || typeof text !== 'string') return 'zh';
   
   const cleanText = text.trim();
   if (!cleanText) return 'zh';
   
-  // 统计各语言字符
-  const stats = {
+  // 1. 先检测非拉丁语系语言
+  const nonLatinStats = {
     chinese: (cleanText.match(/[\u4e00-\u9fa5]/g) || []).length,
     japanese: (cleanText.match(/[\u3040-\u309f\u30a0-\u30ff]/g) || []).length,
     korean: (cleanText.match(/[\uac00-\ud7af\u1100-\u115f]/g) || []).length,
-    english: (cleanText.match(/[a-zA-Z]/g) || []).length,
-    spanish: (cleanText.match(/[áéíóúüñ¿¡]+/gi) || []).length,
-    portuguese: (cleanText.match(/[ãõâêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/gi) || []).length,
     cyrillic: (cleanText.match(/[\u0400-\u04FF]/g) || []).length,
     thai: (cleanText.match(/[\u0e00-\u0e7f]/g) || []).length,
     arabic: (cleanText.match(/[\u0600-\u06ff\u0750-\u077f]/g) || []).length,
@@ -301,26 +368,52 @@ export function detectLanguage(text: string): DetectedLanguage {
   const totalChars = cleanText.replace(/\s/g, '').length;
   if (totalChars === 0) return 'zh';
   
-  const ratios: Record<string, number> = {};
-  for (const [lang, count] of Object.entries(stats)) {
-    ratios[lang] = count / totalChars;
+  const nonLatinRatios: Record<string, number> = {};
+  for (const [lang, count] of Object.entries(nonLatinStats)) {
+    nonLatinRatios[lang] = count / totalChars;
   }
   
   const THRESHOLD = 0.2;
   
-  if (ratios.thai >= THRESHOLD) return 'th';
-  if (ratios.arabic >= THRESHOLD) return 'ar';
-  if (ratios.cyrillic >= THRESHOLD) return 'ru';
-  if (ratios.spanish >= THRESHOLD) return 'es';
-  if (ratios.portuguese >= THRESHOLD) return 'pt';
-  if (ratios.chinese >= THRESHOLD) return 'zh';
-  if (ratios.japanese >= THRESHOLD) return 'ja';
-  if (ratios.korean >= THRESHOLD) return 'ko';
-  if (ratios.english >= THRESHOLD) return 'en';
+  // 非拉丁语系优先检测
+  if (nonLatinRatios.thai >= THRESHOLD) return 'th';
+  if (nonLatinRatios.arabic >= THRESHOLD) return 'ar';
+  if (nonLatinRatios.cyrillic >= THRESHOLD) return 'ru';
+  if (nonLatinRatios.chinese >= THRESHOLD) return 'zh';
+  if (nonLatinRatios.japanese >= THRESHOLD) return 'ja';
+  if (nonLatinRatios.korean >= THRESHOLD) return 'ko';
   
-  const activeLangCount = Object.entries(ratios).filter(([_, r]) => r >= 0.1).length;
-  if (activeLangCount >= 2) return 'mixed';
+  // 2. 检测拉丁语系语言（西班牙语、葡萄牙语、越南语、印尼语）
+  const latinResult = detectLatinScript(cleanText);
+  if (latinResult && latinResult.confidence >= 0.5) {
+    return latinResult.language;
+  }
   
+  // 3. 检测英文
+  const englishCount = (cleanText.match(/[a-zA-Z]/g) || []).length;
+  const englishRatio = englishCount / totalChars;
+  
+  if (englishRatio >= 0.5) {
+    // 英文为主，检查是否有其他语言混入
+    const chineseChars = nonLatinStats.chinese;
+    const latinResult = detectLatinScript(cleanText);
+    
+    if (chineseChars > 5) return 'mixed';
+    if (latinResult && latinResult.confidence >= 0.4) return latinResult.language;
+    
+    return 'en';
+  }
+  
+  // 4. 混合语言检测
+  const activeNonEnglishCount = Object.entries(nonLatinRatios).filter(([k, v]) => k !== 'chinese' && v >= 0.1).length;
+  const chineseChars = nonLatinStats.chinese;
+  const englishChars = englishCount;
+  
+  if (chineseChars > 0 && englishChars > 0) return 'mixed';
+  if (chineseChars > 0 && activeNonEnglishCount > 0) return 'mixed';
+  if (englishChars > 0 && activeNonEnglishCount > 0) return 'mixed';
+  
+  // 默认返回中文
   return 'zh';
 }
 
