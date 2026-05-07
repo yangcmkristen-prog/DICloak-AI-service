@@ -129,7 +129,20 @@ export function getKnowledgeStats(data?: Record<string, any>): Record<string, nu
     total: 0
   };
   
-  if (!data) return stats;
+  // 如果没有传入数据，从 localStorage 读取
+  if (!data) {
+    try {
+      const local = localStorage.getItem('diclok_knowledge');
+      if (local) {
+        data = JSON.parse(local);
+      } else {
+        return stats;
+      }
+    } catch (e) {
+      console.error('读取知识库失败:', e);
+      return stats;
+    }
+  }
   
   // 遍历 data 的所有键值对
   for (const [key, value] of Object.entries(data)) {
