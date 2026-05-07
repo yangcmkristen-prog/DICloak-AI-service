@@ -10,13 +10,21 @@ export async function POST(request: NextRequest) {
     }
 
     // 根据前端检测的语言，设置输出语言规则
-    let languageRule = "所有回复必须使用中文";
-    if (detectedLanguage === 'en') {
-      languageRule = "All replies must be in English";
-    } else if (detectedLanguage === 'mixed') {
-      // 混合语言时，以中文为主
-      languageRule = "用户问题中中文较多，所有回复必须使用中文";
-    }
+    const languageRules: Record<string, string> = {
+      zh: "所有回复必须使用中文",
+      en: "All replies must be in English",
+      es: "Todas las respuestas deben estar en español",
+      pt: "Todas as respostas devem estar em português",
+      ru: "Все ответы должны быть на русском языке",
+      vi: "Tất cả các câu trả lời phải bằng tiếng Việt",
+      id: "Semua jawaban harus dalam bahasa Indonesia",
+      th: "คำตอบทั้งหมดต้องเป็นภาษาไทย",
+      ar: "يجب أن تكون جميع الإجابات باللغة العربية",
+      ja: "すべての回答は日本語で必要があります",
+      ko: "모든 답변은 한국어로 작성해야 합니다",
+      mixed: "用户问题中包含多种语言，请使用中文回复",
+    };
+    const languageRule = languageRules[detectedLanguage] || languageRules.zh;
 
     // API 配置
     const config = apiConfig || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
