@@ -131,12 +131,19 @@ export function getKnowledgeStats(data?: Record<string, any>): Record<string, nu
   
   if (!data) return stats;
   
-  for (const item of Object.values(data)) {
-    const category = (item as any).category || 'unknown';
-    if (category in stats) {
-      stats[category]++;
+  // 遍历 data 的所有键值对
+  for (const [key, value] of Object.entries(data)) {
+    // 如果值是数组（KnowledgeItem 数组），遍历每个 item
+    if (Array.isArray(value)) {
+      for (const item of value as KnowledgeItem[]) {
+        if (item && item.category) {
+          if (item.category in stats) {
+            stats[item.category]++;
+          }
+          stats.total++;
+        }
+      }
     }
-    stats.total++;
   }
   
   return stats;
@@ -147,8 +154,19 @@ export function replaceKnowledgeData(existing: Record<string, any>, newData?: Re
   
   if (!newData) return result;
   
-  for (const [id, item] of Object.entries(newData)) {
-    result[id] = item;
+  // 遍历 newData 的所有键值对
+  for (const [key, value] of Object.entries(newData)) {
+    // 如果值是数组（KnowledgeItem 数组），展开到扁平格式
+    if (Array.isArray(value)) {
+      for (const item of value as KnowledgeItem[]) {
+        if (item && item.id) {
+          result[item.id] = item;
+        }
+      }
+    } else {
+      // 其他字段（如 lastUpdated）直接设置
+      result[key] = value;
+    }
   }
   
   return result;
