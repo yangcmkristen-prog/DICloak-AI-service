@@ -281,69 +281,68 @@ export type DetectedLanguage =
 
 // 语言检测辅助函数 - 检测拉丁字母文字所属语言
 function detectLatinScript(text: string): { language: DetectedLanguage; confidence: number } | null {
-  const latinText = text.replace(/[^a-zA-ZáéíóúüñÁÉÍÓÚÜÑãõâêôûàèìòùäöüßãẽĩõũỹãẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹãõãẽ]/g, ' ');
+  if (text.length < 3) return null;
   
-  if (latinText.length < 3) return null;
+  // 使用 match 而不是 test，避免 global regex 的 lastIndex 问题
+  // 转换为小写以便匹配
+  const lowerText = text.toLowerCase();
   
-  // 西班牙语特征词汇和字母组合
-  const spanishPatterns = [
-    /\b(hola|gracias|por|favor|como|que|esta|con|para|trabajo|problema|tengo|necesito|ayuda|senal|error|no funciona|login|iniciar|sesion)\b/gi,
-    /[ñÑ]/,
-    /[ü]/,
-    /\b(es|la|el|los|las|un|una|del|al|se|le|me|te|que|pero|como|cuando|donde|porque|si|no)\b.*\b(es|la|el|los|las|un|una|del|al|se|le|me|te|que|pero|como|cuando|donde|porque|si|no)\b/gi,
+  // 西班牙语特征词汇（包含变体和复数形式）
+  const spanishWords = [
+    'hola', 'gracias', 'favor', 'trabajo', 'trabajos', 'problema', 'tengo', 'tiene', 
+    'necesito', 'ayuda', 'ayudar', 'senal', 'error', 'funciona', 'login', 'sesion',
+    'iniciar', 'eliminar', 'imagen', 'imagenes', 'como', 'hacer', 'quiero', 'tengo',
+    'hice', 'hacer', 'puedo', 'puede', 'tienen', 'tengo', 'donde', 'cuando', 'porque',
+    'pero', 'para', 'este', 'esta', 'esto', 'estos', 'estas', 'ese', 'esa', 'eso',
+    'con', 'sin', 'sobre', 'bajo', 'tiene', 'tienen', 'hay', 'tener', 'hacer', 'ir',
+    'ver', 'dar', 'saber', 'querer', 'poder', 'deber', 'hacer', 'decir', 'ser', 'estar',
+    'que', 'quien', 'cual', 'cuanto', 'cuando', 'donde', 'como', 'porque',
+    'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'del', 'al',
+    'y', 'o', 'pero', 'porque', 'si', 'no', 'ni', 'ya', 'mas', 'muy',
+    'mi', 'tu', 'su', 'nos', 'vos', 'se', 'le', 'me', 'te',
   ];
   
   // 葡萄牙语特征词汇
-  const portuguesePatterns = [
-    /\b(ola|obrigado|por|favor|como|esta|trabalho|problema.tenho|preciso|ajuda|sinal|erro|nao funciona|login|entrar|sessao)\b/gi,
-    /[ãõ]/,
-    /[ê]/,
-    /\b(e|o|a|os|as|um|uma|de|da|do|em|se|le|me|te|que|mas|como|quando|onde|porque|se|nao)\b.*\b(e|o|a|os|as|um|uma|de|da|do|em|se|le|me|te|que|mas|como|quando|onde|porque|se|nao)\b/gi,
+  const portugueseWords = [
+    'ola', 'obrigado', 'trabalho', 'problema', 'tenho', 'preciso', 'ajuda',
+    'sinal', 'erro', 'funciona', 'login', 'sessao', 'entrar',
+    'por', 'favor', 'como', 'esta', 'esse', 'essa', 'este', 'esta',
+    'o', 'a', 'os', 'as', 'um', 'uma', 'de', 'da', 'do', 'em',
+    'e', 'ou', 'mas', 'que', 'se', 'nao', 'ja', 'mais', 'muito',
   ];
   
-  // 越南语特征
-  const vietnamesePatterns = [
-    /[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/,
-  ];
-  
-  // 计算各语言匹配度
+  // 计算西班牙语匹配分数
   let spanishScore = 0;
-  for (const pattern of spanishPatterns) {
-    if (pattern.test(latinText)) spanishScore += 1;
+  for (const word of spanishWords) {
+    if (lowerText.includes(word)) spanishScore++;
   }
   
+  // 计算葡萄牙语匹配分数
   let portugueseScore = 0;
-  for (const pattern of portuguesePatterns) {
-    if (pattern.test(latinText)) portugueseScore += 1;
+  for (const word of portugueseWords) {
+    if (lowerText.includes(word)) portugueseScore++;
   }
   
-  const vietnameseScore = vietnamesePatterns.some(p => p.test(latinText)) ? 2 : 0;
+  console.log('[DEBUG] 西班牙语分数:', spanishScore, '葡萄牙语分数:', portugueseScore);
   
-  // 越南语检测
-  if (vietnameseScore > 0) {
-    return { language: 'vi', confidence: 0.6 };
+  // 越南语特殊字符检测
+  if (/[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(text)) {
+    return { language: 'vi', confidence: 0.7 };
   }
   
-  // 西班牙语 vs 葡萄牙语
-  if (spanishScore > portugueseScore && spanishScore >= 1) {
-    return { language: 'es', confidence: Math.min(0.5 + spanishScore * 0.15, 0.9) };
-  }
-  
-  if (portugueseScore > 0) {
-    return { language: 'pt', confidence: Math.min(0.5 + portugueseScore * 0.15, 0.9) };
-  }
-  
-  // 印尼语检测（简单模式）
-  if (/\b(ini|yang|dan|untuk|dari|dengan|adalah|dalam|ke|di|pada|atau|tidak|ada|keuangan)\b/gi.test(latinText)) {
+  // 印尼语特征词汇
+  const indonesianWords = ['ini', 'yang', 'dan', 'untuk', 'dari', 'dengan', 'adalah', 'dalam', 'ke', 'di', 'pada', 'atau', 'tidak', 'ada'];
+  if (indonesianWords.some(w => lowerText.includes(w))) {
     return { language: 'id', confidence: 0.6 };
   }
   
-  // 俄语辅助检测（Cyrillic 旁边的拉丁字母可能是音译）
-  if (text.match(/[\u0400-\u04FF]/) && /[a-zA-Z]/.test(text)) {
-    const cyrillicRatio = (text.match(/[\u0400-\u04FF]/g) || []).length / text.replace(/\s/g, '').length;
-    if (cyrillicRatio > 0.3) {
-      return { language: 'ru', confidence: 0.7 };
-    }
+  // 西班牙语 vs 葡萄牙语（分数相同时，西班牙语优先）
+  if (spanishScore > portugueseScore || (spanishScore > 0 && spanishScore === portugueseScore)) {
+    return { language: 'es', confidence: Math.min(0.5 + spanishScore * 0.05, 0.95) };
+  }
+  
+  if (portugueseScore > 0) {
+    return { language: 'pt', confidence: Math.min(0.5 + portugueseScore * 0.05, 0.95) };
   }
   
   return null;
@@ -385,7 +384,9 @@ export function detectLanguage(text: string): DetectedLanguage {
   
   // 2. 检测拉丁语系语言（西班牙语、葡萄牙语、越南语、印尼语）
   const latinResult = detectLatinScript(cleanText);
-  if (latinResult && latinResult.confidence >= 0.5) {
+  console.log('[DEBUG] Latin检测结果:', latinResult);
+  if (latinResult && latinResult.confidence >= 0.3) {
+    console.log('[DEBUG] 返回拉丁语系:', latinResult.language);
     return latinResult.language;
   }
   
@@ -396,10 +397,13 @@ export function detectLanguage(text: string): DetectedLanguage {
   if (englishRatio >= 0.5) {
     // 英文为主，检查是否有其他语言混入
     const chineseChars = nonLatinStats.chinese;
-    const latinResult = detectLatinScript(cleanText);
     
     if (chineseChars > 5) return 'mixed';
-    if (latinResult && latinResult.confidence >= 0.4) return latinResult.language;
+    if (latinResult && latinResult.confidence >= 0.2) {
+      console.log('[DEBUG] 英文为主但检测到拉丁语系:', latinResult.language);
+      return latinResult.language;
+    }
+    console.log('[DEBUG] 英文为主，返回en');
     
     return 'en';
   }
