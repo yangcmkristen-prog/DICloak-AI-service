@@ -9,8 +9,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "消息不能为空" }, { status: 400 });
     }
 
-    // 根据前端检测的语言，设置输出语言规则
+    // 添加调试日志
     console.log('[DEBUG] 后端接收语言:', detectedLanguage);
+    console.log('[DEBUG] systemPrompt 长度:', systemPrompt?.length || 0);
+    
+    // 语言规则映射
     const languageRules: Record<string, string> = {
       zh: "所有回复必须使用中文",
       en: "All replies must be in English",
@@ -32,7 +35,7 @@ export async function POST(request: NextRequest) {
     const config = apiConfig || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
 
     // 优先使用前端传递的 System Prompt，其次使用默认 Prompt
-    const finalSystemPrompt = systemPrompt || `你是 DICloak 客服助手，专注于帮助客服人员快速生成专业、友好的客户回复。
+    const defaultPrompt = `你是 DICloak 客服助手，专注于帮助客服人员快速生成专业、友好的客户回复。
 
 ## 核心职责
 根据客户的问题，从知识库和对话历史中提取关键信息，生成3条不同角度的推荐回复。
@@ -46,6 +49,15 @@ export async function POST(request: NextRequest) {
 
 ## 输出格式
 请直接输出3条推荐回复，每条之间用换行分隔，不要添加序号或额外说明。`;
+
+    // 获取基础 system prompt，并替换 {{language}} 占位符
+    let baseSystemPrompt = systemPrompt || defaultPrompt;
+    baseSystemPrompt = baseSystemPrompt.replace(/\{\{language\}\}/g, languageRule);
+    
+    // 确保语言规则在 system prompt 开头强制执行
+    const finalSystemPrompt = `${languageRule}
+
+${baseSystemPrompt}`;
 
     // 优先使用前端传递的知识库数据
     const knowledgeBase = knowledge || {
