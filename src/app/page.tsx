@@ -25,6 +25,7 @@ import {
   saveSystemPrompt,
   getApiConfig,
   saveApiConfig,
+  detectLanguage,
 } from "@/lib/store";
 import { toast } from "sonner";
 
@@ -206,6 +207,7 @@ export default function Home() {
         : getApiConfig();
 
       // 构建请求
+      const detectedLang = detectLanguage(content);
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -218,6 +220,7 @@ export default function Home() {
           knowledge: knowledgeData,
           systemPrompt: systemPrompt,
           apiConfig: currentApiConfig,
+          detectedLanguage: detectedLang,
         }),
       });
 

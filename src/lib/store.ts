@@ -317,3 +317,49 @@ export const PROVIDER_INFO = {
     keyPlaceholder: '输入你的 API Key',
   },
 };
+
+// ============ 语言检测 ============
+
+export type DetectedLanguage = 'zh' | 'en' | 'mixed';
+
+export function detectLanguage(text: string): DetectedLanguage {
+  if (!text || typeof text !== 'string') return 'zh';
+  
+  // 移除空白字符
+  const cleanText = text.trim();
+  if (!cleanText) return 'zh';
+  
+  // 统计中文字符
+  const chineseChars = (cleanText.match(/[\u4e00-\u9fa5]/g) || []).length;
+  // 统计英文字母
+  const englishChars = (cleanText.match(/[a-zA-Z]/g) || []).length;
+  // 总字符数（不含空格）
+  const totalChars = cleanText.replace(/\s/g, '').length;
+  
+  if (totalChars === 0) return 'zh';
+  
+  const chineseRatio = chineseChars / totalChars;
+  const englishRatio = englishChars / totalChars;
+  
+  // 阈值判断
+  if (chineseRatio > 0.3 && englishRatio > 0.3) {
+    return 'mixed'; // 中英文混合
+  } else if (chineseRatio > 0.5) {
+    return 'zh'; // 以中文为主
+  } else if (englishRatio > 0.5) {
+    return 'en'; // 以英文为主
+  } else if (chineseRatio > englishRatio) {
+    return 'zh';
+  } else {
+    return 'en';
+  }
+}
+
+export function getLanguageName(lang: DetectedLanguage): string {
+  switch (lang) {
+    case 'zh': return '中文';
+    case 'en': return '英文';
+    case 'mixed': return '中英文混合';
+    default: return '中文';
+  }
+}

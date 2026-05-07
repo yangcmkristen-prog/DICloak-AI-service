@@ -3,10 +3,19 @@ import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, history, knowledge, systemPrompt, apiConfig } = await request.json();
+    const { message, history, knowledge, systemPrompt, apiConfig, detectedLanguage } = await request.json();
 
     if (!message) {
       return NextResponse.json({ error: "消息不能为空" }, { status: 400 });
+    }
+
+    // 根据前端检测的语言，设置输出语言规则
+    let languageRule = "所有回复必须使用中文";
+    if (detectedLanguage === 'en') {
+      languageRule = "All replies must be in English";
+    } else if (detectedLanguage === 'mixed') {
+      // 混合语言时，以中文为主
+      languageRule = "用户问题中中文较多，所有回复必须使用中文";
     }
 
     // API 配置
@@ -124,7 +133,9 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const fullPrompt = `客户问题: ${message}${knowledgeContext}${historyContext}
+    const fullPrompt = `${languageRule}
+
+客户问题: ${message}${knowledgeContext}${historyContext}
 
 请根据以上知识库信息，生成3条推荐回复。如果问题属于"超范围"类别，请先说明无法支持后再给出适当的建议。`;
 
