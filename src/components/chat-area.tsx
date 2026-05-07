@@ -14,21 +14,90 @@ interface ChatAreaProps {
   isGenerating: boolean;
 }
 
+// 解析 AI 回复，按类型分组
+interface ParsedReply {
+  type: "question" | "main" | "supplement" | "info";
+  content: string;
+}
+
+function parseReplies(content: string): ParsedReply[] {
+  const result: ParsedReply[] = [];
+  
+  const sections = [
+    { pattern: /\[问题类型\]/i, type: "question" as const },
+    { pattern: /\[主回复\]/i, type: "main" as const },
+    { pattern: /\[回复1\]/i, type: "main" as const },
+    { pattern: /\[补充建议\]/i, type: "supplement" as const },
+    { pattern: /\[需要补充的信息\]/i, type: "info" as const },
+    { pattern: /\[回复2\]/i, type: "supplement" as const },
+    { pattern: /\[回复3\]/i, type: "info" as const },
+  ];
+
+  const lines = content.split("\n");
+  
+  let currentSection: ParsedReply | null = null;
+  let sectionContent: string[] = [];
+  let foundMain = false;
+  
+  for (const line of lines) {
+    let matchedSection = false;
+    
+    for (const { pattern, type } of sections) {
+      if (pattern.test(line)) {
+        if (currentSection && sectionContent.length > 0) {
+          result.push({
+            ...currentSection,
+            content: sectionContent.join("\n").trim()
+          });
+        }
+        
+        // 只保留第一个主回复，忽略后续的
+        if (type === "main" && foundMain) {
+          currentSection = null;
+          sectionContent = [];
+          matchedSection = true;
+          break;
+        }
+        
+        currentSection = { type, content: "" };
+        sectionContent = [];
+        
+        if (type === "main") foundMain = true;
+        
+        matchedSection = true;
+        break;
+      }
+    }
+    
+    if (!matchedSection && currentSection) {
+      sectionContent.push(line);
+    }
+  }
+  
+  if (currentSection && sectionContent.length > 0) {
+    result.push({
+      ...currentSection,
+      content: sectionContent.join("\n").trim()
+    });
+  }
+
+  if (result.length === 0) {
+    return [{ type: "question", content: content.trim() }];
+  }
+
+  return result;
+}
+
 // 提取纯内容（去除标题）
 function extractPureContent(text: string): string {
-  // 去除首尾空白
   let content = text.trim();
 
-  // 匹配标题模式：
-  // - [回复1]、[回复 1]、[回复1] 等带方括号的
-  // - 回复1、回复 1、回复1 等纯文字开头的
-  // - 1.、1、 等数字开头的
   const patterns = [
-    /^\[回复\s*\d+\]\s*/i,      // [回复1]、[回复 1]、[回复1]
-    /^\[回复\d+\]\s*/i,          // [回复1]、[回复1]
-    /^回复\s*\d+\s*[:：]?\s*/i,  // 回复1：、回复1:、回复1
-    /^\d+\s*[:：.、]\s*/,        // 1.、1:、1、1
-    /^\[.*?\]\s*/,               // 其他方括号开头
+    /^\[回复\s*\d+\]\s*/i,
+    /^\[回复\d+\]\s*/i,
+    /^回复\s*\d+\s*[:：]?\s*/i,
+    /^\d+\s*[:：.、]\s*/,
+    /^\[.*?\]\s*/,
   ];
 
   for (const pattern of patterns) {
@@ -36,6 +105,163 @@ function extractPureContent(text: string): string {
   }
 
   return content.trim();
+}
+
+// 渲染回复卡片的组件
+function ReplyCard({ 
+  reply, 
+  index, 
+  messageId, 
+  onCopy, 
+  onTranslate,
+  copiedId,
+  expandedTranslations,
+  translations,
+  translatingIds
+}: { 
+  reply: ParsedReply; 
+  index: number;
+  messageId: string;
+  onCopy: (content: string, id: string) => void;
+  onTranslate: (content: string, id: string) => void;
+  copiedId: string | null;
+  expandedTranslations: Record<string, boolean>;
+  translations: Record<string, string>;
+  translatingIds: Record<string, boolean>;
+}) {
+  const pureContent = extractPureContent(reply.content);
+  
+  if (!pureContent) return null;
+  
+  const titleMap: Record<string, string> = {
+    question: "问题类型",
+    main: "主回复",
+    supplement: "补充建议",
+    info: "需要补充的信息"
+  };
+  
+  const title = titleMap[reply.type] || `回复${index + 1}`;
+  const isQuestion = reply.type === "question";
+  const translationId = `${messageId}-${reply.type}-${index}`;
+  const isExpanded = expandedTranslations[translationId];
+  const hasTranslation = !!translations[translationId];
+  const isTranslating = translatingIds[translationId];
+  
+  return (
+    <div key={index} className="space-y-2">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">
+          {title}
+        </h4>
+        {!isQuestion && (
+          <div className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
+              onClick={() => onTranslate(pureContent, translationId)}
+              disabled={isTranslating}
+            >
+              {isTranslating ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : isExpanded ? (
+                <ChevronUp className="w-3 h-3 mr-1" />
+              ) : (
+                <span className="text-xs">译</span>
+              )}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
+              onClick={() => onCopy(pureContent, translationId)}
+            >
+              {copiedId === translationId ? (
+                <>
+                  <Check className="w-3 h-3 mr-1" />
+                  <span className="text-xs">已复制</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3 h-3 mr-1" />
+                  <span className="text-xs">复制</span>
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+      </div>
+      <Card className="p-3 hover:border-blue-300 transition-colors">
+        <p className="text-sm whitespace-pre-wrap">{pureContent}</p>
+        {isExpanded && hasTranslation && (
+          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+            <p className="text-xs text-gray-500 mb-1">中文释义</p>
+            <p className="text-sm whitespace-pre-wrap text-gray-700 dark:text-gray-300">
+              {translations[translationId]}
+            </p>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// 渲染 AI 回复消息的组件
+function AIReplies({ 
+  content, 
+  messageId,
+  onCopy,
+  onTranslate,
+  copiedId,
+  expandedTranslations,
+  translations,
+  translatingIds
+}: { 
+  content: string;
+  messageId: string;
+  onCopy: (content: string, id: string) => void;
+  onTranslate: (content: string, id: string) => void;
+  copiedId: string | null;
+  expandedTranslations: Record<string, boolean>;
+  translations: Record<string, string>;
+  translatingIds: Record<string, boolean>;
+}) {
+  const parsed = parseReplies(content);
+  
+  // 显示顺序：问题类型 -> 主回复 -> 补充建议 -> 需要补充的信息
+  const sorted = [...parsed].sort((a, b) => {
+    const order = { question: 0, main: 1, supplement: 2, info: 3 };
+    return order[a.type] - order[b.type];
+  });
+  
+  // 确保只有一个主回复（忽略多余的[主回复]/[回复1]）
+  let mainCount = 0;
+  const filtered = sorted.filter(reply => {
+    if (reply.type === "main") {
+      mainCount++;
+      return mainCount <= 1;
+    }
+    return true;
+  });
+  
+  return (
+    <div className="space-y-4">
+      {filtered.map((reply, index) => (
+        <ReplyCard
+          key={index}
+          reply={reply}
+          index={index}
+          messageId={messageId}
+          onCopy={onCopy}
+          onTranslate={onTranslate}
+          copiedId={copiedId}
+          expandedTranslations={expandedTranslations}
+          translations={translations}
+          translatingIds={translatingIds}
+        />
+      ))}
+    </div>
+  );
 }
 
 export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProps) {
@@ -150,87 +376,20 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                   {message.role === "user" ? (
                     <p className="whitespace-pre-wrap">{message.content}</p>
                   ) : (
-                    <div className="space-y-4">
-                      {message.content.split("\n\n").filter(Boolean).map((reply, index) => {
-                        // 提取纯内容用于显示和复制
-                        const pureContent = extractPureContent(reply);
-                        // 第一条显示"问题类型"，其余显示"回复1/2/3"
-                        const title = index === 0 ? "问题类型" : `回复${index}`;
-                        const isFirst = index === 0; // 第一条（问题类型）不显示复制按钮
-                        const translationId = `${message.id}-${index}`;
-                        const isExpanded = expandedTranslations[translationId];
-                        const hasTranslation = !!translations[translationId];
-                        const isTranslating = translatingIds[translationId];
-                        return (
-                          <div key={index} className="space-y-2">
-                            {/* 回复标题 */}
-                            <div className="flex items-center justify-between">
-                              <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                                {title}
-                              </h4>
-                              {!isFirst && (
-                                <div className="flex items-center gap-1">
-                                  {/* 翻译按钮 */}
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
-                                    onClick={() => handleTranslate(pureContent, translationId)}
-                                    disabled={isTranslating}
-                                  >
-                                    {isTranslating ? (
-                                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                                    ) : isExpanded ? (
-                                      <ChevronUp className="w-3 h-3 mr-1" />
-                                    ) : (
-                                      <span className="text-xs">译</span>
-                                    )}
-                                  </Button>
-                                  {/* 复制按钮 */}
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
-                                    onClick={() => handleCopy(pureContent, translationId)}
-                                  >
-                                    {copiedId === translationId ? (
-                                      <>
-                                        <Check className="w-3 h-3 mr-1" />
-                                        <span className="text-xs">已复制</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Copy className="w-3 h-3 mr-1" />
-                                        <span className="text-xs">复制</span>
-                                      </>
-                                    )}
-                                  </Button>
-                                </div>
-                              )}
-                            </div>
-                            {/* 回复内容卡片 - 显示纯内容 */}
-                            <Card className="p-3 hover:border-blue-300 transition-colors">
-                              <p className="text-sm whitespace-pre-wrap">
-                                {pureContent}
-                              </p>
-                              {/* 中文释义 */}
-                              {isExpanded && hasTranslation && (
-                                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-                                  <p className="text-xs text-gray-500 mb-1">中文释义</p>
-                                  <p className="text-sm whitespace-pre-wrap text-gray-700 dark:text-gray-300">
-                                    {translations[translationId]}
-                                  </p>
-                                </div>
-                              )}
-                            </Card>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <AIReplies
+                      content={message.content}
+                      messageId={message.id}
+                      onCopy={handleCopy}
+                      onTranslate={handleTranslate}
+                      copiedId={copiedId}
+                      expandedTranslations={expandedTranslations}
+                      translations={translations}
+                      translatingIds={translatingIds}
+                    />
                   )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
 
             {isGenerating && (
               <div className="flex justify-start">
