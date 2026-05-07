@@ -208,6 +208,7 @@ export default function Home() {
 
       // 构建请求
       const detectedLang = detectLanguage(content);
+      console.log('[DEBUG] 检测语言:', detectedLang, '原文:', content);
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

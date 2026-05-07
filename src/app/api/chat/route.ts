@@ -10,6 +10,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 根据前端检测的语言，设置输出语言规则
+    console.log('[DEBUG] 后端接收语言:', detectedLanguage);
     const languageRules: Record<string, string> = {
       zh: "所有回复必须使用中文",
       en: "All replies must be in English",
@@ -25,6 +26,7 @@ export async function POST(request: NextRequest) {
       mixed: "用户问题中包含多种语言，请使用中文回复",
     };
     const languageRule = languageRules[detectedLanguage] || languageRules.zh;
+    console.log('[DEBUG] 使用的语言规则:', languageRule);
 
     // API 配置
     const config = apiConfig || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
