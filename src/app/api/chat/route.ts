@@ -13,6 +13,25 @@ export async function POST(request: NextRequest) {
     console.log('[DEBUG] 后端接收语言:', detectedLanguage);
     console.log('[DEBUG] systemPrompt 长度:', systemPrompt?.length || 0);
     
+    // 调试知识库数据
+    console.log('[DEBUG] knowledge对象存在:', !!knowledge);
+    if (knowledge) {
+      console.log('[DEBUG] FAQ数量:', knowledge.faqItems?.length || 0);
+      console.log('[DEBUG] Troubleshooting数量:', knowledge.troubleshootingItems?.length || 0);
+      console.log('[DEBUG] 术语库数量:', knowledge.termItems?.length || 0);
+      // 检查第一个FAQ是否有termIds
+      if (knowledge.faqItems?.length > 0) {
+        console.log('[DEBUG] 第一个FAQ:', JSON.stringify(knowledge.faqItems[0]));
+      }
+      if (knowledge.troubleshootingItems?.length > 0) {
+        console.log('[DEBUG] 第一个Troubleshooting:', JSON.stringify(knowledge.troubleshootingItems[0]));
+      }
+      // 检查术语库结构
+      if (knowledge.termItems?.length > 0) {
+        console.log('[DEBUG] 第一个术语:', JSON.stringify(knowledge.termItems[0]));
+      }
+    }
+    
     // 语言规则映射
     const languageRules: Record<string, string> = {
       zh: "所有回复必须使用中文",
@@ -40,6 +59,18 @@ export async function POST(request: NextRequest) {
 ## 核心职责
 根据客户的问题，从知识库和对话历史中提取关键信息，生成3条不同角度的推荐回复。
 
+## 【重要】术语翻译标记处理规则
+知识库中的术语已预先翻译为 "[已翻译:原文→译文]" 格式。
+**你必须严格遵循以下规则处理这些标记：**
+1. **识别标记**：在回答中看到 "[已翻译:Team→团队]" 这样的格式
+2. **提取译文**：提取箭头 "→" 后面的部分（如"团队"）
+3. **替换输出**：在最终回复中，只输出译文，删除整个 "[已翻译:...]" 标记
+4. **示例**：
+   - 原文：进入 [已翻译:Team→团队]>[已翻译:Members→成员] 页面
+   - 正确输出：进入团队>成员页面
+   - 错误输出：进入 [已翻译:Team→团队]>[已翻译:Members→成员] 页面（保留标记）
+   - 错误输出：进入 Team>Members 页面（使用原文）
+
 ## 回复要求
 1. **专业性**：使用正式、友好的语气
 2. **针对性**：针对客户问题给出具体解决方案
@@ -66,19 +97,29 @@ ${baseSystemPrompt}`;
     function replaceTerms(text: string, termIds: string[], termItems: any[], targetLang: string): string {
       // 如果目标语言不在术语库支持的语言列表中，不进行术语替换，让 AI 自己翻译
       if (!SUPPORTED_TERM_LANGS.includes(targetLang)) {
+        console.log(`[TERM DEBUG] 语言 ${targetLang} 不在支持列表中，跳过术语替换`);
         return text;
       }
       
       if (!termIds || termIds.length === 0 || !termItems || termItems.length === 0) {
+        console.log(`[TERM DEBUG] termIds为空或termItems为空，跳过: termIds=${JSON.stringify(termIds)}, termItems数量=${termItems?.length}`);
         return text;
       }
+      
+      console.log(`[TERM DEBUG] 开始术语替换，语言=${targetLang}, termIds=${JSON.stringify(termIds)}, termItems数量=${termItems.length}`);
+      console.log(`[TERM DEBUG] termItems前3个: ${JSON.stringify(termItems.slice(0, 3).map(t => ({termId: t.termId, termEN: t.termEN, termCN: t.termCN})))}`);
       
       let result = text;
       
       for (const termId of termIds) {
-        // 在术语库中查找对应的术语
-        const term = termItems.find(t => t.id === termId || t.termId === termId || t.术语ID === termId);
-        if (!term) continue;
+        // 在术语库中查找对应的术语（注意：termId 是 Excel 中的 term_id，不是生成的 id）
+        const term = termItems.find(t => t.termId === termId);
+        if (!term) {
+          console.log(`[TERM DEBUG] 未找到术语: ${termId}`);
+          continue;
+        }
+        
+        console.log(`[TERM DEBUG] 找到术语: ${termId}, termEN=${term.termEN}, termCN=${term.termCN}`);
         
         // 如果是英文，不需要替换
         if (targetLang === 'en') {
@@ -107,6 +148,8 @@ ${baseSystemPrompt}`;
             targetTerm = '';
         }
         
+        console.log(`[TERM DEBUG] 目标语言翻译: ${targetTerm}`);
+        
         // 如果没有目标语言翻译，跳过（让 AI 自己翻译）
         if (!targetTerm) {
           targetTerm = term.termEN || term.en || term['英文'] || '';
@@ -121,9 +164,13 @@ ${baseSystemPrompt}`;
           const regex = new RegExp(englishTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
           // 替换后添加术语标识，让 AI 知道这是已翻译的术语
           result = result.replace(regex, `[已翻译:${englishTerm}→${targetTerm}]`);
+          console.log(`[TERM DEBUG] 替换成功: "${englishTerm}" -> "[已翻译:${englishTerm}→${targetTerm}]"`);
+        } else {
+          console.log(`[TERM DEBUG] 跳过替换: englishTerm="${englishTerm}", targetTerm="${targetTerm}"`);
         }
       }
       
+      console.log(`[TERM DEBUG] 替换后结果: ${result}`);
       return result;
     }
 
@@ -143,10 +190,15 @@ ${baseSystemPrompt}`;
     // 添加 FAQ 数据（包含术语替换）
     if (knowledgeBase.faqItems && knowledgeBase.faqItems.length > 0) {
       knowledgeContext += "\n\n## FAQ 知识库\n";
-      knowledgeBase.faqItems.forEach((item: { questionCN: string; answer: string; functionId?: string; termIds?: string[] }, index: number) => {
+      knowledgeBase.faqItems.forEach((item: { questionCN: string; answer: string; functionId?: string; termIds?: string[]; faqId?: string }, index: number) => {
         // 对标准答案进行术语替换
         const termIds = item.termIds || [];
         const replacedAnswer = replaceTerms(item.answer, termIds, knowledgeBase.termItems, detectedLanguage);
+        
+        // 调试日志
+        if (termIds.length > 0 && index < 3) {
+          console.log(`[FAQ DEBUG] FAQ_ID: ${item.faqId}, 术语IDs: ${JSON.stringify(termIds)}, 术语库数量: ${knowledgeBase.termItems?.length || 0}`);
+        }
         
         knowledgeContext += `【FAQ ${index + 1}】\n`;
         knowledgeContext += `问题: ${item.questionCN}\n`;
@@ -160,8 +212,13 @@ ${baseSystemPrompt}`;
     // 添加 Troubleshooting 数据（包含术语替换）
     if (knowledgeBase.troubleshootingItems && knowledgeBase.troubleshootingItems.length > 0) {
       knowledgeContext += "\n\n## 排障知识库\n";
-      knowledgeBase.troubleshootingItems.forEach((item: { questionCN: string; answer: string; answerClient?: string; answerEndUser?: string; termIds?: string[] }, index: number) => {
+      knowledgeBase.troubleshootingItems.forEach((item: { questionCN: string; answer: string; answerClient?: string; answerEndUser?: string; termIds?: string[]; faqId?: string }, index: number) => {
         const termIds = item.termIds || [];
+        
+        // 调试日志
+        if (termIds.length > 0 && index < 3) {
+          console.log(`[TROUBLESHOOTING DEBUG] FAQ_ID: ${item.faqId}, 术语IDs: ${JSON.stringify(termIds)}, 术语库数量: ${knowledgeBase.termItems?.length || 0}`);
+        }
         
         knowledgeContext += `【排障 ${index + 1}】\n`;
         knowledgeContext += `问题: ${item.questionCN}\n`;

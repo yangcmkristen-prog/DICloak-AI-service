@@ -103,6 +103,7 @@ function parseTroubleshootingSheet(sheet: XLSX.WorkSheet): TroubleshootingItem[]
         category1: base.category1 || '',
         category2: base.category2 || '',
         tags: base.tags || [],
+        termIds: base.termIds || [],
         questionCN: base.questionCN || '',
         questionEN: base.questionEN || '',
         userPhrases: base.userPhrases || '',
