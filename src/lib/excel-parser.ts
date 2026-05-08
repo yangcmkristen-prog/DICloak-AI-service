@@ -209,7 +209,7 @@ function parseTermSheet(sheet: XLSX.WorkSheet): TermItem[] {
         termId: getCellValue(row['term_id']),
         module1: getCellValue(row['一级模块']),
         module2: getCellValue(row['二级模块']),
-        termCN: getCellValue(row['中文']),        // 修复：列名是 中文
+        termCN: getCellValue(row['中文']),             // 中文列（新版术语库）
         termEN: getCellValue(row['英文']),           // 列名是 英文
         termRU: getCellValue(row['俄语']),
         termPT: getCellValue(row['葡萄牙语（巴西）']),

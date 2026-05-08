@@ -75,20 +75,20 @@ export interface Message {
 
 // ============ 知识库相关 ============
 
+const KNOWLEDGE_CONFIG_KEY = 'default';
+
 export async function getKnowledgeBase(): Promise<Record<string, any>> {
   try {
     if (supabase) {
       const { data, error } = await supabase
         .from('knowledge_configs')
-        .select('category, content')
-        .single();
+        .select('config_key, knowledge_data')
+        .eq('config_key', KNOWLEDGE_CONFIG_KEY)
+        .maybeSingle();
       
-      if (!error && data) {
-        const knowledgeData: Record<string, any> = {};
-        for (const item of data.content || []) {
-          knowledgeData[item.id] = item;
-        }
-        return knowledgeData;
+      if (!error && data && data.knowledge_data) {
+        // knowledge_data 是完整的 KnowledgeBase 对象
+        return data.knowledge_data;
       }
     }
   } catch (e) {
@@ -144,19 +144,30 @@ export function getKnowledgeStats(data?: Record<string, any>): Record<string, nu
     }
   }
   
-  // 遍历 data 的所有键值对
-  for (const [key, value] of Object.entries(data)) {
-    // 如果值是数组（KnowledgeItem 数组），遍历每个 item
-    if (Array.isArray(value)) {
-      for (const item of value as KnowledgeItem[]) {
-        if (item && item.category) {
-          if (item.category in stats) {
-            stats[item.category]++;
-          }
-          stats.total++;
-        }
-      }
-    }
+  // 新的 KnowledgeBase 结构：faqs, terms 等数组
+  if (data.faqItems) {
+    stats.feature_faq += data.faqItems.length;
+    stats.total += data.faqItems.length;
+  }
+  if (data.troubleshootingItems) {
+    stats.troubleshooting += data.troubleshootingItems.length;
+    stats.total += data.troubleshootingItems.length;
+  }
+  if (data.outOfScopeItems) {
+    stats.out_of_scope += data.outOfScopeItems.length;
+    stats.total += data.outOfScopeItems.length;
+  }
+  if (data.mappingItems) {
+    stats.mapping += data.mappingItems.length;
+    stats.total += data.mappingItems.length;
+  }
+  if (data.functionKnowledge) {
+    stats.功能知识 += data.functionKnowledge.length;
+    stats.total += data.functionKnowledge.length;
+  }
+  if (data.termItems) {
+    stats.术语 += data.termItems.length;
+    stats.total += data.termItems.length;
   }
   
   return stats;
