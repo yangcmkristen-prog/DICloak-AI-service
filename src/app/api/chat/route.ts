@@ -115,11 +115,12 @@ ${baseSystemPrompt}`;
         // 获取英文原文（用于匹配）
         const englishTerm = term.termEN || term.en || term['英文'] || '';
         
-        // 如果有英文原文和目标翻译，进行替换
+        // 如果有英文原文和目标翻译，进行替换，并添加术语标识
         if (englishTerm && targetTerm && englishTerm !== targetTerm) {
           // 使用正则表达式进行精确替换（不区分大小写）
           const regex = new RegExp(englishTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-          result = result.replace(regex, targetTerm);
+          // 替换后添加术语标识，让 AI 知道这是已翻译的术语
+          result = result.replace(regex, `[已翻译:${englishTerm}→${targetTerm}]`);
         }
       }
       
