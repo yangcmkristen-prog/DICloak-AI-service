@@ -63,6 +63,9 @@ function parseTermIds(value: CellValue): string[] {
 
 // 解析 FAQ 基础字段（feature_faq, user_routing, troubleshooting）
 function parseFAQBase(row: Record<string, CellValue>): Partial<FAQItem> {
+  // 调试：打印所有列名
+  console.log('[EXCEL DEBUG] 行数据的所有列名:', Object.keys(row));
+  
   return {
     category1: getCellValue(row['一级分类']),
     category2: getCellValue(row['二级分类']),

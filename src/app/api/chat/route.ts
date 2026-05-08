@@ -26,9 +26,11 @@ export async function POST(request: NextRequest) {
       if (knowledge.troubleshootingItems?.length > 0) {
         console.log('[DEBUG] 第一个Troubleshooting:', JSON.stringify(knowledge.troubleshootingItems[0]));
       }
-      // 检查术语库结构
+      // 打印术语库中所有条目（用于调试）
       if (knowledge.termItems?.length > 0) {
-        console.log('[DEBUG] 第一个术语:', JSON.stringify(knowledge.termItems[0]));
+        console.log('[DEBUG] 术语库完整数据:', JSON.stringify(knowledge.termItems));
+      } else {
+        console.log('[DEBUG] 警告：术语库为空!');
       }
     }
     
