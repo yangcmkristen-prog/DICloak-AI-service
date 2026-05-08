@@ -54,12 +54,20 @@ function readExcelFile(file: File): Promise<XLSX.WorkBook> {
   });
 }
 
+// 解析术语ID列表（支持逗号、空格、分号分隔）
+function parseTermIds(value: CellValue): string[] {
+  const str = getCellValue(value);
+  if (!str) return [];
+  return str.split(/[,，\s;；]+/).map(s => s.trim()).filter(Boolean);
+}
+
 // 解析 FAQ 基础字段（feature_faq, user_routing, troubleshooting）
 function parseFAQBase(row: Record<string, CellValue>): Partial<FAQItem> {
   return {
     category1: getCellValue(row['一级分类']),
     category2: getCellValue(row['二级分类']),
     tags: parseTags(row['标签']),
+    termIds: parseTermIds(row['术语ID']).concat(parseTermIds(row['涉及术语'])),
     questionCN: getCellValue(row['标准问题（中文）']),
     questionEN: getCellValue(row['标准问题（英文）']),
     userPhrases: getCellValue(row['用户问法']),
@@ -119,6 +127,7 @@ function parseOutOfScopeSheet(sheet: XLSX.WorkSheet): OutOfScopeItem[] {
       category1: getCellValue(row['一级分类']),
       category2: getCellValue(row['二级分类']),
       tags: parseTags(row['标签（Tags）']),
+      termIds: parseTermIds(row['术语ID']).concat(parseTermIds(row['涉及术语'])),
       questionCN: getCellValue(row['标准问题（中文）']),
       questionEN: getCellValue(row['标准问题（英文）']),
       userPhrases: '',

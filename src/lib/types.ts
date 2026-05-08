@@ -28,6 +28,7 @@ export interface FAQItem {
   userPhrases: string;   // 用户问法
   answer: string;        // 标准答案
   functionId?: string;   // 关联功能ID
+  termIds?: string[];    // 关联的术语ID列表
   priority?: number;     // 优先级
   faqId: string;        // FAQ_ID
 }
