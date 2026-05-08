@@ -129,14 +129,53 @@ ${baseSystemPrompt}`;
     }
 
     // 优先使用前端传递的知识库数据
-    const knowledgeBase = knowledge || {
-      faqItems: [],
-      troubleshootingItems: [],
-      outOfScopeItems: [],
-      mappingItems: [],
-      functionKnowledge: [],
-      termItems: [],
+    // 知识库可能是扁平化的对象（以 id 为键），需要转换为数组格式
+    let knowledgeBase: {
+      faqItems: any[];
+      troubleshootingItems: any[];
+      outOfScopeItems: any[];
+      mappingItems: any[];
+      functionKnowledge: any[];
+      termItems: any[];
     };
+    
+    if (knowledge && Object.keys(knowledge).length > 0) {
+      // 检查是否是扁平化格式（键是 id，不是数组）
+      const firstKey = Object.keys(knowledge)[0];
+      const firstValue = knowledge[firstKey];
+      
+      if (firstValue && typeof firstValue === 'object' && !Array.isArray(firstValue) && firstValue.questionCN !== undefined) {
+        // 是扁平化格式，需要转换
+        const items = Object.values(knowledge);
+        knowledgeBase = {
+          faqItems: items.filter((item: any) => item.source === 'feature_faq' || item.source === 'user_routing'),
+          troubleshootingItems: items.filter((item: any) => item.source === 'troubleshooting'),
+          outOfScopeItems: items.filter((item: any) => item.source === 'out_of_scope'),
+          mappingItems: items.filter((item: any) => item.category2 !== undefined && !item.questionCN),
+          functionKnowledge: items.filter((item: any) => item.functionId !== undefined && item.description !== undefined && !item.category2),
+          termItems: items.filter((item: any) => item.termId !== undefined && item.termCN !== undefined),
+        };
+      } else {
+        // 已经是数组格式
+        knowledgeBase = {
+          faqItems: knowledge.faqItems || [],
+          troubleshootingItems: knowledge.troubleshootingItems || [],
+          outOfScopeItems: knowledge.outOfScopeItems || [],
+          mappingItems: knowledge.mappingItems || [],
+          functionKnowledge: knowledge.functionKnowledge || [],
+          termItems: knowledge.termItems || [],
+        };
+      }
+    } else {
+      knowledgeBase = {
+        faqItems: [],
+        troubleshootingItems: [],
+        outOfScopeItems: [],
+        mappingItems: [],
+        functionKnowledge: [],
+        termItems: [],
+      };
+    }
 
     // 构建知识库上下文
     let knowledgeContext = "";
