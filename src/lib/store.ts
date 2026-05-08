@@ -37,12 +37,14 @@ export const MODEL_OPTIONS = [
 
 export const PROVIDER_INFO: Record<string, {
   label: string;
+  name: string;
   defaultModel: string;
   baseUrl: string;
   keyPlaceholder: string;
 }> = {
   coze: {
     label: '豆包/Coze',
+    name: 'Coze',
     defaultModel: 'doubao-seed-2-0-lite-260215',
     baseUrl: '',
     keyPlaceholder: '输入你的 Coze API Token',
@@ -51,11 +53,33 @@ export const PROVIDER_INFO: Record<string, {
 
 // ============ 类型定义 ============
 
+export interface KnowledgeStats {
+  feature_faq: number;
+  troubleshooting: number;
+  user_routing: number;
+  out_of_scope: number;
+  mapping: number;
+  功能知识: number;
+  术语: number;
+  total: number;
+  faqCount?: number;
+  troubleshootingCount?: number;
+  outOfScopeCount?: number;
+  mappingCount?: number;
+  functionCount?: number;
+  termCount?: number;
+  lastUpdated?: number;
+}
+
 export interface ApiConfig {
   provider: string;
   apiKey: string;
   model: string;
   baseUrl: string;
+  customConfig?: {
+    endpoint?: string;
+    modelName?: string;
+  };
 }
 
 export interface Conversation {
@@ -117,8 +141,8 @@ export async function saveKnowledgeBase(data: Record<string, any>): Promise<void
   localStorage.setItem('diclok_knowledge', JSON.stringify(data));
 }
 
-export function getKnowledgeStats(data?: Record<string, any>): Record<string, number> {
-  const stats: Record<string, number> = {
+export function getKnowledgeStats(data?: Record<string, any> | null): KnowledgeStats {
+  const stats: KnowledgeStats = {
     feature_faq: 0,
     troubleshooting: 0,
     user_routing: 0,
@@ -129,8 +153,8 @@ export function getKnowledgeStats(data?: Record<string, any>): Record<string, nu
     total: 0
   };
   
-  // 如果没有传入数据，从 localStorage 读取
-  if (!data) {
+  // 如果没有传入数据或数据无效，从 localStorage 读取
+  if (!data || typeof data !== 'object') {
     try {
       const local = localStorage.getItem('diclok_knowledge');
       if (local) {
@@ -145,13 +169,14 @@ export function getKnowledgeStats(data?: Record<string, any>): Record<string, nu
   }
   
   // 遍历 data 的所有键值对
-  for (const [key, value] of Object.entries(data)) {
-    // 如果值是数组（KnowledgeItem 数组），遍历每个 item
+  for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+    // 如果值是数组，遍历每个 item
     if (Array.isArray(value)) {
-      for (const item of value as KnowledgeItem[]) {
-        if (item && item.category) {
-          if (item.category in stats) {
-            stats[item.category]++;
+      for (const item of value as Record<string, unknown>[]) {
+        if (item && item.category && typeof item.category === 'string') {
+          const catKey = item.category as keyof KnowledgeStats;
+          if (catKey in stats) {
+            stats[catKey] = (stats[catKey] || 0) + 1;
           }
           stats.total++;
         }
@@ -165,14 +190,14 @@ export function getKnowledgeStats(data?: Record<string, any>): Record<string, nu
 export function replaceKnowledgeData(existing: Record<string, any>, newData?: Record<string, any>): Record<string, any> {
   const result = { ...existing };
   
-  if (!newData) return result;
+  if (!newData || typeof newData !== 'object') return result;
   
   // 遍历 newData 的所有键值对
   for (const [key, value] of Object.entries(newData)) {
-    // 如果值是数组（KnowledgeItem 数组），展开到扁平格式
+    // 如果值是数组，展开到扁平格式
     if (Array.isArray(value)) {
-      for (const item of value as KnowledgeItem[]) {
-        if (item && item.id) {
+      for (const item of value as Record<string, unknown>[]) {
+        if (item && item.id && typeof item.id === 'string') {
           result[item.id] = item;
         }
       }
@@ -183,6 +208,24 @@ export function replaceKnowledgeData(existing: Record<string, any>, newData?: Re
   }
   
   return result;
+}
+
+// ============ 知识库清除 ============
+
+export function clearKnowledgeBase(): void {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('diclok_knowledge');
+  }
+  // 同步清除数据库
+  try {
+    if (supabase) {
+      supabase.from('knowledge_configs').delete().neq('id', '00000000-0000-0000-0000-000000000000').then(({ error }) => {
+        if (error) console.error('清除数据库知识库失败:', error);
+      });
+    }
+  } catch (e) {
+    console.error('清除知识库失败:', e);
+  }
 }
 
 // ============ System Prompt 相关 ============

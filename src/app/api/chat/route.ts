@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
+import { OutOfScopeItem } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   try {
@@ -175,7 +176,7 @@ ${baseSystemPrompt}`;
     // 添加 Out of Scope 数据
     if (knowledgeBase.outOfScopeItems && knowledgeBase.outOfScopeItems.length > 0) {
       knowledgeContext += "\n\n## 超范围问题库\n";
-      knowledgeBase.outOfScopeItems.forEach((item: { questionCN: string; answer: string }, index: number) => {
+      knowledgeBase.outOfScopeItems.forEach((item: OutOfScopeItem, index: number) => {
         knowledgeContext += `【超范围 ${index + 1}】\n`;
         knowledgeContext += `问题: ${item.questionCN}\n`;
         knowledgeContext += `标准回复: ${replaceTerms(item.answer, item.termIds || [], knowledgeBase.termItems, detectedLanguage)}\n`;

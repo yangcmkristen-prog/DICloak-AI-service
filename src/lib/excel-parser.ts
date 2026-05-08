@@ -67,7 +67,15 @@ function parseFAQBase(row: Record<string, CellValue>): Partial<FAQItem> {
     functionId: getCellValue(row['关联功能ID']),
     priority: getNumericValue(row['优先级']),
     faqId: getCellValue(row['FAQ_ID']),
+    termIds: parseTermIds(row['涉及术语'] || row['术语ID'] || row['termIds'] || ''),
   };
+}
+
+// 解析术语ID列表（逗号、分号、空格分隔）
+function parseTermIds(value: CellValue): string[] {
+  const str = getCellValue(value);
+  if (!str) return [];
+  return str.split(/[,，;；\s]+/).map(s => s.trim()).filter(Boolean);
 }
 
 // 解析 feature_faq / user_routing
@@ -102,6 +110,7 @@ function parseTroubleshootingSheet(sheet: XLSX.WorkSheet): TroubleshootingItem[]
         functionId: base.functionId,
         priority: base.priority,
         faqId: base.faqId || '',
+        termIds: base.termIds || [],
         answerClient: getCellValue(row['标准答案（client）']),
         answerEndUser: getCellValue(row['标准答案（end_user）']),
       };
@@ -126,6 +135,7 @@ function parseOutOfScopeSheet(sheet: XLSX.WorkSheet): OutOfScopeItem[] {
       functionId: undefined,
       priority: getNumericValue(row['优先级']),
       faqId: getCellValue(row['FAQ_ID']),
+      termIds: parseTermIds(row['涉及术语'] || row['术语ID'] || row['termIds'] || ''),
       subType: getCellValue(row['sub_type']),
       matchRule: getCellValue(row['匹配规则']),
     }));

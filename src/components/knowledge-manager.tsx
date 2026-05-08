@@ -18,7 +18,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
-import { DEFAULT_SYSTEM_PROMPT, getKnowledgeStats, replaceKnowledgeData, getKnowledgeBase, getApiConfig, saveApiConfig, ApiConfig, DEFAULT_API_CONFIG, MODEL_OPTIONS, PROVIDER_INFO, saveKnowledgeBase } from "@/lib/store";
+import { DEFAULT_SYSTEM_PROMPT, getKnowledgeStats, replaceKnowledgeData, getKnowledgeBase, getApiConfig, saveApiConfig, ApiConfig, DEFAULT_API_CONFIG, MODEL_OPTIONS, PROVIDER_INFO, saveKnowledgeBase, KnowledgeStats } from "@/lib/store";
 import { importExcelFile, importMultipleExcelFiles, ImportResult } from "@/lib/excel-parser";
 import { KnowledgeBase } from "@/lib/types";
 import { toast } from "sonner";
@@ -35,7 +35,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   const [importProgress, setImportProgress] = useState(0);
   const [importResults, setImportResults] = useState<ImportResult[]>([]);
   const [showResults, setShowResults] = useState(false);
-  const [stats, setStats] = useState({
+  const [stats, setStats] = useState<KnowledgeStats>({
     faqCount: 0,
     troubleshootingCount: 0,
     outOfScopeCount: 0,
@@ -43,6 +43,14 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     functionCount: 0,
     termCount: 0,
     lastUpdated: 0,
+    feature_faq: 0,
+    troubleshooting: 0,
+    user_routing: 0,
+    out_of_scope: 0,
+    mapping: 0,
+    功能知识: 0,
+    术语: 0,
+    total: 0,
   });
 
   // API 配置状态 - 初始为 null，避免 SSR/CSR mismatch
@@ -320,10 +328,6 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
         customConfig: {
           endpoint: customEndpoint,
           modelName: customModelName,
-          headers: {
-            "Content-Type": "application/json",
-            ...(apiConfig.apiKey ? { "Authorization": `Bearer ${apiConfig.apiKey}` } : {}),
-          },
         },
       };
       saveApiConfig(configToSave);
@@ -350,8 +354,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     } : null);
   };
 
-  const totalItems = stats.faqCount + stats.troubleshootingCount + stats.outOfScopeCount + 
-                     stats.mappingCount + stats.functionCount + stats.termCount;
+  const totalItems = (stats.faqCount || 0) + (stats.troubleshootingCount || 0) + (stats.outOfScopeCount || 0) + 
+                     (stats.mappingCount || 0) + (stats.functionCount || 0) + (stats.termCount || 0);
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -482,12 +486,12 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                 </Button>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <StatCard label="FAQ" count={stats.faqCount} color="blue" />
-                <StatCard label="排障问题" count={stats.troubleshootingCount} color="orange" />
-                <StatCard label="超范围问题" count={stats.outOfScopeCount} color="gray" />
-                <StatCard label="问题映射" count={stats.mappingCount} color="purple" />
-                <StatCard label="功能知识" count={stats.functionCount} color="green" />
-                <StatCard label="术语库" count={stats.termCount} color="pink" />
+                <StatCard label="FAQ" count={stats.faqCount || 0} color="blue" />
+                <StatCard label="排障问题" count={stats.troubleshootingCount || 0} color="orange" />
+                <StatCard label="超范围问题" count={stats.outOfScopeCount || 0} color="gray" />
+                <StatCard label="问题映射" count={stats.mappingCount || 0} color="purple" />
+                <StatCard label="功能知识" count={stats.functionCount || 0} color="green" />
+                <StatCard label="术语库" count={stats.termCount || 0} color="pink" />
               </div>
               <p className="text-sm text-muted-foreground">
                 最后更新: {formatLastUpdated()}
@@ -684,7 +688,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                           className="w-full p-2 rounded-md border border-input bg-background text-sm"
                         >
                           {MODEL_OPTIONS.filter(opt => opt.provider === apiConfig.provider).map(opt => (
-                            <option key={opt.model} value={opt.model}>{opt.label}</option>
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
                           ))}
                         </select>
                       </div>
