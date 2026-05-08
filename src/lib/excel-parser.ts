@@ -192,7 +192,7 @@ function parseFunctionKnowledgeSheet(sheet: XLSX.WorkSheet): FunctionKnowledge[]
 function parseTermSheet(sheet: XLSX.WorkSheet): TermItem[] {
   const data = XLSX.utils.sheet_to_json<Record<string, CellValue>>(sheet, { defval: '' });
   return data
-    .filter(row => getCellValue(row['term_id']) || getCellValue(row['中文']))
+    .filter(row => getCellValue(row['term_id']) || getCellValue(row['中文术语']))
     .map(row => {
       // is_ui_visible 可能是数字 1/0 或字符串 'TRUE'/'FALSE'
       const isVisibleRaw = row['is_ui_visible'];
@@ -210,7 +210,7 @@ function parseTermSheet(sheet: XLSX.WorkSheet): TermItem[] {
         module1: getCellValue(row['一级模块']),
         module2: getCellValue(row['二级模块']),
         termCN: getCellValue(row['中文']),        // 修复：列名是 中文
-        termEN: getCellValue(row['英文']),        // 修复：列名是 英文
+        termEN: getCellValue(row['英文']),           // 列名是 英文
         termRU: getCellValue(row['俄语']),
         termPT: getCellValue(row['葡萄牙语（巴西）']),
         termES: getCellValue(row['西班牙语']),
