@@ -59,6 +59,75 @@ export async function POST(request: NextRequest) {
 
 ${baseSystemPrompt}`;
 
+    // 术语替换函数：根据术语 ID 和目标语言替换文本中的术语
+    function replaceTerms(text: string, termIds: string[], termItems: any[], targetLang: string): string {
+      if (!termIds || termIds.length === 0 || !termItems || termItems.length === 0) {
+        return text;
+      }
+      
+      let result = text;
+      
+      for (const termId of termIds) {
+        // 在术语库中查找对应的术语
+        const term = termItems.find(t => t.id === termId || t.termId === termId || t.术语ID === termId);
+        if (!term) continue;
+        
+        // 获取目标语言的翻译
+        let targetTerm = '';
+        switch (targetLang) {
+          case 'zh':
+            targetTerm = term.termCN || term.zh || term['中文'] || '';
+            break;
+          case 'es':
+            targetTerm = term.termES || term.es || term['西班牙语'] || '';
+            break;
+          case 'pt':
+            targetTerm = term.termPT || term.pt || term['葡萄牙语'] || '';
+            break;
+          case 'ru':
+            targetTerm = term.termRU || term.ru || term['俄语'] || '';
+            break;
+          case 'vi':
+            targetTerm = term.termVI || term.vi || term['越南语'] || '';
+            break;
+          case 'id':
+            targetTerm = term.termID || term.id || term['印尼语'] || '';
+            break;
+          case 'th':
+            targetTerm = term.termTH || term.th || term['泰语'] || '';
+            break;
+          case 'ar':
+            targetTerm = term.termAR || term.ar || term['阿拉伯语'] || '';
+            break;
+          case 'ja':
+            targetTerm = term.termJA || term.ja || term['日语'] || '';
+            break;
+          case 'ko':
+            targetTerm = term.termKO || term.ko || term['韩语'] || '';
+            break;
+          default:
+            targetTerm = '';
+        }
+        
+        // 如果没有目标语言翻译，使用英文原文
+        if (!targetTerm) {
+          targetTerm = term.termEN || term.en || term['英文'] || '';
+        }
+        
+        // 获取英文原文（用于匹配）
+        const englishTerm = term.termEN || term.en || term['英文'] || '';
+        
+        // 如果有英文原文和目标翻译，进行替换
+        if (englishTerm && targetTerm && englishTerm !== targetTerm) {
+          // 使用正则表达式进行精确替换（不区分大小写）
+          const regex = new RegExp(englishTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+          result = result.replace(regex, targetTerm);
+        }
+      }
+      
+      return result;
+    }
+
     // 优先使用前端传递的知识库数据
     const knowledgeBase = knowledge || {
       faqItems: [],
@@ -72,27 +141,34 @@ ${baseSystemPrompt}`;
     // 构建知识库上下文
     let knowledgeContext = "";
 
-    // 添加 FAQ 数据
+    // 添加 FAQ 数据（包含术语替换）
     if (knowledgeBase.faqItems && knowledgeBase.faqItems.length > 0) {
       knowledgeContext += "\n\n## FAQ 知识库\n";
-      knowledgeBase.faqItems.forEach((item: { questionCN: string; answer: string; functionId?: string }, index: number) => {
+      knowledgeBase.faqItems.forEach((item: { questionCN: string; answer: string; functionId?: string; termIds?: string[] }, index: number) => {
+        // 对标准答案进行术语替换
+        const termIds = item.termIds || [];
+        const replacedAnswer = replaceTerms(item.answer, termIds, knowledgeBase.termItems, detectedLanguage);
+        
         knowledgeContext += `【FAQ ${index + 1}】\n`;
         knowledgeContext += `问题: ${item.questionCN}\n`;
-        knowledgeContext += `标准答案: ${item.answer}\n`;
+        knowledgeContext += `标准答案: ${replacedAnswer}\n`;
         if (item.functionId) knowledgeContext += `关联功能: ${item.functionId}\n`;
+        if (termIds && termIds.length > 0) knowledgeContext += `涉及术语: ${termIds.join(', ')}\n`;
         knowledgeContext += "\n";
       });
     }
 
-    // 添加 Troubleshooting 数据
+    // 添加 Troubleshooting 数据（包含术语替换）
     if (knowledgeBase.troubleshootingItems && knowledgeBase.troubleshootingItems.length > 0) {
       knowledgeContext += "\n\n## 排障知识库\n";
-      knowledgeBase.troubleshootingItems.forEach((item: { questionCN: string; answer: string; answerClient?: string; answerEndUser?: string }, index: number) => {
+      knowledgeBase.troubleshootingItems.forEach((item: { questionCN: string; answer: string; answerClient?: string; answerEndUser?: string; termIds?: string[] }, index: number) => {
+        const termIds = item.termIds || [];
+        
         knowledgeContext += `【排障 ${index + 1}】\n`;
         knowledgeContext += `问题: ${item.questionCN}\n`;
-        knowledgeContext += `通用答案: ${item.answer}\n`;
-        if (item.answerClient) knowledgeContext += `Client答案: ${item.answerClient}\n`;
-        if (item.answerEndUser) knowledgeContext += `EndUser答案: ${item.answerEndUser}\n`;
+        knowledgeContext += `通用答案: ${replaceTerms(item.answer, termIds, knowledgeBase.termItems, detectedLanguage)}\n`;
+        if (item.answerClient) knowledgeContext += `Client答案: ${replaceTerms(item.answerClient, termIds, knowledgeBase.termItems, detectedLanguage)}\n`;
+        if (item.answerEndUser) knowledgeContext += `EndUser答案: ${replaceTerms(item.answerEndUser, termIds, knowledgeBase.termItems, detectedLanguage)}\n`;
         knowledgeContext += "\n";
       });
     }
@@ -103,7 +179,7 @@ ${baseSystemPrompt}`;
       knowledgeBase.outOfScopeItems.forEach((item: { questionCN: string; answer: string }, index: number) => {
         knowledgeContext += `【超范围 ${index + 1}】\n`;
         knowledgeContext += `问题: ${item.questionCN}\n`;
-        knowledgeContext += `标准回复: ${item.answer}\n`;
+        knowledgeContext += `标准回复: ${replaceTerms(item.answer, item.termIds || [], knowledgeBase.termItems, detectedLanguage)}\n`;
         knowledgeContext += "\n";
       });
     }
@@ -111,12 +187,12 @@ ${baseSystemPrompt}`;
     // 添加功能知识库
     if (knowledgeBase.functionKnowledge && knowledgeBase.functionKnowledge.length > 0) {
       knowledgeContext += "\n\n## 功能知识库\n";
-      knowledgeBase.functionKnowledge.slice(0, 20).forEach((item: { functionName: string; description: string; entryPath?: string; steps?: string }, index: number) => {
+      knowledgeBase.functionKnowledge.slice(0, 20).forEach((item: { functionName: string; description: string; entryPath?: string; steps?: string; termIds?: string[] }, index: number) => {
         knowledgeContext += `【功能 ${index + 1}】\n`;
         knowledgeContext += `功能名称: ${item.functionName}\n`;
         knowledgeContext += `功能说明: ${item.description}\n`;
         if (item.entryPath) knowledgeContext += `入口路径: ${item.entryPath}\n`;
-        if (item.steps) knowledgeContext += `操作步骤: ${item.steps}\n`;
+        if (item.steps) knowledgeContext += `操作步骤: ${replaceTerms(item.steps, item.termIds || [], knowledgeBase.termItems, detectedLanguage)}\n`;
         knowledgeContext += "\n";
       });
       if (knowledgeBase.functionKnowledge.length > 20) {
@@ -124,12 +200,18 @@ ${baseSystemPrompt}`;
       }
     }
 
-    // 添加术语库
+    // 添加术语库（用于 AI 参考，包含所有语言的翻译）
     if (knowledgeBase.termItems && knowledgeBase.termItems.length > 0) {
       knowledgeContext += "\n\n## 术语库\n";
       const visibleTerms = knowledgeBase.termItems.filter((t: { isUiVisible: boolean }) => t.isUiVisible).slice(0, 30);
-      visibleTerms.forEach((item: { termCN: string; termEN: string }) => {
-        knowledgeContext += `- ${item.termCN}: ${item.termEN}\n`;
+      visibleTerms.forEach((item: { termId: string; termCN: string; termEN: string; termPT?: string; termES?: string }) => {
+        // 构建术语库的完整翻译信息
+        const translations: string[] = [];
+        translations.push(`EN: ${item.termEN}`);
+        translations.push(`CN: ${item.termCN}`);
+        if (item.termPT) translations.push(`PT: ${item.termPT}`);
+        if (item.termES) translations.push(`ES: ${item.termES}`);
+        knowledgeContext += `- ${item.termId}: ${translations.join(', ')}\n`;
       });
       if (knowledgeBase.termItems.length > 30) {
         knowledgeContext += `(仅显示前30条，共${knowledgeBase.termItems.length}条)\n`;
