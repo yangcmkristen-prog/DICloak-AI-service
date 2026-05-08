@@ -365,10 +365,13 @@ function detectLatinScript(text: string): { language: DetectedLanguage; confiden
     return { language: 'vi', confidence: 0.7 };
   }
   
-  // 印尼语特征词汇
-  const indonesianWords = ['ini', 'yang', 'dan', 'untuk', 'dari', 'dengan', 'adalah', 'dalam', 'ke', 'di', 'pada', 'atau', 'tidak', 'ada'];
-  if (indonesianWords.some(w => lowerText.includes(w))) {
-    return { language: 'id', confidence: 0.6 };
+  // 印尼语特征词汇（只保留印尼语特有的词，去掉与其他语言重叠的词）
+  // 印尼语特有词：kamu, mereka, kami, kita, apa, siapa, dimana, gimana, nggak, gk, yok, banget, mas, mbak, pak, bu, masak, kapan, jangan, udah, baru, lagi, kok, kan, tuh, deh, dong, ya, nih, itu, dong
+  const indonesianWords = ['kamu', 'mereka', 'kami', 'kita', 'gimana', 'nggak', 'banget', 'masak', 'jangan', 'udah', 'dong'];
+  const indonesianScore = indonesianWords.filter(w => lowerText.includes(w)).length;
+  console.log('[DEBUG] 印尼语分数:', indonesianScore);
+  if (indonesianScore >= 2) {
+    return { language: 'id', confidence: 0.5 + indonesianScore * 0.1 };
   }
   
   // 西班牙语 vs 葡萄牙语（分数相同时，西班牙语优先）
@@ -434,8 +437,9 @@ export function detectLanguage(text: string): DetectedLanguage {
     const chineseChars = nonLatinStats.chinese;
     
     if (chineseChars > 5) return 'mixed';
-    if (latinResult && latinResult.confidence >= 0.2) {
-      console.log('[DEBUG] 英文为主但检测到拉丁语系:', latinResult.language);
+    // 英文为主时，只有当拉丁语系置信度 >= 0.7 且英文比率 < 0.7 时才覆盖
+    if (latinResult && latinResult.confidence >= 0.7 && englishRatio < 0.7) {
+      console.log('[DEBUG] 英文为主但检测到更强的拉丁语系:', latinResult.language);
       return latinResult.language;
     }
     console.log('[DEBUG] 英文为主，返回en');
