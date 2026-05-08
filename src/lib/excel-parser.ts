@@ -63,14 +63,11 @@ function parseTermIds(value: CellValue): string[] {
 
 // 解析 FAQ 基础字段（feature_faq, user_routing, troubleshooting）
 function parseFAQBase(row: Record<string, CellValue>): Partial<FAQItem> {
-  // 调试：打印所有列名
-  console.log('[EXCEL DEBUG] 行数据的所有列名:', Object.keys(row));
-  
   return {
     category1: getCellValue(row['一级分类']),
     category2: getCellValue(row['二级分类']),
     tags: parseTags(row['标签']),
-    termIds: parseTermIds(row['术语ID']).concat(parseTermIds(row['涉及术语'])),
+    termIds: parseTermIds(row['term_id']),  // 修复：列名是 term_id
     questionCN: getCellValue(row['标准问题（中文）']),
     questionEN: getCellValue(row['标准问题（英文）']),
     userPhrases: getCellValue(row['用户问法']),
@@ -188,7 +185,7 @@ function parseFunctionKnowledgeSheet(sheet: XLSX.WorkSheet): FunctionKnowledge[]
 function parseTermSheet(sheet: XLSX.WorkSheet): TermItem[] {
   const data = XLSX.utils.sheet_to_json<Record<string, CellValue>>(sheet, { defval: '' });
   return data
-    .filter(row => getCellValue(row['term_id']) || getCellValue(row['中文术语']))
+    .filter(row => getCellValue(row['term_id']) || getCellValue(row['中文']))
     .map(row => {
       // is_ui_visible 可能是数字 1/0 或字符串 'TRUE'/'FALSE'
       const isVisibleRaw = row['is_ui_visible'];
@@ -205,8 +202,8 @@ function parseTermSheet(sheet: XLSX.WorkSheet): TermItem[] {
         termId: getCellValue(row['term_id']),
         module1: getCellValue(row['一级模块']),
         module2: getCellValue(row['二级模块']),
-        termCN: getCellValue(row['中文术语']),
-        termEN: getCellValue(row['英文']),
+        termCN: getCellValue(row['中文']),        // 修复：列名是 中文
+        termEN: getCellValue(row['英文']),        // 修复：列名是 英文
         termRU: getCellValue(row['俄语']),
         termPT: getCellValue(row['葡萄牙语（巴西）']),
         termES: getCellValue(row['西班牙语']),
