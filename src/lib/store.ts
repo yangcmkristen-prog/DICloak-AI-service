@@ -315,74 +315,64 @@ export type DetectedLanguage =
   | 'mixed';  // 混合语言
 
 // 语言检测辅助函数 - 检测拉丁字母文字所属语言
+// 使用严格的单词边界匹配，避免子字符串误判
 function detectLatinScript(text: string): { language: DetectedLanguage; confidence: number } | null {
-  if (text.length < 3) return null;
+  if (text.length < 5) return null;
   
-  // 使用 match 而不是 test，避免 global regex 的 lastIndex 问题
-  // 转换为小写以便匹配
+  // 转换为小写
   const lowerText = text.toLowerCase();
   
-  // 西班牙语特征词汇（包含变体和复数形式）
-  const spanishWords = [
-    'hola', 'gracias', 'favor', 'trabajo', 'trabajos', 'problema', 'tengo', 'tiene', 
-    'necesito', 'ayuda', 'ayudar', 'senal', 'error', 'funciona', 'login', 'sesion',
-    'iniciar', 'eliminar', 'imagen', 'imagenes', 'como', 'hacer', 'quiero', 'tengo',
-    'hice', 'hacer', 'puedo', 'puede', 'tienen', 'tengo', 'donde', 'cuando', 'porque',
-    'pero', 'para', 'este', 'esta', 'esto', 'estos', 'estas', 'ese', 'esa', 'eso',
-    'con', 'sin', 'sobre', 'bajo', 'tiene', 'tienen', 'hay', 'tener', 'hacer', 'ir',
-    'ver', 'dar', 'saber', 'querer', 'poder', 'deber', 'hacer', 'decir', 'ser', 'estar',
-    'que', 'quien', 'cual', 'cuanto', 'cuando', 'donde', 'como', 'porque',
-    'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'del', 'al',
-    'y', 'o', 'pero', 'porque', 'si', 'no', 'ni', 'ya', 'mas', 'muy',
-    'mi', 'tu', 'su', 'nos', 'vos', 'se', 'le', 'me', 'te',
-  ];
-  
-  // 葡萄牙语特征词汇
-  const portugueseWords = [
-    'ola', 'obrigado', 'trabalho', 'problema', 'tenho', 'preciso', 'ajuda',
-    'sinal', 'erro', 'funciona', 'login', 'sessao', 'entrar',
-    'por', 'favor', 'como', 'esta', 'esse', 'essa', 'este', 'esta',
-    'o', 'a', 'os', 'as', 'um', 'uma', 'de', 'da', 'do', 'em',
-    'e', 'ou', 'mas', 'que', 'se', 'nao', 'ja', 'mais', 'muito',
-  ];
-  
-  // 计算西班牙语匹配分数
-  let spanishScore = 0;
-  for (const word of spanishWords) {
-    if (lowerText.includes(word)) spanishScore++;
+  // 越南语特殊字符检测（优先检测，因为有独特的字母组合）
+  const hasVietnamese = /[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(text);
+  if (hasVietnamese) {
+    return { language: 'vi', confidence: 0.95 };
   }
   
-  // 计算葡萄牙语匹配分数
-  let portugueseScore = 0;
-  for (const word of portugueseWords) {
-    if (lowerText.includes(word)) portugueseScore++;
+  // 印尼语特征词汇（印尼语特有的词，使用单词边界）
+  const indonesianWords = ['kamu', 'mereka', 'kami', 'kita', 'gimana', 'nggak', 'banget', 'masak', 'jangan', 'udah', 'dong', 'kok', 'kan', 'tuh', 'deh', 'nih', 'aja', 'sih', 'gue', 'lu', 'ane', 'ente', 'mu', 'nya', 'dong', 'kira', 'tiba', 'mau', 'bisa', 'gak', 'suka', 'bukan', 'halo', 'terima', 'kasih', 'tolong', 'ya', 'okee', 'siapa', 'apa', 'kenapa', 'di mana', 'bagaimana'];
+  
+  // 葡萄牙语特征词汇（葡萄牙语特有的词，使用单词边界）
+  const portugueseWords = ['ola', 'obrigado', 'obrigada', 'obrigada', 'trabalho', 'problema', 'tenho', 'preciso', 'ajuda', 'sinal', 'erro', 'funciona', 'login', 'sessao', 'entrar', 'este', 'estao', 'esses', 'essas', 'onde', 'quando', 'como', 'porque', 'bem', 'muito', 'pouco', 'bom', 'ruim', 'sim', 'nao', 'ja', 'agora', 'depois', 'antes', 'sempre', 'nunca', 'talvez', 'certamente', 'provavelmente', 'aqui', 'ali', 'embaixo', 'em cima', 'longe', 'perto'];
+  
+  // 西班牙语特征词汇（西班牙语特有的词，使用单词边界）
+  // 只包含西班牙语特有的、不易与英文混淆的词汇
+  const spanishWords = ['hola', 'gracias', 'trabajo', 'trabajos', 'necesito', 'ayudar', 'senal', 'funciona', 'ayuda', 'iniciar', 'eliminar', 'imagenes', 'hacer', 'quiero', 'puedo', 'tiene', 'tienen', 'donde', 'cuando', 'porque', 'pero', 'este', 'esta', 'esto', 'estos', 'estas', 'esos', 'esas', 'sobre', 'tener', 'hacer', 'ir', 'ver', 'dar', 'saber', 'querer', 'poder', 'deber', 'decir', 'quien', 'cual', 'cuanto', 'aqui', 'alli', 'ahora', 'luego', 'despues', 'siempre', 'nunca', 'tambien', 'solo', 'ahora', 'entonces', 'bueno', 'vale', 'mira', 'oye', 'favor', 'saludos'];
+  
+  // 计算单词总数
+  const words = text.split(/\s+/).filter(w => w.length > 0);
+  const totalWords = words.length || 1;
+  
+  // 辅助函数：使用单词边界匹配
+  const countMatches = (wordList: string[]): number => {
+    return wordList.filter(word => {
+      // 使用单词边界匹配
+      const regex = new RegExp(`\\b${word}\\b`, 'i');
+      return regex.test(text);
+    }).length;
+  };
+  
+  // 计算各语言匹配分数
+  const spanishScore = countMatches(spanishWords);
+  const portugueseScore = countMatches(portugueseWords);
+  const indonesianScore = countMatches(indonesianWords);
+  
+  console.log('[DEBUG] 拉丁语检测 - 西班牙语:', spanishScore, '葡萄牙语:', portugueseScore, '印尼语:', indonesianScore, '总词数:', totalWords);
+  
+  // 只有当最高分数语言的分数 >= 1 时才返回该语言
+  // 否则返回 null
+  if (spanishScore >= 1 && spanishScore >= portugueseScore && spanishScore >= indonesianScore) {
+    return { language: 'es', confidence: Math.min(spanishScore / totalWords * 2, 0.95) };
   }
   
-  console.log('[DEBUG] 西班牙语分数:', spanishScore, '葡萄牙语分数:', portugueseScore);
-  
-  // 越南语特殊字符检测
-  if (/[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(text)) {
-    return { language: 'vi', confidence: 0.7 };
+  if (portugueseScore >= 1 && portugueseScore >= spanishScore && portugueseScore >= indonesianScore) {
+    return { language: 'pt', confidence: Math.min(portugueseScore / totalWords * 2, 0.95) };
   }
   
-  // 印尼语特征词汇（只保留印尼语特有的词，去掉与其他语言重叠的词）
-  // 印尼语特有词：kamu, mereka, kami, kita, apa, siapa, dimana, gimana, nggak, gk, yok, banget, mas, mbak, pak, bu, masak, kapan, jangan, udah, baru, lagi, kok, kan, tuh, deh, dong, ya, nih, itu, dong
-  const indonesianWords = ['kamu', 'mereka', 'kami', 'kita', 'gimana', 'nggak', 'banget', 'masak', 'jangan', 'udah', 'dong'];
-  const indonesianScore = indonesianWords.filter(w => lowerText.includes(w)).length;
-  console.log('[DEBUG] 印尼语分数:', indonesianScore);
-  if (indonesianScore >= 2) {
-    return { language: 'id', confidence: 0.5 + indonesianScore * 0.1 };
+  if (indonesianScore >= 1 && indonesianScore >= spanishScore && indonesianScore >= portugueseScore) {
+    return { language: 'id', confidence: Math.min(indonesianScore / totalWords * 2, 0.95) };
   }
   
-  // 西班牙语 vs 葡萄牙语（分数相同时，西班牙语优先）
-  if (spanishScore > portugueseScore || (spanishScore > 0 && spanishScore === portugueseScore)) {
-    return { language: 'es', confidence: Math.min(0.5 + spanishScore * 0.05, 0.95) };
-  }
-  
-  if (portugueseScore > 0) {
-    return { language: 'pt', confidence: Math.min(0.5 + portugueseScore * 0.05, 0.95) };
-  }
-  
+  // 没有检测到明确的拉丁语系语言，返回 null
   return null;
 }
 
