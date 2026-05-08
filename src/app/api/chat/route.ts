@@ -59,7 +59,12 @@ export async function POST(request: NextRequest) {
     const defaultPrompt = `你是 DICloak 客服助手，专注于帮助客服人员快速生成专业、友好的客户回复。
 
 ## 核心职责
-根据客户的问题，从知识库和对话历史中提取关键信息，生成3条不同角度的推荐回复。
+根据客户的问题，从知识库中匹配最相关的 FAQ（每个FAQ都有ID标识），生成3条不同角度的推荐回复。
+
+## 【重要】知识库 FAQ 匹配规则
+1. **FAQ 标识**：知识库中的每个 FAQ 都有【FAQ: FAQ_ID】标识
+2. **匹配优先**：优先使用与用户问题最匹配的 FAQ 作为回复依据
+3. **术语关联**：每个 FAQ 内部的术语翻译已经完成，格式为"[已翻译:原文→译文]"
 
 ## 【重要】术语翻译标记处理规则
 知识库中的术语已预先翻译为 "[已翻译:原文→译文]" 格式。
@@ -68,9 +73,9 @@ export async function POST(request: NextRequest) {
 2. **提取译文**：提取箭头 "→" 后面的部分（如"团队"）
 3. **替换输出**：在最终回复中，只输出译文，删除整个 "[已翻译:...]" 标记
 4. **示例**：
-   - 原文：进入 [已翻译:Team→团队]>[已翻译:Members→成员] 页面
-   - 正确输出：进入团队>成员页面
-   - 错误输出：进入 [已翻译:Team→团队]>[已翻译:Members→成员] 页面（保留标记）
+   - 原文：进入 [已翻译:Team→团队管理]>[已翻译:Members→成员] 页面
+   - 正确输出：进入团队管理>成员 页面
+   - 错误输出：进入 [已翻译:Team→团队管理]>[已翻译:Members→成员] 页面（保留标记）
    - 错误输出：进入 Team>Members 页面（使用原文）
 
 ## 回复要求
@@ -202,11 +207,14 @@ ${baseSystemPrompt}`;
           console.log(`[FAQ DEBUG] FAQ_ID: ${item.faqId}, 术语IDs: ${JSON.stringify(termIds)}, 术语库数量: ${knowledgeBase.termItems?.length || 0}`);
         }
         
-        knowledgeContext += `【FAQ ${index + 1}】\n`;
+        knowledgeContext += `【FAQ: ${item.faqId}】\n`;
         knowledgeContext += `问题: ${item.questionCN}\n`;
         knowledgeContext += `标准答案: ${replacedAnswer}\n`;
         if (item.functionId) knowledgeContext += `关联功能: ${item.functionId}\n`;
-        if (termIds && termIds.length > 0) knowledgeContext += `涉及术语: ${termIds.join(', ')}\n`;
+        // 术语关联信息：让 AI 知道术语和 FAQ 的对应关系
+        if (termIds && termIds.length > 0) {
+          knowledgeContext += `本FAQ涉及术语: ${termIds.join(', ')}\n`;
+        }
         knowledgeContext += "\n";
       });
     }
@@ -222,11 +230,15 @@ ${baseSystemPrompt}`;
           console.log(`[TROUBLESHOOTING DEBUG] FAQ_ID: ${item.faqId}, 术语IDs: ${JSON.stringify(termIds)}, 术语库数量: ${knowledgeBase.termItems?.length || 0}`);
         }
         
-        knowledgeContext += `【排障 ${index + 1}】\n`;
+        knowledgeContext += `【排障: ${item.faqId}】\n`;
         knowledgeContext += `问题: ${item.questionCN}\n`;
         knowledgeContext += `通用答案: ${replaceTerms(item.answer, termIds, knowledgeBase.termItems, detectedLanguage)}\n`;
         if (item.answerClient) knowledgeContext += `Client答案: ${replaceTerms(item.answerClient, termIds, knowledgeBase.termItems, detectedLanguage)}\n`;
         if (item.answerEndUser) knowledgeContext += `EndUser答案: ${replaceTerms(item.answerEndUser, termIds, knowledgeBase.termItems, detectedLanguage)}\n`;
+        // 术语关联信息
+        if (termIds && termIds.length > 0) {
+          knowledgeContext += `本排障涉及术语: ${termIds.join(', ')}\n`;
+        }
         knowledgeContext += "\n";
       });
     }
