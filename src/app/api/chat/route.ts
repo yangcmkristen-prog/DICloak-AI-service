@@ -59,8 +59,16 @@ export async function POST(request: NextRequest) {
 
 ${baseSystemPrompt}`;
 
+    // 术语库支持的语言列表
+    const SUPPORTED_TERM_LANGS = ['zh', 'en', 'es', 'pt', 'ru', 'vi'];
+    
     // 术语替换函数：根据术语 ID 和目标语言替换文本中的术语
     function replaceTerms(text: string, termIds: string[], termItems: any[], targetLang: string): string {
+      // 如果目标语言不在术语库支持的语言列表中，不进行术语替换，让 AI 自己翻译
+      if (!SUPPORTED_TERM_LANGS.includes(targetLang)) {
+        return text;
+      }
+      
       if (!termIds || termIds.length === 0 || !termItems || termItems.length === 0) {
         return text;
       }
@@ -71,6 +79,11 @@ ${baseSystemPrompt}`;
         // 在术语库中查找对应的术语
         const term = termItems.find(t => t.id === termId || t.termId === termId || t.术语ID === termId);
         if (!term) continue;
+        
+        // 如果是英文，不需要替换
+        if (targetLang === 'en') {
+          continue;
+        }
         
         // 获取目标语言的翻译
         let targetTerm = '';
@@ -90,26 +103,11 @@ ${baseSystemPrompt}`;
           case 'vi':
             targetTerm = term.termVI || term.vi || term['越南语'] || '';
             break;
-          case 'id':
-            targetTerm = term.termID || term.id || term['印尼语'] || '';
-            break;
-          case 'th':
-            targetTerm = term.termTH || term.th || term['泰语'] || '';
-            break;
-          case 'ar':
-            targetTerm = term.termAR || term.ar || term['阿拉伯语'] || '';
-            break;
-          case 'ja':
-            targetTerm = term.termJA || term.ja || term['日语'] || '';
-            break;
-          case 'ko':
-            targetTerm = term.termKO || term.ko || term['韩语'] || '';
-            break;
           default:
             targetTerm = '';
         }
         
-        // 如果没有目标语言翻译，使用英文原文
+        // 如果没有目标语言翻译，跳过（让 AI 自己翻译）
         if (!targetTerm) {
           targetTerm = term.termEN || term.en || term['英文'] || '';
         }
