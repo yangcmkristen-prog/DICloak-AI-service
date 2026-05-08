@@ -117,6 +117,13 @@ function parseTroubleshootingSheet(sheet: XLSX.WorkSheet): TroubleshootingItem[]
     });
 }
 
+// 调试函数：打印 sheet 的所有列名
+function debugSheetColumns(data: Record<string, CellValue>[], sheetName: string) {
+  if (data.length > 0) {
+    console.log(`[EXCEL DEBUG] ${sheetName} 的列名:`, Object.keys(data[0]));
+  }
+}
+
 // 解析 out_of_scope
 function parseOutOfScopeSheet(sheet: XLSX.WorkSheet): OutOfScopeItem[] {
   const data = XLSX.utils.sheet_to_json<Record<string, CellValue>>(sheet, { defval: '' });
@@ -262,6 +269,12 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
     for (const sheetName of sheetNames) {
       const sheet = workbook.Sheets[sheetName];
       const sheetType = inferSheetType(sheetName);
+      
+      // 调试：打印每个 sheet 的列名
+      const sheetData = XLSX.utils.sheet_to_json<Record<string, CellValue>>(sheet, { defval: '' });
+      if (sheetData.length > 0) {
+        console.log(`[EXCEL DEBUG] Sheet "${sheetName}" (类型: ${sheetType}) 的列名:`, Object.keys(sheetData[0]));
+      }
 
       switch (sheetType) {
         case 'feature_faq':
