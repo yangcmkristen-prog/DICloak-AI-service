@@ -29,8 +29,7 @@ export interface FAQItem {
   answer: string;        // 标准答案
   functionId?: string;   // 关联功能ID
   priority?: number;     // 优先级
-  faqId: string;         // FAQ_ID
-  termIds?: string[];    // 关联术语ID列表
+  faqId: string;        // FAQ_ID
 }
 
 // Troubleshooting 专用字段

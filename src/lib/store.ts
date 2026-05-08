@@ -7,30 +7,7 @@ const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabase
 
 // ============ 默认配置 ============
 
-export const DEFAULT_SYSTEM_PROMPT = `你是 DICloak AI 客服助手。
-
-【强制要求】
-- 必须使用：{{language}} 回复
-- 禁止在回复中使用"推荐回复"、"推荐"、"回复1/2/3"等标题
-- 只使用以下固定格式输出：
-
-[问题类型]
-xxx
-
-[主回复]
-完整FAQ标准答案（所有内容，禁止截取或拆分）
-
-[补充建议]
-功能入口、设置位置、操作步骤或其他FAQ补充
-
-[需要补充的信息]
-需要用户提供的报错、截图、录屏等信息
-
-【规则】
-1. 主回复必须完整输出FAQ标准答案所有段落，禁止拆分
-2. 补充建议必须独立，不能继续补充主回复的剩余内容
-3. 只输出最终回复，禁止输出分析、检索过程、知识来源
-4. UI术语必须使用术语库翻译`;
+export const DEFAULT_SYSTEM_PROMPT = "你是 DICloak AI 客服助手。必须使用：{{language}} 回复。任务：生成主回复、补充建议、需要补充的信息。【核心规则】1. 主回复必须完整输出 FAQ 标准答案的所有内容，禁止拆分到其他回复 2. FAQ 中的空行只是排版格式，不代表要拆分输出 3. 补充建议必须独立，禁止继续补充主回复 4. 需要补充的信息只用于收集：报错、截图、录屏、操作步骤、账号来源、使用场景 5. 只输出最终回复，禁止输出分析、判断、检索过程、知识来源 6. UI术语必须使用术语库翻译【身份识别】end_user：提到第三方工具、订阅、套餐、卖家、购买网站、管理员 client：提到团队、API、权限、代理、RPA、批量操作、环境管理【检索顺序】troubleshooting > feature_faq > user_routing > out_of_scope > 功能知识库【信息不足】用户只说打不开/无法使用/有问题但没有报错/截图/操作步骤时，优先收集信息。【输出格式】[问题类型] xxx [主回复] 完整标准答案 [补充建议] 其他FAQ或功能入口 [需要补充的信息] 需要的用户信息";
 
 export const DEFAULT_API_CONFIG: ApiConfig = {
   provider: 'coze',
@@ -60,14 +37,12 @@ export const MODEL_OPTIONS = [
 
 export const PROVIDER_INFO: Record<string, {
   label: string;
-  name: string;
   defaultModel: string;
   baseUrl: string;
   keyPlaceholder: string;
 }> = {
   coze: {
     label: '豆包/Coze',
-    name: 'Coze',
     defaultModel: 'doubao-seed-2-0-lite-260215',
     baseUrl: '',
     keyPlaceholder: '输入你的 Coze API Token',
@@ -76,33 +51,11 @@ export const PROVIDER_INFO: Record<string, {
 
 // ============ 类型定义 ============
 
-export interface KnowledgeStats {
-  feature_faq: number;
-  troubleshooting: number;
-  user_routing: number;
-  out_of_scope: number;
-  mapping: number;
-  功能知识: number;
-  术语: number;
-  total: number;
-  faqCount?: number;
-  troubleshootingCount?: number;
-  outOfScopeCount?: number;
-  mappingCount?: number;
-  functionCount?: number;
-  termCount?: number;
-  lastUpdated?: number;
-}
-
 export interface ApiConfig {
   provider: string;
   apiKey: string;
   model: string;
   baseUrl: string;
-  customConfig?: {
-    endpoint?: string;
-    modelName?: string;
-  };
 }
 
 export interface Conversation {
@@ -164,8 +117,8 @@ export async function saveKnowledgeBase(data: Record<string, any>): Promise<void
   localStorage.setItem('diclok_knowledge', JSON.stringify(data));
 }
 
-export function getKnowledgeStats(data?: Record<string, any> | null): KnowledgeStats {
-  const stats: KnowledgeStats = {
+export function getKnowledgeStats(data?: Record<string, any>): Record<string, number> {
+  const stats: Record<string, number> = {
     feature_faq: 0,
     troubleshooting: 0,
     user_routing: 0,
@@ -176,8 +129,8 @@ export function getKnowledgeStats(data?: Record<string, any> | null): KnowledgeS
     total: 0
   };
   
-  // 如果没有传入数据或数据无效，从 localStorage 读取
-  if (!data || typeof data !== 'object') {
+  // 如果没有传入数据，从 localStorage 读取
+  if (!data) {
     try {
       const local = localStorage.getItem('diclok_knowledge');
       if (local) {
@@ -192,14 +145,13 @@ export function getKnowledgeStats(data?: Record<string, any> | null): KnowledgeS
   }
   
   // 遍历 data 的所有键值对
-  for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
-    // 如果值是数组，遍历每个 item
+  for (const [key, value] of Object.entries(data)) {
+    // 如果值是数组（KnowledgeItem 数组），遍历每个 item
     if (Array.isArray(value)) {
-      for (const item of value as Record<string, unknown>[]) {
-        if (item && item.category && typeof item.category === 'string') {
-          const catKey = item.category as keyof KnowledgeStats;
-          if (catKey in stats) {
-            stats[catKey] = (stats[catKey] || 0) + 1;
+      for (const item of value as KnowledgeItem[]) {
+        if (item && item.category) {
+          if (item.category in stats) {
+            stats[item.category]++;
           }
           stats.total++;
         }
@@ -213,14 +165,14 @@ export function getKnowledgeStats(data?: Record<string, any> | null): KnowledgeS
 export function replaceKnowledgeData(existing: Record<string, any>, newData?: Record<string, any>): Record<string, any> {
   const result = { ...existing };
   
-  if (!newData || typeof newData !== 'object') return result;
+  if (!newData) return result;
   
   // 遍历 newData 的所有键值对
   for (const [key, value] of Object.entries(newData)) {
-    // 如果值是数组，展开到扁平格式
+    // 如果值是数组（KnowledgeItem 数组），展开到扁平格式
     if (Array.isArray(value)) {
-      for (const item of value as Record<string, unknown>[]) {
-        if (item && item.id && typeof item.id === 'string') {
+      for (const item of value as KnowledgeItem[]) {
+        if (item && item.id) {
           result[item.id] = item;
         }
       }
@@ -231,24 +183,6 @@ export function replaceKnowledgeData(existing: Record<string, any>, newData?: Re
   }
   
   return result;
-}
-
-// ============ 知识库清除 ============
-
-export function clearKnowledgeBase(): void {
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem('diclok_knowledge');
-  }
-  // 同步清除数据库
-  try {
-    if (supabase) {
-      supabase.from('knowledge_configs').delete().neq('id', '00000000-0000-0000-0000-000000000000').then(({ error }) => {
-        if (error) console.error('清除数据库知识库失败:', error);
-      });
-    }
-  } catch (e) {
-    console.error('清除知识库失败:', e);
-  }
 }
 
 // ============ System Prompt 相关 ============
