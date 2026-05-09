@@ -31,7 +31,10 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE() {
   try {
-    clearKnowledgeBase();
+    // 清除本地存储
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('diclok_knowledge');
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Clear knowledge error:", error);
