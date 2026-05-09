@@ -344,26 +344,26 @@ export type DetectedLanguage =
 
 // 语言检测辅助函数 - 检测拉丁字母文字所属语言
 // 使用严格的单词边界匹配，避免子字符串误判
-function detectLatinScript(text: string): { language: DetectedLanguage; confidence: number } | null {
+function detectLatinScript(text: string): { language: DetectedLanguage; confidence: number; detected: boolean } | null {
   if (text.length < 5) return null;
   
   // 越南语特殊字符检测（优先检测，因为有独特的字母组合）
   const hasVietnamese = /[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(text);
   if (hasVietnamese) {
-    return { language: 'vi', confidence: 0.95 };
+    return { language: 'vi', confidence: 0.95, detected: true };
   }
   
   // 葡萄牙语特殊字符检测（优先检测）
   const hasPortugueseChars = /[ãõçáéíóúàèìòùâêîôûãõÃÕÇÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛ]/i.test(text);
   
   // 印尼语特征词汇（印尼语特有的词，使用单词边界）
-  const indonesianWords = ['kamu', 'mereka', 'kami', 'kita', 'gimana', 'nggak', 'banget', 'masak', 'jangan', 'udah', 'dong', 'kok', 'kan', 'tuh', 'deh', 'nih', 'aja', 'sih', 'gue', 'lu', 'ane', 'ente', 'mu', 'nya', 'dong', 'kira', 'tiba', 'mau', 'bisa', 'gak', 'suka', 'bukan', 'halo', 'terima', 'kasih', 'tolong', 'ya', 'okee', 'siapa', 'apa', 'kenapa', 'di mana', 'bagaimana', 'tolong', 'yang', 'ada', 'ini', 'itu', 'dari', 'dengan', 'untuk', 'pada', 'ke', 'dalam', 'tidak', 'apa', 'siapa', 'mana'];
+  const indonesianWords = ['kamu', 'mereka', 'kami', 'kita', 'gimana', 'nggak', 'banget', 'masak', 'jangan', 'udah', 'dong', 'kok', 'kan', 'tuh', 'deh', 'nih', 'aja', 'sih', 'gue', 'lu', 'ane', 'ente', 'mu', 'nya', 'kira', 'tiba', 'mau', 'bisa', 'gak', 'suka', 'bukan', 'halo', 'terima', 'kasih', 'tolong', 'ya', 'okee', 'siapa', 'apa', 'kenapa', 'di mana', 'bagaimana', 'yang', 'ada', 'ini', 'itu', 'dari', 'dengan', 'untuk', 'pada', 'ke', 'dalam', 'tidak', 'mana'];
   
   // 葡萄牙语特征词汇（葡萄牙语特有的词，使用单词边界）
-  const portugueseWords = ['ola', 'obrigado', 'obrigada', 'trabalho', 'problema', 'tenho', 'preciso', 'ajuda', 'sinal', 'erro', 'funciona', 'login', 'sessao', 'entrar', 'este', 'estao', 'esses', 'essas', 'onde', 'quando', 'como', 'porque', 'bem', 'muito', 'pouco', 'bom', 'ruim', 'sim', 'nao', 'ja', 'agora', 'depois', 'antes', 'sempre', 'nunca', 'talvez', 'certamente', 'provavelmente', 'aqui', 'ali', 'embaixo', 'em cima', 'longe', 'perto', 'elemento', 'topo', 'ocultar', 'perfil', 'Vyral', 'tenho', 'preciso', 'precisamos', 'conseguir', 'obrigado', 'por favor', 'boa', 'boas', 'tardes', 'noite', 'dias', 'tudo', 'bem', 'falar', 'sinto', 'muito'];
+  const portugueseWords = ['ola', 'obrigado', 'obrigada', 'trabalho', 'problema', 'tenho', 'preciso', 'precisamos', 'ajuda', 'sinal', 'erro', 'funciona', 'login', 'sessao', 'entrar', 'este', 'estao', 'esses', 'essas', 'onde', 'quando', 'como', 'porque', 'bem', 'muito', 'pouco', 'bom', 'ruim', 'sim', 'nao', 'ja', 'agora', 'depois', 'antes', 'sempre', 'nunca', 'talvez', 'certamente', 'provavelmente', 'aqui', 'ali', 'embaixo', 'em cima', 'longe', 'perto', 'elemento', 'topo', 'ocultar', 'perfil', 'Vyral', 'conseguir', 'por favor', 'boa', 'boas', 'tardes', 'noite', 'dias', 'tudo', 'falar', 'sinto', 'tenho'];
   
   // 西班牙语特征词汇（西班牙语特有的词，使用单词边界）
-  const spanishWords = ['hola', 'gracias', 'trabajo', 'trabajos', 'necesito', 'ayudar', 'senal', 'funciona', 'ayuda', 'iniciar', 'eliminar', 'imagenes', 'hacer', 'quiero', 'puedo', 'tiene', 'tienen', 'donde', 'cuando', 'porque', 'pero', 'este', 'esta', 'esto', 'estos', 'estas', 'esos', 'esas', 'sobre', 'tener', 'hacer', 'ir', 'ver', 'dar', 'saber', 'querer', 'poder', 'deber', 'decir', 'quien', 'cual', 'cuanto', 'aqui', 'alli', 'ahora', 'luego', 'despues', 'siempre', 'nunca', 'tambien', 'solo', 'ahora', 'entonces', 'bueno', 'vale', 'mira', 'oye', 'favor', 'saludos', 'necesito', 'ayudame', 'por favor'];
+  const spanishWords = ['hola', 'gracias', 'trabajo', 'trabajos', 'necesito', 'ayudar', 'senal', 'funciona', 'ayuda', 'iniciar', 'eliminar', 'imagenes', 'hacer', 'quiero', 'puedo', 'tiene', 'tienen', 'donde', 'cuando', 'porque', 'pero', 'este', 'esta', 'esto', 'estos', 'estas', 'esos', 'esas', 'sobre', 'tener', 'hacer', 'ir', 'ver', 'dar', 'saber', 'querer', 'poder', 'deber', 'decir', 'quien', 'cual', 'cuanto', 'aqui', 'alli', 'ahora', 'luego', 'despues', 'siempre', 'nunca', 'tambien', 'solo', 'entonces', 'bueno', 'vale', 'mira', 'oye', 'favor', 'saludos', 'ayudame'];
   
   // 计算单词总数
   const words = text.split(/\s+/).filter(w => w.length > 0);
@@ -386,25 +386,24 @@ function detectLatinScript(text: string): { language: DetectedLanguage; confiden
   
   // 如果有葡萄牙语特殊字符，直接返回葡萄牙语
   if (hasPortugueseChars) {
-    return { language: 'pt', confidence: 0.85 };
+    return { language: 'pt', confidence: 0.85, detected: true };
   }
   
-  // 只有当最高分数语言的分数 >= 1 时才返回该语言
-  // 否则返回 null
+  // 如果有匹配的小语种词汇（分数 >= 1），返回检测到的语言
   if (spanishScore >= 1 && spanishScore >= portugueseScore && spanishScore >= indonesianScore) {
-    return { language: 'es', confidence: Math.min(spanishScore / totalWords * 2, 0.95) };
+    return { language: 'es', confidence: Math.min(spanishScore / totalWords * 2, 0.95), detected: true };
   }
   
   if (portugueseScore >= 1 && portugueseScore >= spanishScore && portugueseScore >= indonesianScore) {
-    return { language: 'pt', confidence: Math.min(portugueseScore / totalWords * 2, 0.95) };
+    return { language: 'pt', confidence: Math.min(portugueseScore / totalWords * 2, 0.95), detected: true };
   }
   
   if (indonesianScore >= 1 && indonesianScore >= spanishScore && indonesianScore >= portugueseScore) {
-    return { language: 'id', confidence: Math.min(indonesianScore / totalWords * 2, 0.95) };
+    return { language: 'id', confidence: Math.min(indonesianScore / totalWords * 2, 0.95), detected: true };
   }
   
-  // 没有检测到明确的拉丁语系语言，返回 null
-  return null;
+  // 没有检测到明确的小语种特征
+  return { language: 'en', confidence: 0, detected: false };
 }
 
 export function detectLanguage(text: string): DetectedLanguage {
@@ -441,38 +440,28 @@ export function detectLanguage(text: string): DetectedLanguage {
   if (nonLatinRatios.japanese >= THRESHOLD) return 'ja';
   if (nonLatinRatios.korean >= THRESHOLD) return 'ko';
   
-  // 2. 检测拉丁语系语言（西班牙语、葡萄牙语、越南语、印尼语）
+  // 2. 检测拉丁语系小语种（西班牙语、葡萄牙语、越南语、印尼语）
+  // 如果检测到任何小语种特征，直接返回该语言
   const latinResult = detectLatinScript(cleanText);
   console.log('[DEBUG] Latin检测结果:', latinResult);
-  
-  // 如果检测到拉丁语系语言且置信度 >= 0.2，直接返回
-  if (latinResult && latinResult.confidence >= 0.2) {
-    console.log('[DEBUG] 返回拉丁语系:', latinResult.language);
+  if (latinResult && latinResult.detected) {
+    console.log('[DEBUG] 返回小语种:', latinResult.language);
     return latinResult.language;
   }
   
-  // 3. 检测英文（只有当没有检测到拉丁语系语言时才考虑）
+  // 3. 其他语言检测
   const englishCount = (cleanText.match(/[a-zA-Z]/g) || []).length;
-  const englishRatio = englishCount / totalChars;
   
-  if (englishRatio >= 0.5) {
-    const chineseChars = nonLatinStats.chinese;
-    if (chineseChars > 5) return 'mixed';
-    console.log('[DEBUG] 英文为主，返回en');
-    return 'en';
-  }
-  
-  // 4. 混合语言检测
+  // 混合语言检测
   const activeNonEnglishCount = Object.entries(nonLatinRatios).filter(([k, v]) => k !== 'chinese' && v >= 0.1).length;
   const chineseChars = nonLatinStats.chinese;
-  const englishChars = englishCount;
   
-  if (chineseChars > 0 && englishChars > 0) return 'mixed';
+  if (chineseChars > 0 && englishCount > 0) return 'mixed';
   if (chineseChars > 0 && activeNonEnglishCount > 0) return 'mixed';
-  if (englishChars > 0 && activeNonEnglishCount > 0) return 'mixed';
   
-  // 默认返回中文
-  return 'zh';
+  // 默认返回英文（如果没有任何非英文特征）
+  console.log('[DEBUG] 无小语种特征，返回en');
+  return 'en';
 }
 
 export function getLanguageName(lang: DetectedLanguage): string {
