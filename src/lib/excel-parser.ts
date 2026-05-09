@@ -58,7 +58,8 @@ function readExcelFile(file: File): Promise<XLSX.WorkBook> {
 function parseTermIds(value: CellValue): string[] {
   const str = getCellValue(value);
   if (!str) return [];
-  return str.split(/[,，\s;；]+/).map(s => s.trim()).filter(Boolean);
+  // 支持中文逗号、中文顿号、英文逗号、分号、空格分隔
+  return str.split(/[,，、\s;；]+/).map(s => s.trim()).filter(Boolean);
 }
 
 // 解析 FAQ 基础字段（feature_faq, user_routing, troubleshooting）
