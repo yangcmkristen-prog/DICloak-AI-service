@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getKnowledgeBase, getKnowledgeStats, replaceKnowledgeData, clearKnowledgeBase } from "@/lib/store";
+import { getKnowledgeBase, getKnowledgeStats, replaceKnowledgeData } from "@/lib/store";
 
 export async function GET() {
   try {
