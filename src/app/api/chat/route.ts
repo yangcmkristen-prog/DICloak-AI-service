@@ -9,31 +9,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "消息不能为空" }, { status: 400 });
     }
 
-    // 添加调试日志
-    console.log('[DEBUG] 后端接收语言:', detectedLanguage);
-    console.log('[DEBUG] systemPrompt 长度:', systemPrompt?.length || 0);
-    
     // 调试知识库数据
-    console.log('[DEBUG] knowledge对象存在:', !!knowledge);
+    console.log('[DEBUG] 后端接收语言:', detectedLanguage);
     if (knowledge) {
       console.log('[DEBUG] FAQ数量:', knowledge.faqItems?.length || 0);
-      console.log('[DEBUG] Troubleshooting数量:', knowledge.troubleshootingItems?.length || 0);
       console.log('[DEBUG] 术语库数量:', knowledge.termItems?.length || 0);
-      // 检查第一个FAQ是否有termIds
-      if (knowledge.faqItems?.length > 0) {
-        console.log('[DEBUG] 第一个FAQ:', JSON.stringify(knowledge.faqItems[0]));
-      }
-      if (knowledge.troubleshootingItems?.length > 0) {
-        console.log('[DEBUG] 第一个Troubleshooting:', JSON.stringify(knowledge.troubleshootingItems[0]));
-      }
-      // 打印术语库中所有条目（用于调试）
-      if (knowledge.termItems?.length > 0) {
-        console.log('[DEBUG] 术语库完整数据:', JSON.stringify(knowledge.termItems));
-      } else {
-        console.log('[DEBUG] 警告：术语库为空!');
-      }
     }
-    
+
     // 语言规则映射
     const languageRules: Record<string, string> = {
       zh: "所有回复必须使用中文",
@@ -45,645 +27,235 @@ export async function POST(request: NextRequest) {
       id: "Semua jawaban harus dalam bahasa Indonesia",
       th: "คำตอบทั้งหมดต้องเป็นภาษาไทย",
       ar: "يجب أن تكون جميع الإجابات باللغة العربية",
-      ja: "すべての回答は日本語で必要があります",
+      ja: "すべての回答は日本語で作成する必要があります",
       ko: "모든 답변은 한국어로 작성해야 합니다",
       mixed: "用户问题中包含多种语言，请使用中文回复",
     };
     const languageRule = languageRules[detectedLanguage] || languageRules.zh;
-    console.log('[DEBUG] 使用的语言规则:', languageRule);
 
     // API 配置
     const config = apiConfig || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
 
-    // 优先使用前端传递的 System Prompt，其次使用默认 Prompt
-    const defaultPrompt = `你是 DICloak 客服助手，专注于帮助客服人员快速生成专业、友好的客户回复。
+    // 优先使用前端传递的 System Prompt
+    const finalSystemPrompt = systemPrompt || `You are a DICloak customer service assistant.
 
-## 核心职责
-根据客户的问题，从知识库中匹配最相关的 FAQ（每个FAQ都有ID标识），生成3条不同角度的推荐回复。
+Focus on helping customer service staff quickly generate professional, friendly customer replies.
 
-## 【重要】知识库 FAQ 匹配规则
-1. **FAQ 标识**：知识库中的每个 FAQ 都有【FAQ: FAQ_ID】标识
-2. **匹配优先**：优先使用与用户问题最匹配的 FAQ 作为回复依据
-3. **术语关联**：每个 FAQ 内部的术语翻译已经完成，格式为"[已翻译:原文→译文]"
+When a user asks a question:
+1. Match the most relevant FAQ from the provided knowledge base
+2. Generate replies in the same language as the user's question
 
-## 【重要】术语翻译标记处理规则
-知识库中的术语已预先翻译为 "[已翻译:原文→译文]" 格式。
-**你必须严格遵循以下规则处理这些标记：**
-1. **识别标记**：在回答中看到 "[已翻译:Team→团队]" 这样的格式
-2. **提取译文**：提取箭头 "→" 后面的部分（如"团队"）
-3. **替换输出**：在最终回复中，只输出译文，删除整个 "[已翻译:...]" 标记
-4. **示例**：
-   - 原文：进入 [已翻译:Team→团队管理]>[已翻译:Members→成员] 页面
-   - 正确输出：进入团队管理>成员 页面
-   - 错误输出：进入 [已翻译:Team→团队管理]>[已翻译:Members→成员] 页面（保留标记）
-   - 错误输出：进入 Team>Members 页面（使用原文）
+## Output Format
+When using knowledge base FAQ, must follow this format:
+- [Main] -> core answer content
+- [Suggestion] -> additional advice (must be on separate line)
+- [NeedInfo] -> information needed from user (must be on separate line)
 
-## 回复格式规范【重要】
-当使用知识库中的 FAQ 回复时，必须严格遵循以下格式：
-1. **主回复**：用 [主回复] 开头，后跟核心回复内容
-2. **补充建议**：用 [补充建议] 开头（必须是独立的一行），后跟补充内容
-3. **需要补充的信息**：用 [需要补充的信息] 开头（必须是独立的一行），后跟需要用户提供的信息
+Do NOT put [NeedInfo] inside [Suggestion] content.
 
-**格式示例**：
-[主回复]
-这是主回复内容...
+## Multi-turn Conversation
+- Remember previous conversation context
+- If user mentions their role or provides info, use it for targeted advice
+- If user asks follow-up, combine with previous context`;
 
-[补充建议]
-这是补充建议内容...
-
-[需要补充的信息]
-请提供以下信息：
-1. 错误截图
-2. 您的账户信息
-
-**【禁止】**：
-- 不要在 [补充建议] 的内容中混入 [需要补充的信息]
-- 不要省略标签
-- 每个部分必须独立成行`;
-
-    // 获取基础 system prompt，并替换 {{language}} 占位符
-    let baseSystemPrompt = systemPrompt || defaultPrompt;
-    baseSystemPrompt = baseSystemPrompt.replace(/\{\{language\}\}/g, languageRule);
-    
-    // 确保语言规则在 system prompt 开头强制执行
-    const finalSystemPrompt = `${languageRule}
-
-${baseSystemPrompt}`;
-
-    // 术语库支持的语言列表
-    const SUPPORTED_TERM_LANGS = ['zh', 'en', 'es', 'pt', 'ru', 'vi'];
-    
-    // 术语替换函数：根据术语 ID 和目标语言替换文本中的术语
-    function replaceTerms(text: string, termIds: string[], termItems: any[], targetLang: string): string {
-      // 如果目标语言不在术语库支持的语言列表中，不进行术语替换，让 AI 自己翻译
-      if (!SUPPORTED_TERM_LANGS.includes(targetLang)) {
-        console.log(`[TERM DEBUG] 语言 ${targetLang} 不在支持列表中，跳过术语替换`);
-        return text;
-      }
-      
-      if (!termIds || termIds.length === 0 || !termItems || termItems.length === 0) {
-        console.log(`[TERM DEBUG] termIds为空或termItems为空，跳过: termIds=${JSON.stringify(termIds)}, termItems数量=${termItems?.length}`);
-        return text;
-      }
-      
-      console.log(`[TERM DEBUG] 开始术语替换，语言=${targetLang}, termIds=${JSON.stringify(termIds)}, termItems数量=${termItems.length}`);
-      console.log(`[TERM DEBUG] termItems前3个: ${JSON.stringify(termItems.slice(0, 3).map(t => ({termId: t.termId, termEN: t.termEN, termCN: t.termCN})))}`);
-      
-      let result = text;
-      
-      for (const termId of termIds) {
-        // 在术语库中查找对应的术语（注意：termId 是 Excel 中的 term_id，不是生成的 id）
-        const term = termItems.find(t => t.termId === termId);
-        if (!term) {
-          console.log(`[TERM DEBUG] 未找到术语: ${termId}`);
-          continue;
-        }
-        
-        console.log(`[TERM DEBUG] 找到术语: ${termId}, termEN=${term.termEN}, termCN=${term.termCN}`);
-        
-        // 如果是英文，不需要替换
-        if (targetLang === 'en') {
-          continue;
-        }
-        
-        // 获取目标语言的翻译
-        let targetTerm = '';
-        switch (targetLang) {
-          case 'zh':
-            targetTerm = term.termCN || term.zh || term['中文'] || '';
-            break;
-          case 'es':
-            targetTerm = term.termES || term.es || term['西班牙语'] || '';
-            break;
-          case 'pt':
-            targetTerm = term.termPT || term.pt || term['葡萄牙语'] || '';
-            break;
-          case 'ru':
-            targetTerm = term.termRU || term.ru || term['俄语'] || '';
-            break;
-          case 'vi':
-            targetTerm = term.termVI || term.vi || term['越南语'] || '';
-            break;
-          default:
-            targetTerm = '';
-        }
-        
-        console.log(`[TERM DEBUG] 目标语言翻译: ${targetTerm}`);
-        
-        // 如果没有目标语言翻译，跳过（让 AI 自己翻译）
-        if (!targetTerm) {
-          targetTerm = term.termEN || term.en || term['英文'] || '';
-        }
-        
-        // 获取英文原文（用于匹配）
-        const englishTerm = term.termEN || term.en || term['英文'] || '';
-        
-        // 如果有英文原文和目标翻译，进行替换，并添加术语标识
-        if (englishTerm && targetTerm && englishTerm !== targetTerm) {
-          // 使用正则表达式进行精确替换（不区分大小写）
-          const regex = new RegExp(englishTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-          // 替换后添加术语标识，让 AI 知道这是已翻译的术语
-          result = result.replace(regex, `[已翻译:${englishTerm}→${targetTerm}]`);
-          console.log(`[TERM DEBUG] 替换成功: "${englishTerm}" -> "[已翻译:${englishTerm}→${targetTerm}]"`);
-        } else {
-          console.log(`[TERM DEBUG] 跳过替换: englishTerm="${englishTerm}", targetTerm="${targetTerm}"`);
-        }
-      }
-      
-      console.log(`[TERM DEBUG] 替换后结果: ${result}`);
-      return result;
-    }
-
-    // ============ FAQ 匹配函数 ============
-    // 计算用户问题与 FAQ 的匹配度
-    function calculateMatchScore(userMessage: string, faqItem: { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string }): number {
-      const userLower = userMessage.toLowerCase();
-      const keywords = userLower.split(/[\s\p{P}]+/u).filter(w => w.length > 2);
-      
-      let score = 0;
-      
-      // 检查英文问题匹配
-      if (faqItem.questionEN) {
-        const enLower = faqItem.questionEN.toLowerCase();
-        // 精确匹配英文问题
-        if (enLower.includes(userLower) || userLower.includes(enLower)) {
-          score += 50;
-        }
-        // 关键词匹配
-        const enWords = enLower.split(/[\s\p{P}]+/u).filter(w => w.length > 2);
-        enWords.forEach(word => {
-          if (keywords.some(k => k.includes(word) || word.includes(k))) {
-            score += 5;
-          }
-        });
-      }
-      
-      // 检查中文问题匹配
-      if (faqItem.questionCN) {
-        const cnLower = faqItem.questionCN.toLowerCase();
-        // 精确匹配中文问题
-        if (cnLower.includes(userLower) || userLower.includes(cnLower)) {
-          score += 50;
-        }
-        // 关键词匹配
-        const cnWords = cnLower.split(/[\s\p{P}]+/u).filter(w => w.length > 2);
-        cnWords.forEach(word => {
-          if (keywords.some(k => k.includes(word) || word.includes(k))) {
-            score += 5;
-          }
-        });
-      }
-      
-      // 检查标签匹配
-      if (faqItem.tags) {
-        faqItem.tags.forEach(tag => {
-          if (keywords.some(k => tag.toLowerCase().includes(k) || k.includes(tag.toLowerCase()))) {
-            score += 10;
-          }
-        });
-      }
-      
-      // 检查用户问法匹配
-      if (faqItem.userPhrases) {
-        const phrases = faqItem.userPhrases.toLowerCase();
-        if (phrases.includes(userLower) || userLower.includes(phrases)) {
-          score += 30;
-        }
-      }
-      
-      return score;
-    }
-
-    // 优先使用前端传递的知识库数据
-    const knowledgeBase = knowledge || {
-      faqItems: [],
-      troubleshootingItems: [],
-      outOfScopeItems: [],
-      mappingItems: [],
-      functionKnowledge: [],
-      termItems: [],
-    };
-
-    // ============ 构建知识库上下文（只包含匹配的项）============
+    // 构建知识库上下文（只传递最相关的知识库项）
     let knowledgeContext = "";
 
-    // 定义 FAQ 项类型
-    type FaqItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; functionId?: string; termIds?: string[]; faqId?: string };
+    if (knowledge && (knowledge.faqItems?.length > 0 || knowledge.troubleshootingItems?.length > 0 || knowledge.outOfScopeItems?.length > 0)) {
+      // 计算匹配分数
+      const calculateMatchScore = (userMsg: string, item: { questionCN?: string; questionEN?: string; tags?: string[]; userPhrases?: string }) => {
+        let score = 0;
+        const msgLower = userMsg.toLowerCase();
 
-    // 对 FAQ 进行匹配过滤，只保留最相关的 5 条
-    const faqItems = (knowledgeBase.faqItems || []) as FaqItem[];
-    const matchedFaqs = faqItems
-      .map((item: FaqItem) => ({ item, score: calculateMatchScore(message, item) }))
-      .filter(m => m.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
-
-    // 添加 FAQ 数据（包含术语替换）
-    if (matchedFaqs.length > 0) {
-      knowledgeContext += "\n\n## FAQ 知识库（已根据您的问题匹配）\n";
-      matchedFaqs.forEach(({ item }) => {
-        // 对标准答案进行术语替换
-        const termIds = item.termIds || [];
-        const replacedAnswer = replaceTerms(item.answer, termIds, knowledgeBase.termItems, detectedLanguage);
-        
-        knowledgeContext += `【FAQ: ${item.faqId}】\n`;
-        knowledgeContext += `问题: ${item.questionCN}\n`;
-        knowledgeContext += `标准答案: ${replacedAnswer}\n`;
-        if (item.functionId) knowledgeContext += `关联功能: ${item.functionId}\n`;
-        // 术语关联信息：让 AI 知道术语和 FAQ 的对应关系
-        if (termIds && termIds.length > 0) {
-          knowledgeContext += `本FAQ涉及术语: ${termIds.join(', ')}\n`;
+        // 中文问题匹配
+        if (item.questionCN) {
+          const cnLower = item.questionCN.toLowerCase();
+          // 完全包含
+          if (cnLower.includes(msgLower) || msgLower.includes(cnLower)) {
+            score += 10;
+          }
+          // 关键词匹配
+          const keywords = msgLower.split(/[\s,.!?;:]+/).filter(w => w.length > 1);
+          keywords.forEach(kw => {
+            if (cnLower.includes(kw)) score += 2;
+          });
         }
-        knowledgeContext += "\n";
-      });
-    }
 
-    // 对 Troubleshooting 进行匹配过滤，只保留最相关的 5 条
-    type TsItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; answerClient?: string; answerEndUser?: string; termIds?: string[]; faqId?: string };
-    const tsItems = (knowledgeBase.troubleshootingItems || []) as TsItem[];
-    const matchedTs = tsItems
-      .map((item: TsItem) => ({ item, score: calculateMatchScore(message, item) }))
-      .filter(m => m.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
-
-    // 添加 Troubleshooting 数据（包含术语替换）
-    if (matchedTs.length > 0) {
-      knowledgeContext += "\n\n## 排障知识库（已根据您的问题匹配）\n";
-      matchedTs.forEach(({ item }) => {
-        const termIds = item.termIds || [];
-        
-        knowledgeContext += `【排障: ${item.faqId}】\n`;
-        knowledgeContext += `问题: ${item.questionCN}\n`;
-        knowledgeContext += `通用答案: ${replaceTerms(item.answer, termIds, knowledgeBase.termItems, detectedLanguage)}\n`;
-        if (item.answerClient) knowledgeContext += `Client答案: ${replaceTerms(item.answerClient, termIds, knowledgeBase.termItems, detectedLanguage)}\n`;
-        if (item.answerEndUser) knowledgeContext += `EndUser答案: ${replaceTerms(item.answerEndUser, termIds, knowledgeBase.termItems, detectedLanguage)}\n`;
-        // 术语关联信息
-        if (termIds && termIds.length > 0) {
-          knowledgeContext += `本排障涉及术语: ${termIds.join(', ')}\n`;
+        // 英文问题匹配
+        if (item.questionEN) {
+          const enLower = item.questionEN.toLowerCase();
+          if (enLower.includes(msgLower) || msgLower.includes(enLower)) {
+            score += 10;
+          }
+          const keywords = msgLower.split(/[\s,.!?;:]+/).filter(w => w.length > 1);
+          keywords.forEach(kw => {
+            if (enLower.includes(kw)) score += 2;
+          });
         }
-        knowledgeContext += "\n";
-      });
-    }
 
-    // 对 Out of Scope 进行匹配过滤，只保留最相关的 3 条
-    type OosItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; termIds?: string[] };
-    const oosItems = (knowledgeBase.outOfScopeItems || []) as OosItem[];
-    const matchedOutOfScope = oosItems
-      .map((item: OosItem) => ({ item, score: calculateMatchScore(message, item) }))
-      .filter(m => m.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3);
+        // 标签匹配
+        if (item.tags) {
+          item.tags.forEach(tag => {
+            if (msgLower.includes(tag.toLowerCase())) score += 3;
+          });
+        }
 
-    // 添加 Out of Scope 数据
-    if (matchedOutOfScope.length > 0) {
-      knowledgeContext += "\n\n## 超范围问题库（已根据您的问题匹配）\n";
-      matchedOutOfScope.forEach(({ item }) => {
-        knowledgeContext += `【超范围】\n`;
-        knowledgeContext += `问题: ${item.questionCN}\n`;
-        knowledgeContext += `标准回复: ${replaceTerms(item.answer, item.termIds || [], knowledgeBase.termItems, detectedLanguage)}\n`;
-        knowledgeContext += "\n";
-      });
-    }
+        return score;
+      };
 
-    // 添加功能知识库
-    if (knowledgeBase.functionKnowledge && knowledgeBase.functionKnowledge.length > 0) {
-      knowledgeContext += "\n\n## 功能知识库\n";
-      knowledgeBase.functionKnowledge.slice(0, 20).forEach((item: { functionName: string; description: string; entryPath?: string; steps?: string; termIds?: string[] }, index: number) => {
-        knowledgeContext += `【功能 ${index + 1}】\n`;
-        knowledgeContext += `功能名称: ${item.functionName}\n`;
-        knowledgeContext += `功能说明: ${item.description}\n`;
-        if (item.entryPath) knowledgeContext += `入口路径: ${item.entryPath}\n`;
-        if (item.steps) knowledgeContext += `操作步骤: ${replaceTerms(item.steps, item.termIds || [], knowledgeBase.termItems, detectedLanguage)}\n`;
-        knowledgeContext += "\n";
-      });
-      if (knowledgeBase.functionKnowledge.length > 20) {
-        knowledgeContext += `(仅显示前20条，共${knowledgeBase.functionKnowledge.length}条)\n`;
+      // FAQ 匹配过滤
+      type FaqItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; functionId?: string; termIds?: string[]; faqId?: string };
+      const faqItems = (knowledge.faqItems || []) as FaqItem[];
+      const matchedFaq = faqItems
+        .map((item: FaqItem) => ({ item, score: calculateMatchScore(message, item) }))
+        .filter(m => m.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5);
+
+      // Troubleshooting 匹配过滤
+      type TsItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; termIds?: string[]; faqId?: string };
+      const tsItems = (knowledge.troubleshootingItems || []) as TsItem[];
+      const matchedTs = tsItems
+        .map((item: TsItem) => ({ item, score: calculateMatchScore(message, item) }))
+        .filter(m => m.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5);
+
+      // Out of Scope 匹配过滤
+      type OosItem = { questionCN: string; questionEN?: string; answer: string; answerClient?: string; answerEndUser?: string };
+      const oosItems = (knowledge.outOfScopeItems || []) as OosItem[];
+      const matchedOos = oosItems
+        .map((item: OosItem) => ({ item, score: calculateMatchScore(message, item) }))
+        .filter(m => m.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3);
+
+      // 构建 FAQ 上下文
+      if (matchedFaq.length > 0) {
+        knowledgeContext += "## FAQ Knowledge Base (matched by your question)\n";
+        matchedFaq.forEach((m, index) => {
+          const item = m.item;
+          knowledgeContext += `[FAQ ${index + 1}]\n`;
+          knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
+          knowledgeContext += `StandardAnswer: ${item.answer}\n`;
+          if (item.functionId) {
+            knowledgeContext += `RelatedFunction: ${item.functionId}\n`;
+          }
+          if (item.termIds && item.termIds.length > 0) {
+            knowledgeContext += `RelatedTerms: ${item.termIds.join(', ')}\n`;
+          }
+          knowledgeContext += "\n";
+        });
       }
-    }
 
-    // 添加术语库（用于 AI 参考，包含所有语言的翻译）
-    if (knowledgeBase.termItems && knowledgeBase.termItems.length > 0) {
-      knowledgeContext += "\n\n## 术语库\n";
-      const visibleTerms = knowledgeBase.termItems.filter((t: { isUiVisible: boolean }) => t.isUiVisible).slice(0, 30);
-      visibleTerms.forEach((item: { termId: string; termCN: string; termEN: string; termPT?: string; termES?: string }) => {
-        // 构建术语库的完整翻译信息
-        const translations: string[] = [];
-        translations.push(`EN: ${item.termEN}`);
-        translations.push(`CN: ${item.termCN}`);
-        if (item.termPT) translations.push(`PT: ${item.termPT}`);
-        if (item.termES) translations.push(`ES: ${item.termES}`);
-        knowledgeContext += `- ${item.termId}: ${translations.join(', ')}\n`;
-      });
-      if (knowledgeBase.termItems.length > 30) {
-        knowledgeContext += `(仅显示前30条，共${knowledgeBase.termItems.length}条)\n`;
+      // 构建 Troubleshooting 上下文
+      if (matchedTs.length > 0) {
+        knowledgeContext += "## Troubleshooting Knowledge Base (matched by your question)\n";
+        matchedTs.forEach((m, index) => {
+          const item = m.item;
+          knowledgeContext += `[Troubleshoot ${index + 1}]\n`;
+          knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
+          knowledgeContext += `StandardAnswer: ${item.answer}\n`;
+          if (item.termIds && item.termIds.length > 0) {
+            knowledgeContext += `RelatedTerms: ${item.termIds.join(', ')}\n`;
+          }
+          knowledgeContext += "\n";
+        });
       }
-    }
 
-    // 添加映射表
-    if (knowledgeBase.mappingItems && knowledgeBase.mappingItems.length > 0) {
-      knowledgeContext += "\n\n## 问题分类映射\n";
-      knowledgeBase.mappingItems.forEach((item: { category2: string; domainKeywords?: string; keywordsEN?: string }) => {
-        if (item.category2) {
-          knowledgeContext += `- ${item.category2}: ${item.domainKeywords || item.keywordsEN || ''}\n`;
-        }
-      });
+      // 构建 Out of Scope 上下文
+      if (matchedOos.length > 0) {
+        knowledgeContext += "## Out of Scope Knowledge Base (for reference)\n";
+        matchedOos.forEach((m, index) => {
+          const item = m.item;
+          knowledgeContext += `[OutOfScope ${index + 1}]\n`;
+          knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
+          knowledgeContext += `StandardAnswer: ${item.answer}\n`;
+          if (item.answerClient) {
+            knowledgeContext += `ClientAnswer: ${item.answerClient}\n`;
+          }
+          if (item.answerEndUser) {
+            knowledgeContext += `EndUserAnswer: ${item.answerEndUser}\n`;
+          }
+          knowledgeContext += "\n";
+        });
+      }
     }
 
     // 构建对话历史上下文
     let historyContext = "";
     if (history && history.length > 0) {
-      historyContext = "\n\n## 当前对话历史\n";
+      historyContext = "## Conversation History\n";
       history.forEach((msg: { role: string; content: string }) => {
-        historyContext += `${msg.role === 'user' ? '客户' : '客服'}: ${msg.content}\n`;
-      });
-    }
-
-    const fullPrompt = `${languageRule}
-
-客户问题: ${message}${knowledgeContext}${historyContext}
-
-请根据以上知识库信息，生成3条推荐回复。如果问题属于"超范围"类别，请先说明无法支持后再给出适当的建议。`;
-
-    const messages = [
-      { role: "system" as const, content: finalSystemPrompt },
-      { role: "user" as const, content: fullPrompt },
-    ];
-
-    // 根据 provider 选择不同的 API 调用方式
-    if (config.provider === 'coze' || !config.apiKey) {
-      // 使用 Coze 内置 API
-      const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
-      const cozeConfig = new Config();
-      const client = new LLMClient(cozeConfig, customHeaders);
-
-      const stream = client.stream(messages, {
-        model: config.model || "doubao-seed-2-0-lite-260215",
-        temperature: 0.7,
-      });
-
-      let fullContent = "";
-      const encoder = new TextEncoder();
-
-      const readable = new ReadableStream({
-        async start(controller) {
-          try {
-            for await (const chunk of stream) {
-              if (chunk.content && typeof chunk.content === 'string') {
-                fullContent += chunk.content;
-                controller.enqueue(encoder.encode(chunk.content));
-              }
-            }
-          } catch (error) {
-            console.error("Stream error:", error);
-          } finally {
-            controller.close();
-          }
-        },
-      });
-
-      return new Response(readable, {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        },
-      });
-    } else if (config.provider === 'custom') {
-      // 使用自定义 HTTP API
-      if (!config.customConfig?.endpoint) {
-        return NextResponse.json(
-          { error: "请配置自定义 API 端点" },
-          { status: 400 }
-        );
-      }
-      return await handleCustomHTTP(config, messages);
-    } else {
-      // 使用第三方 API (OpenAI / DeepSeek / Kimi)
-      return await handleThirdPartyAPI(config, messages);
-    }
-  } catch (error) {
-    console.error("Chat API error:", error);
-    return NextResponse.json(
-      { error: "生成回复失败，请稍后重试" },
-      { status: 500 }
-    );
-  }
-}
-
-// 处理第三方 API 调用
-async function handleThirdPartyAPI(
-  config: { provider: string; apiKey: string; model: string; baseUrl?: string },
-  messages: Array<{ role: string; content: string }>
-) {
-  const baseUrl = config.baseUrl || getDefaultBaseUrl(config.provider);
-  
-  const requestBody: Record<string, unknown> = {
-    model: config.model,
-    messages: messages,
-    stream: true,
-    temperature: 0.7,
-  };
-
-  // DeepSeek R1 需要特殊处理
-  if (config.provider === 'deepseek' && config.model.includes('reasoner')) {
-    requestBody.model = 'deepseek-reasoner';
-    requestBody.temperature = 1;
-  }
-
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("Third-party API error:", response.status, errorText);
-    return NextResponse.json(
-      { error: `API 调用失败: ${response.status} ${errorText}` },
-      { status: response.status }
-    );
-  }
-
-  // 转换 SSE 格式
-  const reader = response.body?.getReader();
-  const encoder = new TextEncoder();
-
-  const readable = new ReadableStream({
-    async start(controller) {
-      try {
-        while (true) {
-          const { done, value } = await reader!.read();
-          if (done) break;
-
-          // 解析 SSE 数据
-          const text = new TextDecoder().decode(value);
-          const lines = text.split('\n');
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6);
-              if (data === '[DONE]') {
-                controller.close();
-                return;
-              }
-              try {
-                const json = JSON.parse(data);
-                const content = json.choices?.[0]?.delta?.content;
-                if (content) {
-                  controller.enqueue(encoder.encode(content));
-                }
-              } catch {
-                // 忽略解析错误
-              }
-            }
+        if (msg.role === "user") {
+          historyContext += `User: ${msg.content}\n`;
+        } else if (msg.role === "assistant") {
+          // 提取主回复内容
+          const mainMatch = msg.content.match(/\[Main\][\s\S]*?[-–]?[\s]*?([\s\S]+?)(?=\[|$)/);
+          if (mainMatch) {
+            historyContext += `Assistant: ${mainMatch[1].trim()}\n`;
           }
         }
-        controller.close();
-      } catch (error) {
-        console.error("Stream error:", error);
-        controller.close();
-      }
-    },
-  });
-
-  return new Response(readable, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
-}
-
-// 获取默认 Base URL
-function getDefaultBaseUrl(provider: string): string {
-  switch (provider) {
-    case 'openai':
-      return 'https://api.openai.com/v1';
-    case 'deepseek':
-      return 'https://api.deepseek.com/v1';
-    case 'kimi':
-      return 'https://api.moonshot.cn/v1';
-    default:
-      return 'https://api.openai.com/v1';
-  }
-}
-
-// 处理自定义 HTTP API 调用
-async function handleCustomHTTP(
-  config: { apiKey: string; customConfig?: { endpoint: string; modelName: string; headers?: Record<string, string> } },
-  messages: Array<{ role: string; content: string }>
-) {
-  const endpoint = config.customConfig?.endpoint;
-  const modelName = config.customConfig?.modelName || 'default-model';
-  
-  if (!endpoint) {
-    return NextResponse.json(
-      { error: "API 端点未配置" },
-      { status: 400 }
-    );
-  }
-
-  // 构建请求头
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(config.customConfig?.headers || {}),
-  };
-  
-  // 如果没有自定义 Authorization 头，添加 Bearer Token
-  if (!headers["Authorization"] && config.apiKey) {
-    headers["Authorization"] = `Bearer ${config.apiKey}`;
-  }
-
-  // 构建请求体（OpenAI 兼容格式）
-  const requestBody: Record<string, unknown> = {
-    model: modelName,
-    messages: messages,
-    stream: true,
-    temperature: 0.7,
-  };
-
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: headers,
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Custom HTTP API error:", response.status, errorText);
-      return NextResponse.json(
-        { error: `API 调用失败: ${response.status} ${errorText}` },
-        { status: response.status }
-      );
+      });
+      historyContext += "\n";
     }
 
-    // 转换 SSE 格式（处理 OpenAI 兼容格式）
-    const reader = response.body?.getReader();
-    const encoder = new TextEncoder();
+    // 构建用户消息
+    const userMessage = `## Current User Question
+${message}
 
-    const readable = new ReadableStream({
+${languageRule}
+
+${knowledgeContext}
+${historyContext}
+Please generate reply based on the knowledge base above.`;
+
+    // 调用 AI API
+    const llmConfig = new Config({
+      apiKey: config.apiKey,
+      baseUrl: config.baseUrl || "https://api.coze.cn/v1",
+    });
+
+    const client = new LLMClient(llmConfig);
+    const llmConfigStream = {
+      model: config.model || "doubao-seed-2-0-lite-260215",
+      temperature: 0.7,
+    };
+    const messages = [
+      { role: "system" as const, content: finalSystemPrompt },
+      { role: "user" as const, content: userMessage },
+    ];
+
+    const stream = new ReadableStream({
       async start(controller) {
         try {
-          while (true) {
-            const { done, value } = await reader!.read();
-            if (done) break;
-
-            // 解析 SSE 数据
-            const text = new TextDecoder().decode(value);
-            const lines = text.split('\n');
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const data = line.slice(6);
-                if (data === '[DONE]') {
-                  controller.close();
-                  return;
-                }
-                try {
-                  const json = JSON.parse(data);
-                  // 支持多种响应格式
-                  const content = 
-                    json.choices?.[0]?.delta?.content ||
-                    json.choices?.[0]?.text ||
-                    json.content;
-                  if (content) {
-                    controller.enqueue(encoder.encode(content));
-                  }
-                } catch {
-                  // 忽略解析错误
-                }
-              } else if (line.trim()) {
-                // 非 SSE 行，直接发送
-                controller.enqueue(encoder.encode(line));
-              }
+          for await (const chunk of client.stream(messages, llmConfigStream)) {
+            const content = Array.isArray(chunk.content) 
+              ? chunk.content.map(c => 'text' in c ? c.text : '').join('')
+              : chunk.content;
+            if (content) {
+              controller.enqueue(new TextEncoder().encode(content));
             }
           }
           controller.close();
         } catch (error) {
-          console.error("Stream error:", error);
-          controller.close();
+          console.error("[Stream Error]:", error);
+          controller.error(error);
         }
       },
     });
 
-    return new Response(readable, {
+    return new Response(stream, {
       headers: {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
-        Connection: "keep-alive",
+        "Connection": "keep-alive",
       },
     });
   } catch (error) {
-    console.error("Custom HTTP error:", error);
+    console.error("[API Error]:", error);
     return NextResponse.json(
-      { error: `请求失败: ${error instanceof Error ? error.message : '未知错误'}` },
+      { error: "处理请求失败" },
       { status: 500 }
     );
   }
