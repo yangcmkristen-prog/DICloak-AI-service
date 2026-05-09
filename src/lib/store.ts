@@ -117,16 +117,29 @@ export async function saveKnowledgeBase(data: Record<string, any>): Promise<void
   localStorage.setItem('diclok_knowledge', JSON.stringify(data));
 }
 
-export function getKnowledgeStats(data?: Record<string, any>): Record<string, number> {
-  const stats: Record<string, number> = {
-    feature_faq: 0,
-    troubleshooting: 0,
-    user_routing: 0,
-    out_of_scope: 0,
-    mapping: 0,
-    功能知识: 0,
-    术语: 0,
-    total: 0
+export function getKnowledgeStats(data?: Record<string, any>): {
+  faqCount: number;
+  troubleshootingCount: number;
+  outOfScopeCount: number;
+  mappingCount: number;
+  functionCount: number;
+  termCount: number;
+  lastUpdated: number;
+  fileNames: {
+    faqFile?: string;
+    termFile?: string;
+    functionFile?: string;
+  };
+} {
+  const result = {
+    faqCount: 0,
+    troubleshootingCount: 0,
+    outOfScopeCount: 0,
+    mappingCount: 0,
+    functionCount: 0,
+    termCount: 0,
+    lastUpdated: 0,
+    fileNames: {} as { faqFile?: string; termFile?: string; functionFile?: string },
   };
   
   // 如果没有传入数据，从 localStorage 读取
@@ -136,41 +149,45 @@ export function getKnowledgeStats(data?: Record<string, any>): Record<string, nu
       if (local) {
         data = JSON.parse(local);
       } else {
-        return stats;
+        return result;
       }
     } catch (e) {
       console.error('读取知识库失败:', e);
-      return stats;
+      return result;
     }
   }
   
-  // 新的 KnowledgeBase 结构：faqs, terms 等数组
+  // 统计各项数量
   if (data.faqItems) {
-    stats.feature_faq += data.faqItems.length;
-    stats.total += data.faqItems.length;
+    result.faqCount += data.faqItems.length;
   }
   if (data.troubleshootingItems) {
-    stats.troubleshooting += data.troubleshootingItems.length;
-    stats.total += data.troubleshootingItems.length;
+    result.troubleshootingCount += data.troubleshootingItems.length;
   }
   if (data.outOfScopeItems) {
-    stats.out_of_scope += data.outOfScopeItems.length;
-    stats.total += data.outOfScopeItems.length;
+    result.outOfScopeCount += data.outOfScopeItems.length;
   }
   if (data.mappingItems) {
-    stats.mapping += data.mappingItems.length;
-    stats.total += data.mappingItems.length;
+    result.mappingCount += data.mappingItems.length;
   }
   if (data.functionKnowledge) {
-    stats.功能知识 += data.functionKnowledge.length;
-    stats.total += data.functionKnowledge.length;
+    result.functionCount += data.functionKnowledge.length;
   }
   if (data.termItems) {
-    stats.术语 += data.termItems.length;
-    stats.total += data.termItems.length;
+    result.termCount += data.termItems.length;
   }
   
-  return stats;
+  // 获取文件名
+  if (data.fileNames) {
+    result.fileNames = data.fileNames;
+  }
+  
+  // 获取更新时间
+  if (data.lastUpdated) {
+    result.lastUpdated = data.lastUpdated;
+  }
+  
+  return result;
 }
 
 export function replaceKnowledgeData(existing: Record<string, any>, newData?: Record<string, any>): Record<string, any> {

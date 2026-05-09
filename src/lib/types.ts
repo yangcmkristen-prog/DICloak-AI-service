@@ -111,6 +111,11 @@ export interface KnowledgeBase {
   functionKnowledge: FunctionKnowledge[];
   termItems: TermItem[];
   lastUpdated: number;
+  fileNames?: {
+    faqFile?: string;
+    termFile?: string;
+    functionFile?: string;
+  };
 }
 
 // 推荐回复类型

@@ -241,6 +241,8 @@ function inferSheetType(sheetName: string): string {
 export interface ImportResult {
   success: boolean;
   message: string;
+  fileName: string;  // 文件名
+  fileType: 'faq' | 'term' | 'function';  // 文件类型
   stats: {
     faqCount: number;
     troubleshootingCount: number;
@@ -317,9 +319,24 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
       result.functionKnowledge!.length +
       result.termItems!.length;
 
+    // 判断文件类型
+    const faqSheets = ['feature_faq', 'troubleshooting', 'user_routing', 'out_of_scope', 'mapping'];
+    const functionSheets = ['功能知识库'];
+    let fileType: 'faq' | 'term' | 'function' = 'faq';
+    if (sheetNames.some(s => functionSheets.includes(s))) {
+      fileType = 'function';
+    } else if (sheetNames.some(s => s === 'Sheet1' || s.toLowerCase().includes('term'))) {
+      // 术语库通常只有 Sheet1 或包含 term
+      if (result.termItems && result.termItems.length > 0 && result.faqItems!.length === 0) {
+        fileType = 'term';
+      }
+    }
+
     return {
       success: true,
       message: `成功解析 ${sheetNames.length} 个工作表，共 ${totalCount} 条记录`,
+      fileName: file.name,
+      fileType,
       stats: {
         faqCount: result.faqItems!.length,
         troubleshootingCount: result.troubleshootingItems!.length,
@@ -334,6 +351,8 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
     return {
       success: false,
       message: `导入失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      fileName: file.name,
+      fileType: 'faq',
       stats: {
         faqCount: 0,
         troubleshootingCount: 0,

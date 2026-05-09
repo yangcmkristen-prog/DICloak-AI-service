@@ -43,6 +43,11 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     functionCount: 0,
     termCount: 0,
     lastUpdated: 0,
+    fileNames: {
+      faqFile: '',
+      termFile: '',
+      functionFile: '',
+    },
   });
 
   // API 配置状态 - 初始为 null，避免 SSR/CSR mismatch
@@ -90,8 +95,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
         }
         replaceKnowledgeData(kb);
         saveKnowledgeBase(kb);
-        // 更新 UI 状态
-        updateStats();
+        // 更新 UI 状态（包括文件名）
+        updateStats(kb.fileNames);
       } else {
         // 否则使用 localStorage
         updateStats();
@@ -179,8 +184,11 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     }
   };
 
-  const updateStats = useCallback(() => {
+  const updateStats = useCallback((fileNames?: { faqFile?: string; termFile?: string; functionFile?: string }) => {
     const currentStats = getKnowledgeStats();
+    if (fileNames) {
+      currentStats.fileNames = fileNames;
+    }
     setStats(currentStats);
   }, []);
 
@@ -239,6 +247,11 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
           mappingItems: [],
           functionKnowledge: [],
           termItems: [],
+          fileNames: {
+            faqFile: '',
+            termFile: '',
+            functionFile: '',
+          },
         };
 
         for (const result of successResults) {
@@ -250,12 +263,22 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
             combinedData.functionKnowledge!.push(...(result.data.functionKnowledge || []));
             combinedData.termItems!.push(...(result.data.termItems || []));
           }
+          // 记录文件名
+          if (result.fileName) {
+            if (result.fileType === 'faq') {
+              combinedData.fileNames!.faqFile = result.fileName;
+            } else if (result.fileType === 'term') {
+              combinedData.fileNames!.termFile = result.fileName;
+            } else if (result.fileType === 'function') {
+              combinedData.fileNames!.functionFile = result.fileName;
+            }
+          }
         }
 
         replaceKnowledgeData(combinedData as KnowledgeBase);
         // 同步到数据库，等待完成后再切换标签页
         const syncSuccess = await syncKnowledgeToDatabase(combinedData as KnowledgeBase);
-        updateStats();
+        updateStats(combinedData.fileNames);
         if (syncSuccess) {
           toast.success(`成功导入 ${successResults.length} 个文件，已同步到云端`);
         } else {
@@ -489,6 +512,32 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                 <StatCard label="功能知识" count={stats.functionCount} color="green" />
                 <StatCard label="术语库" count={stats.termCount} color="pink" />
               </div>
+              {/* 生效的表格文件 */}
+              {(stats.fileNames.faqFile || stats.fileNames.termFile || stats.fileNames.functionFile) && (
+                <div className="p-3 bg-muted/50 rounded-lg text-sm">
+                  <div className="font-medium mb-2">当前生效的表格:</div>
+                  <div className="space-y-1 text-muted-foreground">
+                    {stats.fileNames.faqFile && (
+                      <div className="flex items-center gap-2">
+                        <FileSpreadsheet className="w-4 h-4 text-blue-500" />
+                        <span className="truncate" title={stats.fileNames.faqFile}>{stats.fileNames.faqFile}</span>
+                      </div>
+                    )}
+                    {stats.fileNames.termFile && (
+                      <div className="flex items-center gap-2">
+                        <FileSpreadsheet className="w-4 h-4 text-pink-500" />
+                        <span className="truncate" title={stats.fileNames.termFile}>{stats.fileNames.termFile}</span>
+                      </div>
+                    )}
+                    {stats.fileNames.functionFile && (
+                      <div className="flex items-center gap-2">
+                        <FileSpreadsheet className="w-4 h-4 text-green-500" />
+                        <span className="truncate" title={stats.fileNames.functionFile}>{stats.fileNames.functionFile}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               <p className="text-sm text-muted-foreground">
                 最后更新: {formatLastUpdated()}
               </p>
