@@ -37,12 +37,14 @@ export const MODEL_OPTIONS = [
 
 export const PROVIDER_INFO: Record<string, {
   label: string;
+  name: string;
   defaultModel: string;
   baseUrl: string;
   keyPlaceholder: string;
 }> = {
   coze: {
     label: '豆包/Coze',
+    name: '豆包/Coze',
     defaultModel: 'doubao-seed-2-0-lite-260215',
     baseUrl: '',
     keyPlaceholder: '输入你的 Coze API Token',
@@ -56,6 +58,11 @@ export interface ApiConfig {
   apiKey: string;
   model: string;
   baseUrl: string;
+  customConfig?: {
+    endpoint?: string;
+    modelName?: string;
+    headers?: Record<string, string>;
+  };
 }
 
 export interface Conversation {
@@ -143,11 +150,12 @@ export function getKnowledgeStats(data?: Record<string, any>): {
   };
   
   // 如果没有传入数据，从 localStorage 读取
-  if (!data) {
+  let kbData: Record<string, any> | undefined = data;
+  if (!kbData) {
     try {
       const local = localStorage.getItem('diclok_knowledge');
       if (local) {
-        data = JSON.parse(local);
+        kbData = JSON.parse(local);
       } else {
         return result;
       }
@@ -157,34 +165,36 @@ export function getKnowledgeStats(data?: Record<string, any>): {
     }
   }
   
+  const knowledgeData = kbData!;
+  
   // 统计各项数量
-  if (data.faqItems) {
-    result.faqCount += data.faqItems.length;
+  if (knowledgeData.faqItems) {
+    result.faqCount += knowledgeData.faqItems.length;
   }
-  if (data.troubleshootingItems) {
-    result.troubleshootingCount += data.troubleshootingItems.length;
+  if (knowledgeData.troubleshootingItems) {
+    result.troubleshootingCount += knowledgeData.troubleshootingItems.length;
   }
-  if (data.outOfScopeItems) {
-    result.outOfScopeCount += data.outOfScopeItems.length;
+  if (knowledgeData.outOfScopeItems) {
+    result.outOfScopeCount += knowledgeData.outOfScopeItems.length;
   }
-  if (data.mappingItems) {
-    result.mappingCount += data.mappingItems.length;
+  if (knowledgeData.mappingItems) {
+    result.mappingCount += knowledgeData.mappingItems.length;
   }
-  if (data.functionKnowledge) {
-    result.functionCount += data.functionKnowledge.length;
+  if (knowledgeData.functionKnowledge) {
+    result.functionCount += knowledgeData.functionKnowledge.length;
   }
-  if (data.termItems) {
-    result.termCount += data.termItems.length;
+  if (knowledgeData.termItems) {
+    result.termCount += knowledgeData.termItems.length;
   }
   
   // 获取文件名
-  if (data.fileNames) {
-    result.fileNames = data.fileNames;
+  if (knowledgeData.fileNames) {
+    result.fileNames = knowledgeData.fileNames;
   }
   
   // 获取更新时间
-  if (data.lastUpdated) {
-    result.lastUpdated = data.lastUpdated;
+  if (knowledgeData.lastUpdated) {
+    result.lastUpdated = knowledgeData.lastUpdated;
   }
   
   return result;
@@ -197,9 +207,9 @@ export function replaceKnowledgeData(existing: Record<string, any>, newData?: Re
   
   // 遍历 newData 的所有键值对
   for (const [key, value] of Object.entries(newData)) {
-    // 如果值是数组（KnowledgeItem 数组），展开到扁平格式
+    // 如果值是数组，展开到扁平格式
     if (Array.isArray(value)) {
-      for (const item of value as KnowledgeItem[]) {
+      for (const item of value as Record<string, any>[]) {
         if (item && item.id) {
           result[item.id] = item;
         }

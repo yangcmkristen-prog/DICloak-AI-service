@@ -35,7 +35,20 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   const [importProgress, setImportProgress] = useState(0);
   const [importResults, setImportResults] = useState<ImportResult[]>([]);
   const [showResults, setShowResults] = useState(false);
-  const [stats, setStats] = useState({
+  const [stats, setStats] = useState<{
+    faqCount: number;
+    troubleshootingCount: number;
+    outOfScopeCount: number;
+    mappingCount: number;
+    functionCount: number;
+    termCount: number;
+    lastUpdated: number;
+    fileNames: {
+      faqFile?: string;
+      termFile?: string;
+      functionFile?: string;
+    };
+  }>({
     faqCount: 0,
     troubleshootingCount: 0,
     outOfScopeCount: 0,
@@ -44,9 +57,9 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     termCount: 0,
     lastUpdated: 0,
     fileNames: {
-      faqFile: '',
-      termFile: '',
-      functionFile: '',
+      faqFile: undefined,
+      termFile: undefined,
+      functionFile: undefined,
     },
   });
 
@@ -733,7 +746,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                           className="w-full p-2 rounded-md border border-input bg-background text-sm"
                         >
                           {MODEL_OPTIONS.filter(opt => opt.provider === apiConfig.provider).map(opt => (
-                            <option key={opt.model} value={opt.model}>{opt.label}</option>
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
                           ))}
                         </select>
                       </div>
