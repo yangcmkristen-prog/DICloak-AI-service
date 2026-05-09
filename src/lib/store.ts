@@ -347,24 +347,23 @@ export type DetectedLanguage =
 function detectLatinScript(text: string): { language: DetectedLanguage; confidence: number } | null {
   if (text.length < 5) return null;
   
-  // 转换为小写
-  const lowerText = text.toLowerCase();
-  
   // 越南语特殊字符检测（优先检测，因为有独特的字母组合）
   const hasVietnamese = /[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(text);
   if (hasVietnamese) {
     return { language: 'vi', confidence: 0.95 };
   }
   
+  // 葡萄牙语特殊字符检测（优先检测）
+  const hasPortugueseChars = /[ãõçáéíóúàèìòùâêîôûãõÃÕÇÁÉÍÓÚÀÈÌÒÙÂÊÎÔÛ]/i.test(text);
+  
   // 印尼语特征词汇（印尼语特有的词，使用单词边界）
-  const indonesianWords = ['kamu', 'mereka', 'kami', 'kita', 'gimana', 'nggak', 'banget', 'masak', 'jangan', 'udah', 'dong', 'kok', 'kan', 'tuh', 'deh', 'nih', 'aja', 'sih', 'gue', 'lu', 'ane', 'ente', 'mu', 'nya', 'dong', 'kira', 'tiba', 'mau', 'bisa', 'gak', 'suka', 'bukan', 'halo', 'terima', 'kasih', 'tolong', 'ya', 'okee', 'siapa', 'apa', 'kenapa', 'di mana', 'bagaimana'];
+  const indonesianWords = ['kamu', 'mereka', 'kami', 'kita', 'gimana', 'nggak', 'banget', 'masak', 'jangan', 'udah', 'dong', 'kok', 'kan', 'tuh', 'deh', 'nih', 'aja', 'sih', 'gue', 'lu', 'ane', 'ente', 'mu', 'nya', 'dong', 'kira', 'tiba', 'mau', 'bisa', 'gak', 'suka', 'bukan', 'halo', 'terima', 'kasih', 'tolong', 'ya', 'okee', 'siapa', 'apa', 'kenapa', 'di mana', 'bagaimana', 'tolong', 'yang', 'ada', 'ini', 'itu', 'dari', 'dengan', 'untuk', 'pada', 'ke', 'dalam', 'tidak', 'apa', 'siapa', 'mana'];
   
   // 葡萄牙语特征词汇（葡萄牙语特有的词，使用单词边界）
-  const portugueseWords = ['ola', 'obrigado', 'obrigada', 'obrigada', 'trabalho', 'problema', 'tenho', 'preciso', 'ajuda', 'sinal', 'erro', 'funciona', 'login', 'sessao', 'entrar', 'este', 'estao', 'esses', 'essas', 'onde', 'quando', 'como', 'porque', 'bem', 'muito', 'pouco', 'bom', 'ruim', 'sim', 'nao', 'ja', 'agora', 'depois', 'antes', 'sempre', 'nunca', 'talvez', 'certamente', 'provavelmente', 'aqui', 'ali', 'embaixo', 'em cima', 'longe', 'perto'];
+  const portugueseWords = ['ola', 'obrigado', 'obrigada', 'trabalho', 'problema', 'tenho', 'preciso', 'ajuda', 'sinal', 'erro', 'funciona', 'login', 'sessao', 'entrar', 'este', 'estao', 'esses', 'essas', 'onde', 'quando', 'como', 'porque', 'bem', 'muito', 'pouco', 'bom', 'ruim', 'sim', 'nao', 'ja', 'agora', 'depois', 'antes', 'sempre', 'nunca', 'talvez', 'certamente', 'provavelmente', 'aqui', 'ali', 'embaixo', 'em cima', 'longe', 'perto', 'elemento', 'topo', 'ocultar', 'perfil', 'Vyral', 'tenho', 'preciso', 'precisamos', 'conseguir', 'obrigado', 'por favor', 'boa', 'boas', 'tardes', 'noite', 'dias', 'tudo', 'bem', 'falar', 'sinto', 'muito'];
   
   // 西班牙语特征词汇（西班牙语特有的词，使用单词边界）
-  // 只包含西班牙语特有的、不易与英文混淆的词汇
-  const spanishWords = ['hola', 'gracias', 'trabajo', 'trabajos', 'necesito', 'ayudar', 'senal', 'funciona', 'ayuda', 'iniciar', 'eliminar', 'imagenes', 'hacer', 'quiero', 'puedo', 'tiene', 'tienen', 'donde', 'cuando', 'porque', 'pero', 'este', 'esta', 'esto', 'estos', 'estas', 'esos', 'esas', 'sobre', 'tener', 'hacer', 'ir', 'ver', 'dar', 'saber', 'querer', 'poder', 'deber', 'decir', 'quien', 'cual', 'cuanto', 'aqui', 'alli', 'ahora', 'luego', 'despues', 'siempre', 'nunca', 'tambien', 'solo', 'ahora', 'entonces', 'bueno', 'vale', 'mira', 'oye', 'favor', 'saludos'];
+  const spanishWords = ['hola', 'gracias', 'trabajo', 'trabajos', 'necesito', 'ayudar', 'senal', 'funciona', 'ayuda', 'iniciar', 'eliminar', 'imagenes', 'hacer', 'quiero', 'puedo', 'tiene', 'tienen', 'donde', 'cuando', 'porque', 'pero', 'este', 'esta', 'esto', 'estos', 'estas', 'esos', 'esas', 'sobre', 'tener', 'hacer', 'ir', 'ver', 'dar', 'saber', 'querer', 'poder', 'deber', 'decir', 'quien', 'cual', 'cuanto', 'aqui', 'alli', 'ahora', 'luego', 'despues', 'siempre', 'nunca', 'tambien', 'solo', 'ahora', 'entonces', 'bueno', 'vale', 'mira', 'oye', 'favor', 'saludos', 'necesito', 'ayudame', 'por favor'];
   
   // 计算单词总数
   const words = text.split(/\s+/).filter(w => w.length > 0);
@@ -373,7 +372,6 @@ function detectLatinScript(text: string): { language: DetectedLanguage; confiden
   // 辅助函数：使用单词边界匹配
   const countMatches = (wordList: string[]): number => {
     return wordList.filter(word => {
-      // 使用单词边界匹配
       const regex = new RegExp(`\\b${word}\\b`, 'i');
       return regex.test(text);
     }).length;
@@ -381,10 +379,15 @@ function detectLatinScript(text: string): { language: DetectedLanguage; confiden
   
   // 计算各语言匹配分数
   const spanishScore = countMatches(spanishWords);
-  const portugueseScore = countMatches(portugueseWords);
+  const portugueseScore = countMatches(portugueseWords) + (hasPortugueseChars ? 2 : 0); // 特殊字符加权
   const indonesianScore = countMatches(indonesianWords);
   
-  console.log('[DEBUG] 拉丁语检测 - 西班牙语:', spanishScore, '葡萄牙语:', portugueseScore, '印尼语:', indonesianScore, '总词数:', totalWords);
+  console.log('[DEBUG] 拉丁语检测 - 西班牙语:', spanishScore, '葡萄牙语:', portugueseScore, '印尼语:', indonesianScore, '总词数:', totalWords, 'PT特殊字符:', hasPortugueseChars);
+  
+  // 如果有葡萄牙语特殊字符，直接返回葡萄牙语
+  if (hasPortugueseChars) {
+    return { language: 'pt', confidence: 0.85 };
+  }
   
   // 只有当最高分数语言的分数 >= 1 时才返回该语言
   // 否则返回 null
@@ -441,27 +444,21 @@ export function detectLanguage(text: string): DetectedLanguage {
   // 2. 检测拉丁语系语言（西班牙语、葡萄牙语、越南语、印尼语）
   const latinResult = detectLatinScript(cleanText);
   console.log('[DEBUG] Latin检测结果:', latinResult);
-  if (latinResult && latinResult.confidence >= 0.3) {
+  
+  // 如果检测到拉丁语系语言且置信度 >= 0.2，直接返回
+  if (latinResult && latinResult.confidence >= 0.2) {
     console.log('[DEBUG] 返回拉丁语系:', latinResult.language);
     return latinResult.language;
   }
   
-  // 3. 检测英文
+  // 3. 检测英文（只有当没有检测到拉丁语系语言时才考虑）
   const englishCount = (cleanText.match(/[a-zA-Z]/g) || []).length;
   const englishRatio = englishCount / totalChars;
   
   if (englishRatio >= 0.5) {
-    // 英文为主，检查是否有其他语言混入
     const chineseChars = nonLatinStats.chinese;
-    
     if (chineseChars > 5) return 'mixed';
-    // 英文为主时，只有当拉丁语系置信度 >= 0.7 且英文比率 < 0.7 时才覆盖
-    if (latinResult && latinResult.confidence >= 0.7 && englishRatio < 0.7) {
-      console.log('[DEBUG] 英文为主但检测到更强的拉丁语系:', latinResult.language);
-      return latinResult.language;
-    }
     console.log('[DEBUG] 英文为主，返回en');
-    
     return 'en';
   }
   
