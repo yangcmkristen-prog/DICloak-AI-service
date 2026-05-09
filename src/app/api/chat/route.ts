@@ -181,6 +181,66 @@ ${baseSystemPrompt}`;
       return result;
     }
 
+    // ============ FAQ 匹配函数 ============
+    // 计算用户问题与 FAQ 的匹配度
+    function calculateMatchScore(userMessage: string, faqItem: { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string }): number {
+      const userLower = userMessage.toLowerCase();
+      const keywords = userLower.split(/[\s\p{P}]+/u).filter(w => w.length > 2);
+      
+      let score = 0;
+      
+      // 检查英文问题匹配
+      if (faqItem.questionEN) {
+        const enLower = faqItem.questionEN.toLowerCase();
+        // 精确匹配英文问题
+        if (enLower.includes(userLower) || userLower.includes(enLower)) {
+          score += 50;
+        }
+        // 关键词匹配
+        const enWords = enLower.split(/[\s\p{P}]+/u).filter(w => w.length > 2);
+        enWords.forEach(word => {
+          if (keywords.some(k => k.includes(word) || word.includes(k))) {
+            score += 5;
+          }
+        });
+      }
+      
+      // 检查中文问题匹配
+      if (faqItem.questionCN) {
+        const cnLower = faqItem.questionCN.toLowerCase();
+        // 精确匹配中文问题
+        if (cnLower.includes(userLower) || userLower.includes(cnLower)) {
+          score += 50;
+        }
+        // 关键词匹配
+        const cnWords = cnLower.split(/[\s\p{P}]+/u).filter(w => w.length > 2);
+        cnWords.forEach(word => {
+          if (keywords.some(k => k.includes(word) || word.includes(k))) {
+            score += 5;
+          }
+        });
+      }
+      
+      // 检查标签匹配
+      if (faqItem.tags) {
+        faqItem.tags.forEach(tag => {
+          if (keywords.some(k => tag.toLowerCase().includes(k) || k.includes(tag.toLowerCase()))) {
+            score += 10;
+          }
+        });
+      }
+      
+      // 检查用户问法匹配
+      if (faqItem.userPhrases) {
+        const phrases = faqItem.userPhrases.toLowerCase();
+        if (phrases.includes(userLower) || userLower.includes(phrases)) {
+          score += 30;
+        }
+      }
+      
+      return score;
+    }
+
     // 优先使用前端传递的知识库数据
     const knowledgeBase = knowledge || {
       faqItems: [],
@@ -191,21 +251,27 @@ ${baseSystemPrompt}`;
       termItems: [],
     };
 
-    // 构建知识库上下文
+    // ============ 构建知识库上下文（只包含匹配的项）============
     let knowledgeContext = "";
 
+    // 定义 FAQ 项类型
+    type FaqItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; functionId?: string; termIds?: string[]; faqId?: string };
+
+    // 对 FAQ 进行匹配过滤，只保留最相关的 5 条
+    const faqItems = (knowledgeBase.faqItems || []) as FaqItem[];
+    const matchedFaqs = faqItems
+      .map((item: FaqItem) => ({ item, score: calculateMatchScore(message, item) }))
+      .filter(m => m.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
     // 添加 FAQ 数据（包含术语替换）
-    if (knowledgeBase.faqItems && knowledgeBase.faqItems.length > 0) {
-      knowledgeContext += "\n\n## FAQ 知识库\n";
-      knowledgeBase.faqItems.forEach((item: { questionCN: string; answer: string; functionId?: string; termIds?: string[]; faqId?: string }, index: number) => {
+    if (matchedFaqs.length > 0) {
+      knowledgeContext += "\n\n## FAQ 知识库（已根据您的问题匹配）\n";
+      matchedFaqs.forEach(({ item }) => {
         // 对标准答案进行术语替换
         const termIds = item.termIds || [];
         const replacedAnswer = replaceTerms(item.answer, termIds, knowledgeBase.termItems, detectedLanguage);
-        
-        // 调试日志
-        if (termIds.length > 0 && index < 3) {
-          console.log(`[FAQ DEBUG] FAQ_ID: ${item.faqId}, 术语IDs: ${JSON.stringify(termIds)}, 术语库数量: ${knowledgeBase.termItems?.length || 0}`);
-        }
         
         knowledgeContext += `【FAQ: ${item.faqId}】\n`;
         knowledgeContext += `问题: ${item.questionCN}\n`;
@@ -219,16 +285,20 @@ ${baseSystemPrompt}`;
       });
     }
 
+    // 对 Troubleshooting 进行匹配过滤，只保留最相关的 5 条
+    type TsItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; answerClient?: string; answerEndUser?: string; termIds?: string[]; faqId?: string };
+    const tsItems = (knowledgeBase.troubleshootingItems || []) as TsItem[];
+    const matchedTs = tsItems
+      .map((item: TsItem) => ({ item, score: calculateMatchScore(message, item) }))
+      .filter(m => m.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
     // 添加 Troubleshooting 数据（包含术语替换）
-    if (knowledgeBase.troubleshootingItems && knowledgeBase.troubleshootingItems.length > 0) {
-      knowledgeContext += "\n\n## 排障知识库\n";
-      knowledgeBase.troubleshootingItems.forEach((item: { questionCN: string; answer: string; answerClient?: string; answerEndUser?: string; termIds?: string[]; faqId?: string }, index: number) => {
+    if (matchedTs.length > 0) {
+      knowledgeContext += "\n\n## 排障知识库（已根据您的问题匹配）\n";
+      matchedTs.forEach(({ item }) => {
         const termIds = item.termIds || [];
-        
-        // 调试日志
-        if (termIds.length > 0 && index < 3) {
-          console.log(`[TROUBLESHOOTING DEBUG] FAQ_ID: ${item.faqId}, 术语IDs: ${JSON.stringify(termIds)}, 术语库数量: ${knowledgeBase.termItems?.length || 0}`);
-        }
         
         knowledgeContext += `【排障: ${item.faqId}】\n`;
         knowledgeContext += `问题: ${item.questionCN}\n`;
@@ -243,11 +313,20 @@ ${baseSystemPrompt}`;
       });
     }
 
+    // 对 Out of Scope 进行匹配过滤，只保留最相关的 3 条
+    type OosItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; termIds?: string[] };
+    const oosItems = (knowledgeBase.outOfScopeItems || []) as OosItem[];
+    const matchedOutOfScope = oosItems
+      .map((item: OosItem) => ({ item, score: calculateMatchScore(message, item) }))
+      .filter(m => m.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+
     // 添加 Out of Scope 数据
-    if (knowledgeBase.outOfScopeItems && knowledgeBase.outOfScopeItems.length > 0) {
-      knowledgeContext += "\n\n## 超范围问题库\n";
-      knowledgeBase.outOfScopeItems.forEach((item: { questionCN: string; answer: string; termIds?: string[] }, index: number) => {
-        knowledgeContext += `【超范围 ${index + 1}】\n`;
+    if (matchedOutOfScope.length > 0) {
+      knowledgeContext += "\n\n## 超范围问题库（已根据您的问题匹配）\n";
+      matchedOutOfScope.forEach(({ item }) => {
+        knowledgeContext += `【超范围】\n`;
         knowledgeContext += `问题: ${item.questionCN}\n`;
         knowledgeContext += `标准回复: ${replaceTerms(item.answer, item.termIds || [], knowledgeBase.termItems, detectedLanguage)}\n`;
         knowledgeContext += "\n";
