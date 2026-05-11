@@ -21,6 +21,9 @@ const defaultSystemPrompt = `You are a DICloak customer service assistant.
 
 Focus on helping customer service staff quickly generate professional, friendly customer replies.
 
+## Knowledge Base Format
+In the knowledge base, terms like {{TERM-XXX}} are already replaced with translated terms. These are placeholders in the original FAQ answers that have been pre-translated. The AI should use them directly without any modification.
+
 ## Output Format
 When using knowledge base FAQ, must follow this format:
 - [Main] -> core answer content
@@ -116,6 +119,52 @@ function calculateMatchScore(userMsg: string, item: { questionCN?: string; quest
   return score;
 }
 
+// 术语翻译映射类型
+type TermTranslations = Record<string, Record<string, string>>;
+
+// 解析并替换答案中的 {{termId}} 标记
+function replaceTermIds(answer: string, termTranslations: TermTranslations): string {
+  // 匹配 {{termId}} 格式
+  const termIdPattern = /\{\{([A-Z0-9_-]+)\}\}/g;
+  
+  return answer.replace(termIdPattern, (match, termId) => {
+    // 查找术语翻译
+    const translations = termTranslations[termId];
+    if (translations) {
+      // 返回翻译后的术语（优先中文，其次英文）
+      return translations['中文'] || translations['中文（简体）'] || translations['中文（繁體）'] || translations['英文'] || translations['English'] || match;
+    }
+    // 如果没找到，返回原始标记（不替换）
+    return match;
+  });
+}
+
+// 构建术语翻译映射
+function buildTermTranslations(knowledge: any): TermTranslations {
+  const translations: TermTranslations = {};
+  
+  if (knowledge?.termItems) {
+    (knowledge.termItems as any[]).forEach(item => {
+      const termId = item['term_id'];
+      if (termId) {
+        translations[termId] = {
+          '中文': item['中文'] || '',
+          '中文（简体）': item['中文（简体）'] || item['中文'] || '',
+          '中文（繁體）': item['中文（繁體）'] || item['中文'] || '',
+          '英文': item['英文'] || '',
+          'English': item['English'] || item['英文'] || '',
+          '俄语': item['俄语'] || '',
+          '葡萄牙语（巴西）': item['葡萄牙语（巴西）'] || '',
+          '西班牙语': item['西班牙语'] || '',
+          '越南语': item['越南语'] || '',
+        };
+      }
+    });
+  }
+  
+  return translations;
+}
+
 // 知识库来源类型
 export interface KnowledgeSource {
   type: 'faq' | 'troubleshooting' | 'out_of_scope';
@@ -128,6 +177,9 @@ export interface KnowledgeSource {
 function buildKnowledgeContext(knowledge: any, message: string, languageRule: string): { context: string; sources: KnowledgeSource[] } {
   let knowledgeContext = "";
   const sources: KnowledgeSource[] = [];
+  
+  // 构建术语翻译映射
+  const termTranslations = buildTermTranslations(knowledge);
 
   if (knowledge && (knowledge.faqItems?.length > 0 || knowledge.troubleshootingItems?.length > 0 || knowledge.outOfScopeItems?.length > 0)) {
     type FaqItem = { questionCN: string; questionEN?: string; tags?: string[]; answer: string; functionId?: string; termIds?: string[]; faqId?: string };
@@ -176,9 +228,11 @@ function buildKnowledgeContext(knowledge: any, message: string, languageRule: st
       knowledgeContext += "## FAQ Knowledge Base\n";
       matchedFaq.forEach((m, index) => {
         const item = m.item;
+        // 替换答案中的 {{termId}} 为实际翻译
+        const translatedAnswer = replaceTermIds(item.answer || '', termTranslations);
         knowledgeContext += `[FAQ ${index + 1}]\n`;
         knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
-        knowledgeContext += `StandardAnswer: ${item.answer}\n`;
+        knowledgeContext += `StandardAnswer: ${translatedAnswer}\n`;
         if (item.termIds && item.termIds.length > 0) {
           knowledgeContext += `RelatedTerms: ${item.termIds.join(', ')}\n`;
         }
@@ -197,9 +251,11 @@ function buildKnowledgeContext(knowledge: any, message: string, languageRule: st
       knowledgeContext += "## Troubleshooting Knowledge Base\n";
       matchedTs.forEach((m, index) => {
         const item = m.item;
+        // 替换答案中的 {{termId}} 为实际翻译
+        const translatedAnswer = replaceTermIds(item.answer || '', termTranslations);
         knowledgeContext += `[Troubleshoot ${index + 1}]\n`;
         knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
-        knowledgeContext += `StandardAnswer: ${item.answer}\n`;
+        knowledgeContext += `StandardAnswer: ${translatedAnswer}\n`;
         if (item.termIds && item.termIds.length > 0) {
           knowledgeContext += `RelatedTerms: ${item.termIds.join(', ')}\n`;
         }
