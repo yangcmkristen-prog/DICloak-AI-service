@@ -502,14 +502,20 @@ Please generate reply based on the knowledge base above.`;
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
-        const reader = responseBody!.getReader();
         const decoder = new TextDecoder();
+        const reader = responseBody!.getReader();
         let buffer = "";
 
         try {
           while (true) {
             const { done, value } = await reader.read();
-            if (done) break;
+            if (done) {
+              // 流结束时发送来源信息
+              const sourcesEvent = `event: sources\ndata: ${JSON.stringify(sources)}\n\n`;
+              controller.enqueue(encoder.encode(sourcesEvent));
+              controller.close();
+              return;
+            }
 
             if (provider === 'openai' || provider === 'gpt') {
               // OpenAI 格式
@@ -521,18 +527,16 @@ Please generate reply based on the knowledge base above.`;
                 if (line.startsWith('data: ')) {
                   const data = line.slice(6);
                   if (data === '[DONE]') {
-                    // 流结束时发送来源信息（作为特殊标记）
-          const sourcesEndEvent = `event: sources\ndata: ${JSON.stringify(sources)}\n\n`;
-          controller.enqueue(new TextEncoder().encode(sourcesEndEvent));
-          
-          controller.close();
+                    const sourcesEvent = `event: sources\ndata: ${JSON.stringify(sources)}\n\n`;
+                    controller.enqueue(encoder.encode(sourcesEvent));
+                    controller.close();
                     return;
                   }
                   try {
                     const parsed = JSON.parse(data);
                     const content = parsed.choices?.[0]?.delta?.content || '';
                     if (content) {
-                      controller.enqueue(new TextEncoder().encode(content));
+                      controller.enqueue(encoder.encode(content));
                     }
                   } catch (e) {
                     // 忽略解析错误
@@ -548,15 +552,11 @@ Please generate reply based on the knowledge base above.`;
               for (const line of lines) {
                 if (line.startsWith('data: ')) {
                   const data = line.slice(6);
-                  if (data === '[DONE]') {
-                    controller.close();
-                    return;
-                  }
                   try {
                     const parsed = JSON.parse(data);
                     const content = parsed.data?.content || parsed.content || '';
                     if (content) {
-                      controller.enqueue(new TextEncoder().encode(content));
+                      controller.enqueue(encoder.encode(content));
                     }
                   } catch (e) {
                     // 忽略解析错误
@@ -565,7 +565,6 @@ Please generate reply based on the knowledge base above.`;
               }
             }
           }
-          controller.close();
         } catch (error) {
           console.error('[Stream Error]:', error);
           controller.error(error);
