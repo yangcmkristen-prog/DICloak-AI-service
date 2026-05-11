@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { LLMClient, Config, HeaderUtils, Message } from "coze-coding-dev-sdk";
 
 // 语言规则映射
 const languageRules: Record<string, string> = {
@@ -393,36 +394,30 @@ function buildHistoryContext(history: any[]) {
 
 // Coze Bot 调用
 async function callCozeBot(finalSystemPrompt: string, userMessage: string) {
-  const COZE_API_ENDPOINT = "https://api.coze.cn";
+  const COZE_API_ENDPOINT = process.env.COZE_API_ENDPOINT || "https://api.coze.cn";
   const BOT_ID = process.env.COZE_BOT_ID || "7633356097684439091";
   const API_TOKEN = process.env.COZE_API_TOKEN || "pat_c6nS6NTHKVtdVM2ihTBiAN08yYiI8uSlJnXGH7TSrE4CtaBS2renxkKj3B4MZYor";
 
-  const createResponse = await fetch(`${COZE_API_ENDPOINT}/v3/chat`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${API_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      bot_id: BOT_ID,
-      user_id: "user_" + Date.now(),
-      stream: true,
-      auto_save_history: true,
-      additional_messages: [
-        {
-          role: "user",
-          content: finalSystemPrompt + "\n\n" + userMessage,
-          content_type: "text",
-        },
-      ],
-    }),
+  const config = new Config({
+    apiToken: API_TOKEN,
+    baseUrl: COZE_API_ENDPOINT,
   });
 
-  if (!createResponse.ok) {
-    throw new Error(`Coze API error: ${createResponse.status}`);
-  }
+  const client = new LLMClient(config);
 
-  return createResponse.body;
+  const messages: Message[] = [
+    { role: "user", content: finalSystemPrompt + "\n\n" + userMessage },
+  ];
+
+  const stream = await client.stream({
+    bot_id: BOT_ID,
+    user_id: "user_" + Date.now(),
+    stream: true,
+    auto_save_history: true,
+    additional_messages: messages,
+  });
+
+  return stream;
 }
 
 // OpenAI/GPT 调用
