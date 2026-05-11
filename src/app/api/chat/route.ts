@@ -219,7 +219,7 @@ Please generate reply based on the knowledge base above.`;
       async start(controller) {
         try {
           // 第一步：创建对话
-          const createResponse = await fetch(`${COZE_API_ENDPOINT}/v3/chat/retrievable`, {
+          const createResponse = await fetch(`${COZE_API_ENDPOINT}/v3/chat`, {
             method: "POST",
             headers: {
               "Authorization": `Bearer ${API_TOKEN}`,
