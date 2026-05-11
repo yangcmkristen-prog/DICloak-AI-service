@@ -469,11 +469,6 @@ export async function POST(request: NextRequest) {
     const { context: knowledgeContext, sources } = buildKnowledgeContext(knowledge, message, languageRule, detectedLanguage);
     const historyContext = buildHistoryContext(history);
 
-    // 发送来源信息标记
-    const sourcesEvent = `event: sources\ndata: ${JSON.stringify(sources)}\n\n`;
-    const sourcesEncoder = new TextEncoder();
-    let sourcesSent = false;
-
     const userMessage = `## Current User Question
 ${message}
 
@@ -506,10 +501,7 @@ Please generate reply based on the knowledge base above.`;
     // 流式返回
     const stream = new ReadableStream({
       async start(controller) {
-        // 先发送来源信息
-        controller.enqueue(sourcesEncoder.encode(sourcesEvent));
-        sourcesSent = true;
-
+        const encoder = new TextEncoder();
         const reader = responseBody!.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -529,7 +521,11 @@ Please generate reply based on the knowledge base above.`;
                 if (line.startsWith('data: ')) {
                   const data = line.slice(6);
                   if (data === '[DONE]') {
-                    controller.close();
+                    // 流结束时发送来源信息（作为特殊标记）
+          const sourcesEndEvent = `event: sources\ndata: ${JSON.stringify(sources)}\n\n`;
+          controller.enqueue(new TextEncoder().encode(sourcesEndEvent));
+          
+          controller.close();
                     return;
                   }
                   try {
