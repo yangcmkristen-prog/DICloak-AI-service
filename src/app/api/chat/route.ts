@@ -398,26 +398,32 @@ async function callCozeBot(finalSystemPrompt: string, userMessage: string) {
   const BOT_ID = process.env.COZE_BOT_ID || "7633356097684439091";
   const API_TOKEN = process.env.COZE_API_TOKEN || "pat_c6nS6NTHKVtdVM2ihTBiAN08yYiI8uSlJnXGH7TSrE4CtaBS2renxkKj3B4MZYor";
 
-  const config = new Config({
-    apiToken: API_TOKEN,
-    baseUrl: COZE_API_ENDPOINT,
+  const response = await fetch(`${COZE_API_ENDPOINT}/v3/chat`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${API_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      bot_id: BOT_ID,
+      user_id: "user_" + Date.now(),
+      stream: true,
+      auto_save_history: true,
+      additional_messages: [
+        {
+          role: "user",
+          content: finalSystemPrompt + "\n\n" + userMessage,
+          content_type: "text",
+        },
+      ],
+    }),
   });
 
-  const client = new LLMClient(config);
+  if (!response.ok) {
+    throw new Error(`Coze API error: ${response.status}`);
+  }
 
-  const messages: Message[] = [
-    { role: "user", content: finalSystemPrompt + "\n\n" + userMessage },
-  ];
-
-  const stream = await client.stream({
-    bot_id: BOT_ID,
-    user_id: "user_" + Date.now(),
-    stream: true,
-    auto_save_history: true,
-    additional_messages: messages,
-  });
-
-  return stream;
+  return response.body;
 }
 
 // OpenAI/GPT 调用
@@ -501,62 +507,52 @@ Please generate reply based on the knowledge base above.`;
         const reader = responseBody!.getReader();
         let buffer = "";
 
+        // 先发送来源信息
+        const sourcesEvent = `event: sources\ndata: ${JSON.stringify(sources)}\n\n`;
+        controller.enqueue(encoder.encode(sourcesEvent));
+
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) {
-              // 流结束时发送来源信息
-              const sourcesEvent = `event: sources\ndata: ${JSON.stringify(sources)}\n\n`;
-              controller.enqueue(encoder.encode(sourcesEvent));
               controller.close();
               return;
             }
 
-            if (provider === 'openai' || provider === 'gpt') {
-              // OpenAI 格式
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split('\n');
-              buffer = lines.pop() || '';
+            const chunk = decoder.decode(value, { stream: true });
+            buffer += chunk;
 
-              for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                  const data = line.slice(6);
-                  if (data === '[DONE]') {
-                    const sourcesEvent = `event: sources\ndata: ${JSON.stringify(sources)}\n\n`;
-                    controller.enqueue(encoder.encode(sourcesEvent));
-                    controller.close();
-                    return;
-                  }
-                  try {
-                    const parsed = JSON.parse(data);
-                    const content = parsed.choices?.[0]?.delta?.content || '';
-                    if (content) {
-                      controller.enqueue(encoder.encode(content));
-                    }
-                  } catch (e) {
-                    // 忽略解析错误
-                  }
-                }
+            // 按 SSE 格式分割
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || !trimmed.startsWith('data: ')) continue;
+
+              const data = trimmed.slice(6);
+              if (data === '[DONE]') {
+                controller.close();
+                return;
               }
-            } else {
-              // Coze 格式
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split('\n');
-              buffer = lines.pop() || '';
 
-              for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                  const data = line.slice(6);
-                  try {
-                    const parsed = JSON.parse(data);
-                    const content = parsed.data?.content || parsed.content || '';
-                    if (content) {
-                      controller.enqueue(encoder.encode(content));
-                    }
-                  } catch (e) {
-                    // 忽略解析错误
-                  }
+              try {
+                const parsed = JSON.parse(data);
+
+                let content = '';
+                if (provider === 'openai' || provider === 'gpt') {
+                  // OpenAI 格式
+                  content = parsed.choices?.[0]?.delta?.content || '';
+                } else {
+                  // Coze 格式
+                  content = parsed.data?.content || parsed.content || '';
                 }
+
+                if (content) {
+                  controller.enqueue(encoder.encode(content));
+                }
+              } catch (e) {
+                // 忽略解析错误
               }
             }
           }
