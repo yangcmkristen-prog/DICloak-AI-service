@@ -17,6 +17,7 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
 };
 
 export const MODEL_OPTIONS = [
+  // Coze 模型
   { value: 'doubao-seed-2-0-pro-260215', label: '豆包 Pro', provider: 'coze' },
   { value: 'doubao-seed-2-0-lite-260215', label: '豆包 Lite', provider: 'coze' },
   { value: 'doubao-seed-2-0-mini-260215', label: '豆包 Mini', provider: 'coze' },
@@ -33,6 +34,14 @@ export const MODEL_OPTIONS = [
   { value: 'minimax-m2-5-260212', label: 'MiniMax M2.5', provider: 'coze' },
   { value: 'minimax-m2-7-260318', label: 'MiniMax M2.7', provider: 'coze' },
   { value: 'qwen-3-5-plus-260215', label: 'Qwen 3.5', provider: 'coze' },
+  // OpenAI 模型
+  { value: 'gpt-4o', label: 'GPT-4o', provider: 'openai' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai' },
+  { value: 'gpt-4-turbo', label: 'GPT-4 Turbo', provider: 'openai' },
+  { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo', provider: 'openai' },
+  // DeepSeek 模型
+  { value: 'deepseek-chat', label: 'DeepSeek Chat', provider: 'openai' },
+  { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner', provider: 'openai' },
 ];
 
 export const PROVIDER_INFO: Record<string, {
@@ -48,6 +57,13 @@ export const PROVIDER_INFO: Record<string, {
     defaultModel: 'doubao-seed-2-0-lite-260215',
     baseUrl: '',
     keyPlaceholder: '输入你的 Coze API Token',
+  },
+  openai: {
+    label: 'OpenAI / GPT',
+    name: 'OpenAI / GPT',
+    defaultModel: 'gpt-4o-mini',
+    baseUrl: 'https://api.openai.com/v1',
+    keyPlaceholder: '输入你的 OpenAI API Key',
   },
 };
 
