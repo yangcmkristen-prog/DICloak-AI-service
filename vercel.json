@@ -1,9 +1,6 @@
 {
-  "buildCommand": "npm install && npm run build",
-  "installCommand": "npm install",
+  "buildCommand": "npm install --include=dev && npm run build",
+  "installCommand": "npm install --include=dev",
   "framework": "nextjs",
-  "regions": ["iad1"],
-  "env": {
-    "NODE_VERSION": "20"
-  }
+  "devCommand": "npm run dev"
 }
