@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
 
 export async function POST(request: NextRequest) {
   try {
@@ -210,33 +209,82 @@ ${knowledgeContext}
 ${historyContext}
 Please generate reply based on the knowledge base above.`;
 
-    // 调用 AI API
-    const llmConfig = new Config({
-      apiKey: config.apiKey,
-      baseUrl: config.baseUrl || "https://api.coze.cn/v1",
-    });
+    // Coze Bot API 配置
+    const COZE_API_ENDPOINT = "https://api.coze.cn";
+    const BOT_ID = process.env.COZE_BOT_ID || "7633356097684439091";
+    const API_TOKEN = process.env.COZE_API_TOKEN || "pat_c6nS6NTHKVtdVM2ihTBiAN08yYiI8uSlJnXGH7TSrE4CtaBS2renxkKj3B4MZYor";
 
-    const client = new LLMClient(llmConfig);
-    const llmConfigStream = {
-      model: config.model || "doubao-seed-2-0-lite-260215",
-      temperature: 0.7,
-    };
-    const messages = [
-      { role: "system" as const, content: finalSystemPrompt },
-      { role: "user" as const, content: userMessage },
-    ];
-
+    // 构建 Coze Bot API 请求
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          for await (const chunk of client.stream(messages, llmConfigStream)) {
-            const content = Array.isArray(chunk.content) 
-              ? chunk.content.map(c => 'text' in c ? c.text : '').join('')
-              : chunk.content;
-            if (content) {
-              controller.enqueue(new TextEncoder().encode(content));
+          // 第一步：创建对话
+          const createResponse = await fetch(`${COZE_API_ENDPOINT}/v3/chat/retrievable`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${API_TOKEN}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              bot_id: BOT_ID,
+              user_id: "user_" + Date.now(),
+              stream: true,
+              auto_save_history: true,
+              additional_messages: [
+                {
+                  role: "user",
+                  content: finalSystemPrompt + "\n\n" + userMessage,
+                  content_type: "text",
+                },
+              ],
+            }),
+          });
+
+          if (!createResponse.ok) {
+            const errorText = await createResponse.text();
+            console.error("[Coze API Error]:", createResponse.status, errorText);
+            controller.error(new Error(`Coze API error: ${createResponse.status}`));
+            return;
+          }
+
+          const reader = createResponse.body?.getReader();
+          if (!reader) {
+            controller.error(new Error("Failed to get response reader"));
+            return;
+          }
+
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                const data = line.slice(6);
+                if (data === "[DONE]") {
+                  controller.close();
+                  return;
+                }
+                try {
+                  const parsed = JSON.parse(data);
+                  // Coze 格式: parsed.data.content 或 parsed.content
+                  const content = parsed.data?.content || parsed.content || "";
+                  if (content) {
+                    controller.enqueue(new TextEncoder().encode(content));
+                  }
+                } catch (e) {
+                  // 忽略解析错误
+                }
+              }
             }
           }
+
           controller.close();
         } catch (error) {
           console.error("[Stream Error]:", error);
