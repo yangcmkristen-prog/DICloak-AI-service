@@ -61,22 +61,52 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
     let knowledgeContext = "";
 
     if (knowledge && (knowledge.faqItems?.length > 0 || knowledge.troubleshootingItems?.length > 0 || knowledge.outOfScopeItems?.length > 0)) {
-      // 计算匹配分数
+      // 计算匹配分数（增强版，支持同义词和模糊匹配）
       const calculateMatchScore = (userMsg: string, item: { questionCN?: string; questionEN?: string; tags?: string[]; userPhrases?: string }) => {
         let score = 0;
         const msgLower = userMsg.toLowerCase();
 
+        // 同义词映射
+        const synonyms: Record<string, string[]> = {
+          火狐: ['firefox', 'fox', 'mozilla'],
+          浏览器: ['browser', 'edge', 'chrome', '360', 'ie', 'opera', 'safari'],
+          第三方: ['third', '3rd', 'external'],
+          支持: ['support', 'use', 'can i', '是否'],
+          内核: ['kernel', 'core', 'engine'],
+        };
+
+        // 扩展关键词
+        const expandKeywords = (text: string): string[] => {
+          const baseKeywords = text.split(/[\s,.!?;:，。！？；：]+/).filter(w => w.length > 1);
+          const expanded: string[] = [...baseKeywords];
+          baseKeywords.forEach(kw => {
+            const kwLower = kw.toLowerCase();
+            Object.entries(synonyms).forEach(([, enList]) => {
+              if (kwLower.includes(kw) || enList.some(en => kwLower.includes(en))) {
+                expanded.push(kw, ...enList);
+              }
+            });
+          });
+          return expanded;
+        };
+
+        const expandedKeywords = expandKeywords(msgLower);
+
         // 中文问题匹配
         if (item.questionCN) {
           const cnLower = item.questionCN.toLowerCase();
-          // 完全包含
           if (cnLower.includes(msgLower) || msgLower.includes(cnLower)) {
-            score += 10;
+            score += 15;
           }
-          // 关键词匹配
-          const keywords = msgLower.split(/[\s,.!?;:]+/).filter(w => w.length > 1);
-          keywords.forEach(kw => {
-            if (cnLower.includes(kw)) score += 2;
+          expandedKeywords.forEach(kw => {
+            if (cnLower.includes(kw)) score += 3;
+          });
+          // 核心词匹配
+          const coreTerms = ['火狐', 'firefox', '浏览器', 'browser', 'chrome', 'edge', '360', '支持', '第三方', '内核'];
+          coreTerms.forEach(term => {
+            if (msgLower.includes(term) && cnLower.includes(term)) {
+              score += 5;
+            }
           });
         }
 
@@ -84,50 +114,62 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
         if (item.questionEN) {
           const enLower = item.questionEN.toLowerCase();
           if (enLower.includes(msgLower) || msgLower.includes(enLower)) {
-            score += 10;
+            score += 15;
           }
-          const keywords = msgLower.split(/[\s,.!?;:]+/).filter(w => w.length > 1);
-          keywords.forEach(kw => {
-            if (enLower.includes(kw)) score += 2;
+          expandedKeywords.forEach(kw => {
+            if (enLower.includes(kw)) score += 3;
+          });
+          const browserTerms = ['firefox', 'browser', 'chrome', 'edge', '360', 'microsoft', 'support', 'switch', 'kernel'];
+          browserTerms.forEach(term => {
+            if (msgLower.includes(term) && enLower.includes(term)) {
+              score += 5;
+            }
           });
         }
 
         // 标签匹配
         if (item.tags) {
           item.tags.forEach(tag => {
-            if (msgLower.includes(tag.toLowerCase())) score += 3;
+            if (msgLower.includes(tag.toLowerCase())) score += 4;
           });
+        }
+
+        // 多核心词加分
+        const coreWords = ['火狐', 'firefox', '浏览器', 'browser', 'chrome', '第三方', '支持', 'diclok'];
+        const matchedCoreWords = coreWords.filter(w => msgLower.includes(w.toLowerCase()));
+        if (matchedCoreWords.length >= 2) {
+          score += 5;
         }
 
         return score;
       };
 
-      // FAQ 匹配过滤
+      // FAQ 匹配过滤（降低阈值，确保更多相关FAQ传递）
       type FaqItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; functionId?: string; termIds?: string[]; faqId?: string };
       const faqItems = (knowledge.faqItems || []) as FaqItem[];
       const matchedFaq = faqItems
         .map((item: FaqItem) => ({ item, score: calculateMatchScore(message, item) }))
-        .filter(m => m.score > 0)
+        .filter(m => m.score >= 3)  // 降低阈值从 5 改为 3
         .sort((a, b) => b.score - a.score)
-        .slice(0, 5);
+        .slice(0, 8);  // 增加数量从 5 到 8
 
       // Troubleshooting 匹配过滤
       type TsItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; termIds?: string[]; faqId?: string };
       const tsItems = (knowledge.troubleshootingItems || []) as TsItem[];
       const matchedTs = tsItems
         .map((item: TsItem) => ({ item, score: calculateMatchScore(message, item) }))
-        .filter(m => m.score > 0)
+        .filter(m => m.score >= 3)
         .sort((a, b) => b.score - a.score)
-        .slice(0, 5);
+        .slice(0, 8);
 
       // Out of Scope 匹配过滤
       type OosItem = { questionCN: string; questionEN?: string; answer: string; answerClient?: string; answerEndUser?: string };
       const oosItems = (knowledge.outOfScopeItems || []) as OosItem[];
       const matchedOos = oosItems
         .map((item: OosItem) => ({ item, score: calculateMatchScore(message, item) }))
-        .filter(m => m.score > 0)
+        .filter(m => m.score >= 3)
         .sort((a, b) => b.score - a.score)
-        .slice(0, 3);
+        .slice(0, 5);
 
       // 构建 FAQ 上下文
       if (matchedFaq.length > 0) {
