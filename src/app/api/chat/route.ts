@@ -208,6 +208,36 @@ function buildTermTranslations(knowledge: any): TermTranslations {
   return translations;
 }
 
+// 用指定的 termIds 构建翻译映射（英文名 → 翻译）
+function buildTranslationsFromTermIds(termIds: string[], knowledge: any): Record<string, Record<string, string>> {
+  const result: Record<string, Record<string, string>> = {};
+  
+  if (!knowledge?.termItems) return result;
+  
+  // 用 termIds 过滤术语库中匹配的项
+  (knowledge.termItems as any[]).forEach(item => {
+    const termId = item['term_id'];
+    const englishName = item['英文'] || item['English'] || '';
+    
+    // 只包含该 FAQ 的 termIds
+    if (termId && termIds.includes(termId)) {
+      result[englishName] = {
+        '中文': item['中文'] || '',
+        '中文（简体）': item['中文（简体）'] || item['中文'] || '',
+        '中文（繁體）': item['中文（繁體）'] || item['中文'] || '',
+        '英文': englishName,
+        'English': item['English'] || item['英文'] || '',
+        '俄语': item['俄语'] || '',
+        '葡萄牙语（巴西）': item['葡萄牙语（巴西）'] || '',
+        '西班牙语': item['西班牙语'] || '',
+        '越南语': item['越南语'] || '',
+      };
+    }
+  });
+  
+  return result;
+}
+
 // 知识库来源类型
 export interface KnowledgeSource {
   type: 'faq' | 'troubleshooting' | 'out_of_scope';
@@ -271,8 +301,10 @@ function buildKnowledgeContext(knowledge: any, message: string, languageRule: st
       knowledgeContext += "## FAQ Knowledge Base\n";
       matchedFaq.forEach((m, index) => {
         const item = m.item;
-        // 替换答案中的 {{术语}} 为实际翻译
-        const translatedAnswer = replaceTermIds(item.answer || '', termTranslations, targetLang);
+        // 用该 FAQ 自己的 termIds 构建翻译映射
+        const faqTermTranslations = buildTranslationsFromTermIds(item.termIds || [], knowledge);
+        // 替换答案中的 {{英文术语}} 为实际翻译
+        const translatedAnswer = replaceTermIds(item.answer || '', faqTermTranslations, targetLang);
         knowledgeContext += `[FAQ ${index + 1}]\n`;
         knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
         knowledgeContext += `StandardAnswer: ${translatedAnswer}\n`;
@@ -294,8 +326,10 @@ function buildKnowledgeContext(knowledge: any, message: string, languageRule: st
       knowledgeContext += "## Troubleshooting Knowledge Base\n";
       matchedTs.forEach((m, index) => {
         const item = m.item;
-        // 替换答案中的 {{术语}} 为实际翻译
-        const translatedAnswer = replaceTermIds(item.answer || '', termTranslations, targetLang);
+        // 用该 Troubleshooting 自己的 termIds 构建翻译映射
+        const tsTermTranslations = buildTranslationsFromTermIds(item.termIds || [], knowledge);
+        // 替换答案中的 {{英文术语}} 为实际翻译
+        const translatedAnswer = replaceTermIds(item.answer || '', tsTermTranslations, targetLang);
         knowledgeContext += `[Troubleshoot ${index + 1}]\n`;
         knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
         knowledgeContext += `StandardAnswer: ${translatedAnswer}\n`;
