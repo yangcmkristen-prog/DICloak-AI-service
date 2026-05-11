@@ -1,0 +1,9 @@
+{
+  "buildCommand": "npm install && npm run build",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "regions": ["iad1"],
+  "env": {
+    "NODE_VERSION": "20"
+  }
+}

@@ -1,13 +1,12 @@
 {
-  "name": "projects",
+  "name": "diclok-assistant",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "bash ./scripts/build.sh",
-    "dev": "bash ./scripts/dev.sh",
-    "preinstall": "npx only-allow pnpm",
+    "dev": "next dev --turbopack -p 5000",
+    "build": "next build",
+    "start": "next start -p 5000",
     "lint": "eslint",
-    "start": "bash ./scripts/start.sh",
     "ts-check": "tsc -p tsconfig.json"
   },
   "dependencies": {
@@ -44,7 +43,6 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
-    "coze-coding-dev-sdk": "^0.7.21",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "drizzle-kit": "^0.31.8",
@@ -70,8 +68,6 @@
     "zod": "^4.3.5"
   },
   "devDependencies": {
-    "@react-dev-inspector/babel-plugin": "^2.0.1",
-    "@react-dev-inspector/middleware": "^2.0.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pg": "^8.16.0",
@@ -79,16 +75,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
-    "only-allow": "^1.2.2",
-    "react-dev-inspector": "^2.0.1",
-    "shadcn": "latest",
     "tailwindcss": "^4",
-    "tsup": "^8.3.5",
-    "tsx": "^4.19.2",
     "typescript": "^5"
-  },
-  "packageManager": "pnpm@9.0.0",
-  "engines": {
-    "pnpm": ">=9.0.0"
   }
 }
