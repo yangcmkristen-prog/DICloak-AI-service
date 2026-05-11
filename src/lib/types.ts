@@ -1,9 +1,18 @@
+// 知识库来源信息
+export interface KnowledgeSource {
+  type: 'faq' | 'troubleshooting' | 'out_of_scope';
+  id: string;
+  question: string;
+  score: number;
+}
+
 // 对话和消息类型定义
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  sources?: KnowledgeSource[];  // 引用的知识库来源
 }
 
 export interface Conversation {

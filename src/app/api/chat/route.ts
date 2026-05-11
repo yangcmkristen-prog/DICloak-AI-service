@@ -116,9 +116,18 @@ function calculateMatchScore(userMsg: string, item: { questionCN?: string; quest
   return score;
 }
 
+// 知识库来源类型
+export interface KnowledgeSource {
+  type: 'faq' | 'troubleshooting' | 'out_of_scope';
+  id: string;
+  question: string;
+  score: number;
+}
+
 // 构建知识库上下文
-function buildKnowledgeContext(knowledge: any, message: string, languageRule: string) {
+function buildKnowledgeContext(knowledge: any, message: string, languageRule: string): { context: string; sources: KnowledgeSource[] } {
   let knowledgeContext = "";
+  const sources: KnowledgeSource[] = [];
 
   if (knowledge && (knowledge.faqItems?.length > 0 || knowledge.troubleshootingItems?.length > 0 || knowledge.outOfScopeItems?.length > 0)) {
     type FaqItem = { questionCN: string; questionEN?: string; tags?: string[]; answer: string; functionId?: string; termIds?: string[]; faqId?: string };
@@ -174,6 +183,12 @@ function buildKnowledgeContext(knowledge: any, message: string, languageRule: st
           knowledgeContext += `RelatedTerms: ${item.termIds.join(', ')}\n`;
         }
         knowledgeContext += "\n";
+        sources.push({
+          type: 'faq',
+          id: item.faqId || `faq-${index}`,
+          question: item.questionCN || item.questionEN || '',
+          score: m.score,
+        });
       });
     }
 
@@ -189,6 +204,12 @@ function buildKnowledgeContext(knowledge: any, message: string, languageRule: st
           knowledgeContext += `RelatedTerms: ${item.termIds.join(', ')}\n`;
         }
         knowledgeContext += "\n";
+        sources.push({
+          type: 'troubleshooting',
+          id: item.faqId || `ts-${index}`,
+          question: item.questionCN || item.questionEN || '',
+          score: m.score,
+        });
       });
     }
 
@@ -204,11 +225,17 @@ function buildKnowledgeContext(knowledge: any, message: string, languageRule: st
           knowledgeContext += `ClientAnswer: ${item.answerClient}\n`;
         }
         knowledgeContext += "\n";
+        sources.push({
+          type: 'out_of_scope',
+          id: `oos-${index}`,
+          question: item.questionCN || item.questionEN || '',
+          score: m.score,
+        });
       });
     }
   }
 
-  return knowledgeContext;
+  return { context: knowledgeContext, sources };
 }
 
 // 构建对话历史上下文
@@ -306,8 +333,13 @@ export async function POST(request: NextRequest) {
     const finalSystemPrompt = systemPrompt || defaultSystemPrompt;
 
     // 构建上下文
-    const knowledgeContext = buildKnowledgeContext(knowledge, message, languageRule);
+    const { context: knowledgeContext, sources } = buildKnowledgeContext(knowledge, message, languageRule);
     const historyContext = buildHistoryContext(history);
+
+    // 发送来源信息标记
+    const sourcesEvent = `event: sources\ndata: ${JSON.stringify(sources)}\n\n`;
+    const sourcesEncoder = new TextEncoder();
+    let sourcesSent = false;
 
     const userMessage = `## Current User Question
 ${message}
@@ -341,6 +373,10 @@ Please generate reply based on the knowledge base above.`;
     // 流式返回
     const stream = new ReadableStream({
       async start(controller) {
+        // 先发送来源信息
+        controller.enqueue(sourcesEncoder.encode(sourcesEvent));
+        sourcesSent = true;
+
         const reader = responseBody!.getReader();
         const decoder = new TextDecoder();
         let buffer = "";

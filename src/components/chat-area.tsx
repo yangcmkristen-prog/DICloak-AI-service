@@ -376,16 +376,46 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                   {message.role === "user" ? (
                     <p className="whitespace-pre-wrap">{message.content}</p>
                   ) : (
-                    <AIReplies
-                      content={message.content}
-                      messageId={message.id}
-                      onCopy={handleCopy}
-                      onTranslate={handleTranslate}
-                      copiedId={copiedId}
-                      expandedTranslations={expandedTranslations}
-                      translations={translations}
-                      translatingIds={translatingIds}
-                    />
+                    <>
+                      <AIReplies
+                        content={message.content}
+                        messageId={message.id}
+                        onCopy={handleCopy}
+                        onTranslate={handleTranslate}
+                        copiedId={copiedId}
+                        expandedTranslations={expandedTranslations}
+                        translations={translations}
+                        translatingIds={translatingIds}
+                      />
+                      {/* 显示知识库来源 */}
+                      {message.sources && message.sources.length > 0 && (
+                        <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
+                          <p className="text-xs text-muted-foreground mb-2 font-medium">
+                            📚 引用来源
+                          </p>
+                          <div className="space-y-1">
+                            {message.sources.map((source, idx) => (
+                              <div 
+                                key={idx}
+                                className="text-xs text-muted-foreground flex items-start gap-2"
+                              >
+                                <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                  source.type === 'faq' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' :
+                                  source.type === 'troubleshooting' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300' :
+                                  'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                                }`}>
+                                  {source.type === 'faq' ? 'FAQ' : 
+                                   source.type === 'troubleshooting' ? '排障' : '超出范围'}
+                                </span>
+                                <span className="truncate flex-1" title={source.question}>
+                                  {source.question}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                   </div>
                 </div>

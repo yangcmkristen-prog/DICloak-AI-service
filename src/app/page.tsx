@@ -229,25 +229,60 @@ export default function Home() {
         throw new Error("生成回复失败");
       }
 
-      // 处理流式响应
+      // 处理流式响应 (SSE 格式)
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let fullContent = "";
+      let sources: any[] = [];
+      let buffer = "";
 
       if (reader) {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          fullContent += decoder.decode(value, { stream: true });
+          
+          buffer += decoder.decode(value, { stream: true });
+          
+          // 处理 SSE 事件
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          
+          for (const line of lines) {
+            if (line.startsWith('event: sources')) {
+              // 下一个 data 行包含来源信息
+              continue;
+            }
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              try {
+                const parsed = JSON.parse(data);
+                // 检查是否是来源事件
+                if (parsed.type === 'sources' || Array.isArray(parsed)) {
+                  sources = parsed.type === 'sources' ? parsed.sources || parsed : parsed;
+                  continue;
+                }
+                // 文本内容
+                if (parsed.choices?.[0]?.delta?.content) {
+                  fullContent += parsed.choices[0].delta.content;
+                }
+              } catch {
+                // 如果不是 JSON，可能是普通文本内容
+                fullContent += data;
+              }
+            }
+          }
         }
       }
 
-      // 添加助手消息
+      console.log('[DEBUG] 匹配的知识库来源:', sources);
+
+      // 添加助手消息（包含来源信息）
       const assistantMessage: Message = {
         id: generateId(),
         role: "assistant",
         content: fullContent,
         timestamp: Date.now(),
+        sources: sources, // 添加来源字段
       };
 
       setConversations((prev) => {
