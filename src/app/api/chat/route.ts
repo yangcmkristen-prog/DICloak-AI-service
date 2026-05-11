@@ -13,6 +13,7 @@ export async function POST(request: NextRequest) {
     if (knowledge) {
       console.log('[DEBUG] FAQ数量:', knowledge.faqItems?.length || 0);
       console.log('[DEBUG] 术语库数量:', knowledge.termItems?.length || 0);
+      console.log('[DEBUG] 用户问题:', message);
     }
 
     // 语言规则映射
@@ -144,14 +145,38 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
         return score;
       };
 
-      // FAQ 匹配过滤（降低阈值，确保更多相关FAQ传递）
+      // FAQ matching with lower threshold
       type FaqItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; functionId?: string; termIds?: string[]; faqId?: string };
       const faqItems = (knowledge.faqItems || []) as FaqItem[];
-      const matchedFaq = faqItems
+      let matchedFaq = faqItems
         .map((item: FaqItem) => ({ item, score: calculateMatchScore(message, item) }))
-        .filter(m => m.score >= 3)  // 降低阈值从 5 改为 3
+        .filter(m => m.score >= 3)
         .sort((a, b) => b.score - a.score)
-        .slice(0, 8);  // 增加数量从 5 到 8
+        .slice(0, 8);
+      
+      // Fallback: if no matches, try to find browser-related FAQs
+      if (matchedFaq.length === 0) {
+        const browserKeywords = ['firefox', '浏览器', 'browser', 'chrome', 'edge', '360', '内核', 'kernel', '支持'];
+        const msgLower = message.toLowerCase();
+        const hasBrowserKeyword = browserKeywords.some(kw => msgLower.includes(kw));
+        
+        if (hasBrowserKeyword) {
+          matchedFaq = faqItems
+            .filter(item => {
+              const q = ((item.questionCN || '') + ' ' + (item.questionEN || '')).toLowerCase();
+              return browserKeywords.some(kw => q.includes(kw));
+            })
+            .slice(0, 5)
+            .map(item => ({ item, score: 1 }));
+          console.log('[DEBUG] Fallback: found', matchedFaq.length, 'browser-related FAQs');
+        }
+      }
+      
+      // Debug: log matching results
+      console.log('[DEBUG] FAQ matched:', matchedFaq.length, 'items');
+      matchedFaq.slice(0, 3).forEach((m, i) => {
+        console.log(`[DEBUG] FAQ${i+1}: score=${m.score}, q=${m.item.questionCN?.substring(0, 40)}`);
+      });
 
       // Troubleshooting 匹配过滤
       type TsItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; termIds?: string[]; faqId?: string };
