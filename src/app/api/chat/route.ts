@@ -122,42 +122,85 @@ function calculateMatchScore(userMsg: string, item: { questionCN?: string; quest
 // 术语翻译映射类型
 type TermTranslations = Record<string, Record<string, string>>;
 
-// 解析并替换答案中的 {{termId}} 标记
-function replaceTermIds(answer: string, termTranslations: TermTranslations): string {
-  // 匹配 {{termId}} 格式
-  const termIdPattern = /\{\{([A-Z0-9_-]+)\}\}/g;
+// 术语映射：英文名 -> term_id -> 翻译
+type TermNameToTranslation = Record<string, Record<string, string>>;
+
+let termNameTranslations: TermNameToTranslation = {};
+
+// 解析并替换答案中的术语标记 {{termId}} 或 {{英文术语名}}
+function replaceTermIds(answer: string, termTranslations: TermTranslations, targetLang: string): string {
+  // 匹配 {{xxx}} 格式
+  const termPattern = /\{\{([^}]+)\}\}/g;
   
-  return answer.replace(termIdPattern, (match, termId) => {
-    // 查找术语翻译
-    const translations = termTranslations[termId];
+  return answer.replace(termPattern, (match, termKey) => {
+    // 优先尝试作为 term_id 查找
+    const translations = termTranslations[termKey];
     if (translations) {
-      // 返回翻译后的术语（优先中文，其次英文）
-      return translations['中文'] || translations['中文（简体）'] || translations['中文（繁體）'] || translations['英文'] || translations['English'] || match;
+      return getTranslationByLang(translations, targetLang);
     }
-    // 如果没找到，返回原始标记（不替换）
+    
+    // 如果不是 term_id，尝试作为英文术语名查找
+    const enTranslations = termNameTranslations[termKey];
+    if (enTranslations) {
+      return getTranslationByLang(enTranslations, targetLang);
+    }
+    
+    // 如果都没找到，返回原始标记（不替换）
     return match;
   });
+}
+
+// 根据目标语言获取翻译
+function getTranslationByLang(translations: Record<string, string>, targetLang: string): string {
+  const langMap: Record<string, string[]> = {
+    'zh': ['中文', '中文（简体）'],
+    'cn': ['中文', '中文（简体）'],
+    'en': ['英文', 'English'],
+    'pt': ['葡萄牙语（巴西）'],
+    'es': ['西班牙语'],
+    'ru': ['俄语'],
+    'vi': ['越南语'],
+  };
+  
+  const langKeys = langMap[targetLang] || ['中文', '中文（简体）'];
+  
+  for (const key of langKeys) {
+    if (translations[key]) {
+      return translations[key];
+    }
+  }
+  
+  // 默认返回中文
+  return translations['中文'] || translations['中文（简体）'] || translations['英文'] || Object.values(translations)[0] || '';
 }
 
 // 构建术语翻译映射
 function buildTermTranslations(knowledge: any): TermTranslations {
   const translations: TermTranslations = {};
+  termNameTranslations = {}; // 重置英文名映射
   
   if (knowledge?.termItems) {
     (knowledge.termItems as any[]).forEach(item => {
       const termId = item['term_id'];
+      const englishName = item['英文'] || item['English'] || '';
+      
       if (termId) {
         translations[termId] = {
           '中文': item['中文'] || '',
           '中文（简体）': item['中文（简体）'] || item['中文'] || '',
           '中文（繁體）': item['中文（繁體）'] || item['中文'] || '',
-          '英文': item['英文'] || '',
+          '英文': englishName,
           'English': item['English'] || item['英文'] || '',
           '俄语': item['俄语'] || '',
           '葡萄牙语（巴西）': item['葡萄牙语（巴西）'] || '',
           '西班牙语': item['西班牙语'] || '',
           '越南语': item['越南语'] || '',
         };
+        
+        // 构建英文名到翻译的映射
+        if (englishName) {
+          termNameTranslations[englishName] = translations[termId];
+        }
       }
     });
   }
@@ -174,7 +217,7 @@ export interface KnowledgeSource {
 }
 
 // 构建知识库上下文
-function buildKnowledgeContext(knowledge: any, message: string, languageRule: string): { context: string; sources: KnowledgeSource[] } {
+function buildKnowledgeContext(knowledge: any, message: string, languageRule: string, targetLang: string): { context: string; sources: KnowledgeSource[] } {
   let knowledgeContext = "";
   const sources: KnowledgeSource[] = [];
   
@@ -228,8 +271,8 @@ function buildKnowledgeContext(knowledge: any, message: string, languageRule: st
       knowledgeContext += "## FAQ Knowledge Base\n";
       matchedFaq.forEach((m, index) => {
         const item = m.item;
-        // 替换答案中的 {{termId}} 为实际翻译
-        const translatedAnswer = replaceTermIds(item.answer || '', termTranslations);
+        // 替换答案中的 {{术语}} 为实际翻译
+        const translatedAnswer = replaceTermIds(item.answer || '', termTranslations, targetLang);
         knowledgeContext += `[FAQ ${index + 1}]\n`;
         knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
         knowledgeContext += `StandardAnswer: ${translatedAnswer}\n`;
@@ -251,8 +294,8 @@ function buildKnowledgeContext(knowledge: any, message: string, languageRule: st
       knowledgeContext += "## Troubleshooting Knowledge Base\n";
       matchedTs.forEach((m, index) => {
         const item = m.item;
-        // 替换答案中的 {{termId}} 为实际翻译
-        const translatedAnswer = replaceTermIds(item.answer || '', termTranslations);
+        // 替换答案中的 {{术语}} 为实际翻译
+        const translatedAnswer = replaceTermIds(item.answer || '', termTranslations, targetLang);
         knowledgeContext += `[Troubleshoot ${index + 1}]\n`;
         knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
         knowledgeContext += `StandardAnswer: ${translatedAnswer}\n`;
@@ -389,7 +432,7 @@ export async function POST(request: NextRequest) {
     const finalSystemPrompt = systemPrompt || defaultSystemPrompt;
 
     // 构建上下文
-    const { context: knowledgeContext, sources } = buildKnowledgeContext(knowledge, message, languageRule);
+    const { context: knowledgeContext, sources } = buildKnowledgeContext(knowledge, message, languageRule, detectedLanguage);
     const historyContext = buildHistoryContext(history);
 
     // 发送来源信息标记
