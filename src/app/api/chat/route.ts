@@ -41,9 +41,12 @@ export async function POST(request: NextRequest) {
 
 Focus on helping customer service staff quickly generate professional, friendly customer replies.
 
-When a user asks a question:
-1. Match the most relevant FAQ from the provided knowledge base
-2. Generate replies in the same language as the user's question
+## FAQ Matching Strategy (IMPORTANT)
+When receiving multiple FAQs from knowledge base:
+1. Analyze the semantic relevance between user question and each FAQ
+2. Consider: FAQ tags, standard question, user phrases
+3. Select the MOST relevant FAQ to answer
+4. If multiple FAQs are relevant, combine them appropriately
 
 ## Output Format
 When using knowledge base FAQ, must follow this format:
@@ -56,7 +59,10 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
 ## Multi-turn Conversation
 - Remember previous conversation context
 - If user mentions their role or provides info, use it for targeted advice
-- If user asks follow-up, combine with previous context`;
+- If user asks follow-up, combine with previous context
+
+## Language
+- Reply in the same language as the user's question`;
 
     // 构建知识库上下文（只传递最相关的知识库项）
     let knowledgeContext = "";
@@ -132,40 +138,37 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
         return score;
       };
 
-      // FAQ 匹配过滤
+      // FAQ 匹配过滤（只过滤，不排序，由 AI 判断相关度）
       type FaqItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; functionId?: string; termIds?: string[]; faqId?: string };
       const faqItems = (knowledge.faqItems || []) as FaqItem[];
       const matchedFaq = faqItems
         .map((item: FaqItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
-        .filter(m => m.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 5);
+        .filter(m => m.score > 0); // 只过滤匹配到的，不排序不限制数量，由 AI 判断相关度
 
       // Troubleshooting 匹配过滤
       type TsItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; termIds?: string[]; faqId?: string };
       const tsItems = (knowledge.troubleshootingItems || []) as TsItem[];
       const matchedTs = tsItems
         .map((item: TsItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
-        .filter(m => m.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 5);
+        .filter(m => m.score > 0);
 
       // Out of Scope 匹配过滤
       type OosItem = { questionCN: string; questionEN?: string; answer: string; answerClient?: string; answerEndUser?: string };
       const oosItems = (knowledge.outOfScopeItems || []) as OosItem[];
       const matchedOos = oosItems
         .map((item: OosItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
-        .filter(m => m.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 3);
+        .filter(m => m.score > 0);
 
       // 调试日志
       console.log("[MATCH DEBUG] User message:", message);
       console.log("[MATCH DEBUG] User keywords:", userKeywords.slice(0, 10).join(', '));
       console.log("[MATCH DEBUG] Matched FAQ count:", matchedFaq.length);
-      matchedFaq.forEach((m, i) => {
+      matchedFaq.slice(0, 10).forEach((m, i) => {
         console.log(`[MATCH DEBUG] FAQ ${i+1}: ${m.item.faqId}, score: ${m.score}, question: ${m.item.questionCN}, tags: ${m.item.tags?.join(',')}`);
       });
+      if (matchedFaq.length > 10) {
+        console.log(`[MATCH DEBUG] ... and ${matchedFaq.length - 10} more FAQs`);
+      }
       console.log("[MATCH DEBUG] Matched TS count:", matchedTs.length);
       console.log("[MATCH DEBUG] Matched OOS count:", matchedOos.length);
 
