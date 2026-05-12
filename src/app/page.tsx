@@ -276,9 +276,13 @@ export default function Home() {
                   sources = parsed.type === 'sources' ? parsed.sources || parsed : parsed;
                   continue;
                 }
-                // 文本内容
+                // 文本内容 - 支持多种格式
                 if (parsed.choices?.[0]?.delta?.content) {
+                  // OpenAI 格式
                   fullContent += parsed.choices[0].delta.content;
+                } else if (parsed.content) {
+                  // 简单格式 {content: "xxx"}
+                  fullContent += parsed.content;
                 }
               } catch {
                 // 如果不是 JSON，可能是普通文本内容
