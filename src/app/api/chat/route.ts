@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { LLMClient, Config } from "coze-coding-dev-sdk";
+import { LLMClient } from "coze-coding-dev-sdk";
 
 // 语言检测
 function detectLanguage(text: string): string {
@@ -351,11 +351,7 @@ ${historyContext}
     console.log(`[API] 调用模型: ${model}`);
 
     // 使用 LLMClient 调用
-    const config = new Config({
-      baseURL: COZE_API_ENDPOINT,
-      token: API_TOKEN,
-    });
-    const client = new LLMClient(config);
+    const client = new LLMClient();
 
     // 流式返回
     const stream = new ReadableStream({
@@ -363,12 +359,12 @@ ${historyContext}
         const encoder = new TextEncoder();
         
         try {
-          const streamResponse = await client.stream({
+          const streamResponse = client.stream([
+            { role: "system", content: finalSystemPrompt },
+            { role: "user", content: message }
+          ], {
             model: model,
-            messages: [
-              { role: "system", content: finalSystemPrompt },
-              { role: "user", content: message }
-            ],
+            streaming: true
           });
 
           for await (const chunk of streamResponse) {
