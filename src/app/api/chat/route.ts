@@ -522,38 +522,44 @@ Please generate reply based on the knowledge base above.`;
         try {
           while (true) {
             const { done, value } = await reader.read();
-            if (done) {
-              controller.close();
-              return;
-            }
+            if (done) break;
 
             const chunk = decoder.decode(value, { stream: true });
             buffer += chunk;
 
-            // 按 SSE 格式分割
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
+            // 按 SSE 格式分割（双换行分隔事件）
+            const events = buffer.split('\n\n');
+            buffer = events.pop() || '';
 
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed || !trimmed.startsWith('data: ')) continue;
+            for (const event of events) {
+              const lines = event.split('\n');
+              let eventType = '';
+              let eventData = '';
 
-              const data = trimmed.slice(6);
-              if (data === '[DONE]') {
-                controller.close();
-                return;
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('event:')) {
+                  eventType = trimmed.slice(6).trim();
+                } else if (trimmed.startsWith('data:')) {
+                  eventData = trimmed.slice(5).trim();
+                }
               }
 
-              try {
-                const parsed = JSON.parse(data);
+              if (!eventData || eventData === '[DONE]') continue;
 
+              try {
+                const parsed = JSON.parse(eventData);
+
+                // Coze API 格式: parsed.data.content
+                // OpenAI 格式: parsed.choices[0].delta.content
                 let content = '';
                 if (provider === 'openai' || provider === 'gpt') {
-                  // OpenAI 格式
                   content = parsed.choices?.[0]?.delta?.content || '';
                 } else {
-                  // Coze 格式
-                  content = parsed.data?.content || parsed.content || '';
+                  // Coze 格式 - 多种可能
+                  content = parsed.data?.content || 
+                           parsed.content || 
+                           parsed.choices?.[0]?.delta?.content || '';
                 }
 
                 if (content) {
@@ -564,6 +570,7 @@ Please generate reply based on the knowledge base above.`;
               }
             }
           }
+          controller.close();
         } catch (error) {
           console.error('[Stream Error]:', error);
           controller.error(error);
