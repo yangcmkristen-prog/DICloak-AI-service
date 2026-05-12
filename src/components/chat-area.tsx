@@ -21,31 +21,16 @@ interface ParsedReply {
 }
 
 function parseReplies(content: string): ParsedReply[] {
-  console.log('[parseReplies] 输入内容长度:', content.length);
-  console.log('[parseReplies] 输入内容前200字:', content.substring(0, 200));
-  
   const result: ParsedReply[] = [];
   
-  // 支持两种格式：带方括号 [主回复] 和不带方括号 主回复
   const sections = [
-    // 带方括号格式
-    { pattern: /^\[问题类型\]\s*$/i, type: "question" as const },
-    { pattern: /^\[主回复\]\s*$/i, type: "main" as const },
-    { pattern: /^\[回复1\]\s*$/i, type: "main" as const },
-    { pattern: /^\[补充建议\]\s*$/i, type: "supplement" as const },
-    { pattern: /^\[需要补充的信息\]\s*$/i, type: "info" as const },
-    { pattern: /^\[需补充的信息\]\s*$/i, type: "info" as const },
-    { pattern: /^\[回复2\]\s*$/i, type: "supplement" as const },
-    { pattern: /^\[回复3\]\s*$/i, type: "info" as const },
-    // 不带方括号格式
-    { pattern: /^问题类型\s*$/i, type: "question" as const },
-    { pattern: /^主回复\s*$/i, type: "main" as const },
-    { pattern: /^回复1\s*$/i, type: "main" as const },
-    { pattern: /^补充建议\s*$/i, type: "supplement" as const },
-    { pattern: /^需要补充的信息\s*$/i, type: "info" as const },
-    { pattern: /^需补充的信息\s*$/i, type: "info" as const },
-    { pattern: /^回复2\s*$/i, type: "supplement" as const },
-    { pattern: /^回复3\s*$/i, type: "info" as const },
+    { pattern: /\[问题类型\]/i, type: "question" as const },
+    { pattern: /\[主回复\]/i, type: "main" as const },
+    { pattern: /\[回复1\]/i, type: "main" as const },
+    { pattern: /\[补充建议\]/i, type: "supplement" as const },
+    { pattern: /\[需要补充的信息\]/i, type: "info" as const },
+    { pattern: /\[回复2\]/i, type: "supplement" as const },
+    { pattern: /\[回复3\]/i, type: "info" as const },
   ];
 
   const lines = content.split("\n");
@@ -53,7 +38,6 @@ function parseReplies(content: string): ParsedReply[] {
   let currentSection: ParsedReply | null = null;
   let sectionContent: string[] = [];
   let foundMain = false;
-  let foundAnySection = false;
   
   for (const line of lines) {
     let matchedSection = false;
@@ -77,7 +61,6 @@ function parseReplies(content: string): ParsedReply[] {
         
         currentSection = { type, content: "" };
         sectionContent = [];
-        foundAnySection = true;
         
         if (type === "main") foundMain = true;
         
@@ -98,50 +81,10 @@ function parseReplies(content: string): ParsedReply[] {
     });
   }
 
-  // 如果没有找到任何 section 标题，使用 --- 分隔符来分割
-  if (!foundAnySection || result.length === 0) {
-    console.log('[parseReplies] 进入 fallback 解析, foundAnySection:', foundAnySection, 'result.length:', result.length);
-    const parts = content.split(/^---\s*$/m);
-    console.log('[parseReplies] --- 分割后 parts 数量:', parts.length);
-    console.log('[parseReplies] parts[0] 前100字:', parts[0]?.substring(0, 100));
-    
-    if (parts.length >= 1) {
-      // 第一部分作为主回复
-      const mainContent = parts[0].trim();
-      if (mainContent) {
-        result.push({ type: "main", content: mainContent });
-      }
-      
-      // 第二部分作为补充建议
-      if (parts.length >= 2) {
-        const suppContent = parts[1].trim();
-        // 检查是否包含 "需补充的信息" 或 "需要补充的信息"
-        const infoIdx = suppContent.search(/^(需|需要)补充的信息\s*$/m);
-        if (infoIdx !== -1) {
-          const suppPart = suppContent.substring(0, infoIdx).trim();
-          const infoPart = suppContent.substring(infoIdx).replace(/^(需|需要)补充的信息\s*\n?/i, '').trim();
-          if (suppPart) result.push({ type: "supplement", content: suppPart });
-          if (infoPart) result.push({ type: "info", content: infoPart });
-        } else if (suppContent) {
-          result.push({ type: "supplement", content: suppContent });
-        }
-      }
-      
-      // 第三部分作为需补充的信息
-      if (parts.length >= 3) {
-        const infoContent = parts[2].trim();
-        if (infoContent) {
-          result.push({ type: "info", content: infoContent });
-        }
-      }
-    }
-  }
-
   if (result.length === 0) {
-    return [{ type: "main", content: content.trim() }];
+    return [{ type: "question", content: content.trim() }];
   }
 
-  console.log('[parseReplies] 最终结果:', result.map(r => ({ type: r.type, contentLen: r.content.length })));
   return result;
 }
 
@@ -433,46 +376,16 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                   {message.role === "user" ? (
                     <p className="whitespace-pre-wrap">{message.content}</p>
                   ) : (
-                    <>
-                      <AIReplies
-                        content={message.content}
-                        messageId={message.id}
-                        onCopy={handleCopy}
-                        onTranslate={handleTranslate}
-                        copiedId={copiedId}
-                        expandedTranslations={expandedTranslations}
-                        translations={translations}
-                        translatingIds={translatingIds}
-                      />
-                      {/* 显示知识库来源 */}
-                      {message.sources && message.sources.length > 0 && (
-                        <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
-                          <p className="text-xs text-muted-foreground mb-2 font-medium">
-                            📚 引用来源
-                          </p>
-                          <div className="space-y-1">
-                            {message.sources.map((source, idx) => (
-                              <div 
-                                key={idx}
-                                className="text-xs text-muted-foreground flex items-start gap-2"
-                              >
-                                <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                  source.type === 'faq' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' :
-                                  source.type === 'troubleshooting' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300' :
-                                  'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                                }`}>
-                                  {source.type === 'faq' ? 'FAQ' : 
-                                   source.type === 'troubleshooting' ? '排障' : '超出范围'}
-                                </span>
-                                <span className="truncate flex-1" title={source.question}>
-                                  {source.question}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </>
+                    <AIReplies
+                      content={message.content}
+                      messageId={message.id}
+                      onCopy={handleCopy}
+                      onTranslate={handleTranslate}
+                      copiedId={copiedId}
+                      expandedTranslations={expandedTranslations}
+                      translations={translations}
+                      translatingIds={translatingIds}
+                    />
                   )}
                   </div>
                 </div>

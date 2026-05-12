@@ -1,6 +1,0 @@
-{
-  "buildCommand": "npm install --include=dev && npm run build",
-  "installCommand": "npm install --include=dev",
-  "framework": "nextjs",
-  "devCommand": "npm run dev"
-}

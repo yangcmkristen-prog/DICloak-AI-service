@@ -199,21 +199,6 @@ export default function Home() {
       const knowledgeData = knowledgeDataResult.success && !knowledgeDataResult.isEmpty 
         ? knowledgeDataResult.data 
         : getKnowledgeBase();
-      
-      // 调试日志
-      console.log('[DEBUG] knowledgeDataResult:', { success: knowledgeDataResult.success, isEmpty: knowledgeDataResult.isEmpty });
-      console.log('[DEBUG] knowledgeData.faqItems 数量:', knowledgeData?.faqItems?.length);
-      console.log('[DEBUG] knowledgeData keys:', Object.keys(knowledgeData || {}));
-      
-      // 分析各来源数据量
-      console.log('[分析] 各来源数据量:');
-      console.log('  - faqItems:', knowledgeData?.faqItems?.length || 0);
-      console.log('  - troubleshootingItems:', knowledgeData?.troubleshootingItems?.length || 0);
-      console.log('  - outOfScopeItems:', knowledgeData?.outOfScopeItems?.length || 0);
-      console.log('  - mappingItems:', knowledgeData?.mappingItems?.length || 0);
-      console.log('  - termItems:', knowledgeData?.termItems?.length || 0);
-      console.log('  - functionKnowledge:', knowledgeData?.functionKnowledge?.length || 0);
-      
       const systemPrompt = systemDataResult.success && !systemDataResult.isEmpty && systemDataResult.data.systemPrompt
         ? systemDataResult.data.systemPrompt
         : getSystemPrompt();
@@ -244,64 +229,25 @@ export default function Home() {
         throw new Error("生成回复失败");
       }
 
-      // 处理流式响应 (SSE 格式)
+      // 处理流式响应
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let fullContent = "";
-      let sources: any[] = [];
-      let buffer = "";
 
       if (reader) {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          
-          buffer += decoder.decode(value, { stream: true });
-          
-          // 处理 SSE 事件
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-          
-          for (const line of lines) {
-            if (line.startsWith('event: sources')) {
-              // 下一个 data 行包含来源信息
-              continue;
-            }
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6);
-              try {
-                const parsed = JSON.parse(data);
-                // 检查是否是来源事件
-                if (parsed.type === 'sources' || Array.isArray(parsed)) {
-                  sources = parsed.type === 'sources' ? parsed.sources || parsed : parsed;
-                  continue;
-                }
-                // 文本内容 - 支持多种格式
-                if (parsed.choices?.[0]?.delta?.content) {
-                  // OpenAI 格式
-                  fullContent += parsed.choices[0].delta.content;
-                } else if (parsed.content) {
-                  // 简单格式 {content: "xxx"}
-                  fullContent += parsed.content;
-                }
-              } catch {
-                // 如果不是 JSON，可能是普通文本内容
-                fullContent += data;
-              }
-            }
-          }
+          fullContent += decoder.decode(value, { stream: true });
         }
       }
 
-      console.log('[DEBUG] 匹配的知识库来源:', sources);
-
-      // 添加助手消息（包含来源信息）
+      // 添加助手消息
       const assistantMessage: Message = {
         id: generateId(),
         role: "assistant",
         content: fullContent,
         timestamp: Date.now(),
-        sources: sources, // 添加来源字段
       };
 
       setConversations((prev) => {
