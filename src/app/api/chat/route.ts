@@ -178,11 +178,12 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
       // 构建 FAQ 上下文
       if (matchedFaq.length > 0) {
         knowledgeContext += "## FAQ Knowledge Base (matched by your question)\n";
-        matchedFaq.forEach((m, index) => {
+        knowledgeContext += "IMPORTANT: You MUST start your reply with [FAQ_ID: xxx] where xxx is the FAQ ID you used.\n\n";
+        matchedFaq.slice(0, 20).forEach((m, index) => {
           const item = m.item;
           // 处理术语定位符
           const processedAnswer = processTermMarkers(item.answer);
-          knowledgeContext += `[FAQ ${index + 1}]\n`;
+          knowledgeContext += `[FAQ ${index + 1}] ID: ${item.faqId || 'unknown'}\n`;
           knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
           knowledgeContext += `StandardAnswer: ${processedAnswer}\n`;
           if (item.tags && item.tags.length > 0) {
@@ -198,11 +199,12 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
       // 构建 Troubleshooting 上下文
       if (matchedTs.length > 0) {
         knowledgeContext += "## Troubleshooting Knowledge Base (matched by your question)\n";
-        matchedTs.forEach((m, index) => {
+        knowledgeContext += "IMPORTANT: You MUST start your reply with [FAQ_ID: xxx] where xxx is the FAQ ID you used.\n\n";
+        matchedTs.slice(0, 20).forEach((m, index) => {
           const item = m.item;
           // 处理术语定位符
           const processedAnswer = processTermMarkers(item.answer);
-          knowledgeContext += `[Troubleshoot ${index + 1}]\n`;
+          knowledgeContext += `[TS ${index + 1}] ID: ${item.faqId || 'unknown'}\n`;
           knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
           knowledgeContext += `StandardAnswer: ${processedAnswer}\n`;
           if (item.tags && item.tags.length > 0) {
