@@ -130,6 +130,15 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
         .sort((a, b) => b.score - a.score)
         .slice(0, 3);
 
+      // 调试日志
+      console.log("[MATCH DEBUG] User message:", message);
+      console.log("[MATCH DEBUG] Matched FAQ count:", matchedFaq.length);
+      matchedFaq.forEach((m, i) => {
+        console.log(`[MATCH DEBUG] FAQ ${i+1}: ${m.item.faqId}, score: ${m.score}, question: ${m.item.questionCN}`);
+      });
+      console.log("[MATCH DEBUG] Matched TS count:", matchedTs.length);
+      console.log("[MATCH DEBUG] Matched OOS count:", matchedOos.length);
+
       // 构建 FAQ 上下文
       if (matchedFaq.length > 0) {
         knowledgeContext += "## FAQ Knowledge Base (matched by your question)\n";
