@@ -21,6 +21,9 @@ interface ParsedReply {
 }
 
 function parseReplies(content: string): ParsedReply[] {
+  console.log('[parseReplies] 输入内容长度:', content.length);
+  console.log('[parseReplies] 输入内容前200字:', content.substring(0, 200));
+  
   const result: ParsedReply[] = [];
   
   // 支持两种格式：带方括号 [主回复] 和不带方括号 主回复
@@ -97,7 +100,10 @@ function parseReplies(content: string): ParsedReply[] {
 
   // 如果没有找到任何 section 标题，使用 --- 分隔符来分割
   if (!foundAnySection || result.length === 0) {
+    console.log('[parseReplies] 进入 fallback 解析, foundAnySection:', foundAnySection, 'result.length:', result.length);
     const parts = content.split(/^---\s*$/m);
+    console.log('[parseReplies] --- 分割后 parts 数量:', parts.length);
+    console.log('[parseReplies] parts[0] 前100字:', parts[0]?.substring(0, 100));
     
     if (parts.length >= 1) {
       // 第一部分作为主回复
@@ -135,6 +141,7 @@ function parseReplies(content: string): ParsedReply[] {
     return [{ type: "main", content: content.trim() }];
   }
 
+  console.log('[parseReplies] 最终结果:', result.map(r => ({ type: r.type, contentLen: r.content.length })));
   return result;
 }
 
