@@ -435,7 +435,9 @@ ${historyContext}
                 }
 
                 if (content) {
-                  controller.enqueue(encoder.encode(content));
+                  // 发送 SSE 格式数据
+                  const sseData = `data: ${JSON.stringify({ content })}\n\n`;
+                  controller.enqueue(encoder.encode(sseData));
                 }
               } catch (e) {
                 console.log('[Parse Error]', eventData.substring(0, 100));
