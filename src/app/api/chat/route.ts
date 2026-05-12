@@ -306,6 +306,8 @@ export async function POST(request: NextRequest) {
     } = body;
 
     console.log(`[Request] 消息: ${message}`);
+    console.log(`[DEBUG] knowledge.faqItems 数量: ${knowledge?.faqItems?.length || 0}`);
+    console.log(`[DEBUG] knowledge keys: ${knowledge ? Object.keys(knowledge).join(', ') : 'null'}`);
 
     // 语言检测
     const detectedLang = detectLanguage(message);
