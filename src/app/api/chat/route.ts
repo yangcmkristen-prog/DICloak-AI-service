@@ -392,11 +392,13 @@ function buildHistoryContext(history: any[]) {
   return historyContext;
 }
 
-// Coze Bot 调用
-async function callCozeBot(finalSystemPrompt: string, userMessage: string) {
+// Coze 模型调用（直接调用模型，非 Bot）
+async function callCozeModel(finalSystemPrompt: string, userMessage: string, model: string) {
   const COZE_API_ENDPOINT = process.env.COZE_API_ENDPOINT || "https://api.coze.cn";
-  const BOT_ID = process.env.COZE_BOT_ID || "7633356097684439091";
   const API_TOKEN = process.env.COZE_API_TOKEN || "pat_c6nS6NTHKVtdVM2ihTBiAN08yYiI8uSlJnXGH7TSrE4CtaBS2renxkKj3B4MZYor";
+
+  // 默认使用豆包 Lite
+  const modelId = model || "doubao-seed-2-0-lite-260215";
 
   const response = await fetch(`${COZE_API_ENDPOINT}/v3/chat`, {
     method: "POST",
@@ -405,17 +407,18 @@ async function callCozeBot(finalSystemPrompt: string, userMessage: string) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      bot_id: BOT_ID,
-      user_id: "user_" + Date.now(),
-      stream: true,
-      auto_save_history: true,
-      additional_messages: [
+      model: modelId,  // 直接指定模型
+      messages: [
+        {
+          role: "system",
+          content: finalSystemPrompt,
+        },
         {
           role: "user",
-          content: finalSystemPrompt + "\n\n" + userMessage,
-          content_type: "text",
+          content: userMessage,
         },
       ],
+      stream: true,
     }),
   });
 
@@ -491,8 +494,8 @@ Please generate reply based on the knowledge base above.`;
       }
       responseBody = await callOpenAI(finalSystemPrompt, userMessage, apiKey, apiConfig?.model || 'gpt-4o-mini');
     } else {
-      // 默认使用 Coze
-      responseBody = await callCozeBot(finalSystemPrompt, userMessage);
+      // 使用 Coze 模型（支持切换模型）
+      responseBody = await callCozeModel(finalSystemPrompt, userMessage, apiConfig?.model || 'doubao-seed-2-0-lite-260215');
     }
 
     if (!responseBody) {
