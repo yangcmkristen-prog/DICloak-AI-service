@@ -265,7 +265,7 @@ function buildKnowledgeContext(knowledge: any, message: string, languageRule: st
     const faqItems = (knowledge.faqItems || []) as FaqItem[];
     let matchedFaq = faqItems
       .map((item: FaqItem) => ({ item, score: calculateMatchScore(message, item) }))
-      .filter(m => m.score >= 3)
+      .filter(m => m.score >= 1)  // 降低阈值，只要有匹配就给机会
       .sort((a, b) => b.score - a.score)
       .slice(0, 8);
 
@@ -290,7 +290,7 @@ function buildKnowledgeContext(knowledge: any, message: string, languageRule: st
     const tsItems = (knowledge.troubleshootingItems || []) as TsItem[];
     const matchedTs = tsItems
       .map((item: TsItem) => ({ item, score: calculateMatchScore(message, item) }))
-      .filter(m => m.score >= 3)
+      .filter(m => m.score >= 1)  // 降低阈值
       .sort((a, b) => b.score - a.score)
       .slice(0, 8);
 
