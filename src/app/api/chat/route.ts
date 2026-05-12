@@ -224,6 +224,9 @@ function buildKnowledgeContext(message: string, knowledge: any, targetLang: stri
     .slice(0, 3);  // 只取前3个最相关的
 
   console.log(`[FAQ] 匹配到 ${matchedFaq.length} 条, 最高分: ${matchedFaq[0]?.score || 0}`);
+  matchedFaq.forEach((m: any, i: number) => {
+    console.log(`[FAQ] #${i+1} ID: ${m.item.faqId || 'N/A'}, 问题: ${m.item.questionCN || m.item.questionEN}, 分数: ${m.score}`);
+  });
 
   if (matchedFaq.length > 0) {
     context += "## 匹配到的知识库内容\n";
