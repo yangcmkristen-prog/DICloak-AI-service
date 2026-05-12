@@ -205,6 +205,15 @@ export default function Home() {
       console.log('[DEBUG] knowledgeData.faqItems 数量:', knowledgeData?.faqItems?.length);
       console.log('[DEBUG] knowledgeData keys:', Object.keys(knowledgeData || {}));
       
+      // 分析各来源数据量
+      console.log('[分析] 各来源数据量:');
+      console.log('  - faqItems:', knowledgeData?.faqItems?.length || 0);
+      console.log('  - troubleshootingItems:', knowledgeData?.troubleshootingItems?.length || 0);
+      console.log('  - outOfScopeItems:', knowledgeData?.outOfScopeItems?.length || 0);
+      console.log('  - mappingItems:', knowledgeData?.mappingItems?.length || 0);
+      console.log('  - termItems:', knowledgeData?.termItems?.length || 0);
+      console.log('  - functionKnowledge:', knowledgeData?.functionKnowledge?.length || 0);
+      
       const systemPrompt = systemDataResult.success && !systemDataResult.isEmpty && systemDataResult.data.systemPrompt
         ? systemDataResult.data.systemPrompt
         : getSystemPrompt();
