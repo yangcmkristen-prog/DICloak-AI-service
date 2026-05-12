@@ -199,6 +199,12 @@ export default function Home() {
       const knowledgeData = knowledgeDataResult.success && !knowledgeDataResult.isEmpty 
         ? knowledgeDataResult.data 
         : getKnowledgeBase();
+      
+      // 调试日志
+      console.log('[DEBUG] knowledgeDataResult:', { success: knowledgeDataResult.success, isEmpty: knowledgeDataResult.isEmpty });
+      console.log('[DEBUG] knowledgeData.faqItems 数量:', knowledgeData?.faqItems?.length);
+      console.log('[DEBUG] knowledgeData keys:', Object.keys(knowledgeData || {}));
+      
       const systemPrompt = systemDataResult.success && !systemDataResult.isEmpty && systemDataResult.data.systemPrompt
         ? systemDataResult.data.systemPrompt
         : getSystemPrompt();
