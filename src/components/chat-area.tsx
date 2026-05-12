@@ -50,6 +50,7 @@ function parseReplies(content: string): ParsedReply[] {
   let currentSection: ParsedReply | null = null;
   let sectionContent: string[] = [];
   let foundMain = false;
+  let foundAnySection = false;
   
   for (const line of lines) {
     let matchedSection = false;
@@ -73,6 +74,7 @@ function parseReplies(content: string): ParsedReply[] {
         
         currentSection = { type, content: "" };
         sectionContent = [];
+        foundAnySection = true;
         
         if (type === "main") foundMain = true;
         
@@ -93,8 +95,44 @@ function parseReplies(content: string): ParsedReply[] {
     });
   }
 
+  // 如果没有找到任何 section 标题，使用 --- 分隔符来分割
+  if (!foundAnySection || result.length === 0) {
+    const parts = content.split(/^---\s*$/m);
+    
+    if (parts.length >= 1) {
+      // 第一部分作为主回复
+      const mainContent = parts[0].trim();
+      if (mainContent) {
+        result.push({ type: "main", content: mainContent });
+      }
+      
+      // 第二部分作为补充建议
+      if (parts.length >= 2) {
+        const suppContent = parts[1].trim();
+        // 检查是否包含 "需补充的信息" 或 "需要补充的信息"
+        const infoIdx = suppContent.search(/^(需|需要)补充的信息\s*$/m);
+        if (infoIdx !== -1) {
+          const suppPart = suppContent.substring(0, infoIdx).trim();
+          const infoPart = suppContent.substring(infoIdx).replace(/^(需|需要)补充的信息\s*\n?/i, '').trim();
+          if (suppPart) result.push({ type: "supplement", content: suppPart });
+          if (infoPart) result.push({ type: "info", content: infoPart });
+        } else if (suppContent) {
+          result.push({ type: "supplement", content: suppContent });
+        }
+      }
+      
+      // 第三部分作为需补充的信息
+      if (parts.length >= 3) {
+        const infoContent = parts[2].trim();
+        if (infoContent) {
+          result.push({ type: "info", content: infoContent });
+        }
+      }
+    }
+  }
+
   if (result.length === 0) {
-    return [{ type: "question", content: content.trim() }];
+    return [{ type: "main", content: content.trim() }];
   }
 
   return result;
