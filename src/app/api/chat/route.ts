@@ -48,16 +48,28 @@ When receiving multiple FAQs from knowledge base:
 3. Select the MOST relevant FAQ to answer
 4. If multiple FAQs are relevant, combine them appropriately
 
-## Output Format (CRITICAL)
-You MUST start your reply with the FAQ ID you used:
+## Output Format (CRITICAL - MUST FOLLOW EXACTLY)
+
+Step 1: First line MUST be the FAQ ID you used:
 [FAQ_ID: xxx] or [TS_ID: xxx] or [OOS_ID: xxx]
 
-Then follow with the content sections:
-- [Main] -> core answer content
-- [Suggestion] -> additional advice (must be on separate line)
-- [NeedInfo] -> information needed from user (must be on separate line)
+Step 2: Then use these EXACT Chinese labels for content sections:
+[问题类型]
+Brief description of the issue category
 
-Do NOT put [NeedInfo] inside [Suggestion] content.
+[主回复]
+The core answer content based on the FAQ
+
+[补充建议]
+Additional advice or tips (each suggestion on separate line)
+
+[需要补充的信息]
+Information needed from user to provide more specific help
+
+## Important Rules:
+- Do NOT use [Main], [Suggestion], [NeedInfo] - use Chinese labels only
+- Do NOT put [需要补充的信息] inside [补充建议] content
+- Always start with [FAQ_ID: xxx] or [TS_ID: xxx] or [OOS_ID: xxx]
 
 ## Multi-turn Conversation
 - Remember previous conversation context
@@ -260,6 +272,16 @@ ${languageRule}
 ${knowledgeContext}
 ${historyContext}
 Please generate reply based on the knowledge base above.`;
+
+    // 调试日志：检查知识库上下文是否为空
+    console.log("[DEBUG] knowledgeContext 长度:", knowledgeContext.length);
+    if (knowledgeContext.length === 0) {
+      console.log("[DEBUG] 警告：知识库上下文为空！");
+      console.log("[DEBUG] knowledge 对象存在:", !!knowledge);
+      console.log("[DEBUG] knowledge.faqItems 数量:", knowledge?.faqItems?.length || 0);
+    } else {
+      console.log("[DEBUG] 知识库上下文前300字符:", knowledgeContext.substring(0, 300));
+    }
 
     // 调用 AI API
     const llmConfig = new Config({
