@@ -48,8 +48,11 @@ When receiving multiple FAQs from knowledge base:
 3. Select the MOST relevant FAQ to answer
 4. If multiple FAQs are relevant, combine them appropriately
 
-## Output Format
-When using knowledge base FAQ, must follow this format:
+## Output Format (CRITICAL)
+You MUST start your reply with the FAQ ID you used:
+[FAQ_ID: xxx] or [TS_ID: xxx] or [OOS_ID: xxx]
+
+Then follow with the content sections:
 - [Main] -> core answer content
 - [Suggestion] -> additional advice (must be on separate line)
 - [NeedInfo] -> information needed from user (must be on separate line)

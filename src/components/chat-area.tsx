@@ -23,6 +23,20 @@ interface ParsedReply {
 function parseReplies(content: string): ParsedReply[] {
   const result: ParsedReply[] = [];
   
+  // 提取并记录 FAQ ID
+  const faqIdMatch = content.match(/\[FAQ_ID:\s*([^\]]+)\]/i);
+  if (faqIdMatch) {
+    const faqId = faqIdMatch[1].trim();
+    console.log(`[FAQ Used] ${faqId}`);
+  }
+  
+  // 提取并记录 function_id
+  const functionIdMatch = content.match(/\[FUNCTION_ID:\s*([^\]]+)\]/i);
+  if (functionIdMatch) {
+    const functionId = functionIdMatch[1].trim();
+    console.log(`[FUNCTION Used] ${functionId}`);
+  }
+  
   const sections = [
     { pattern: /\[问题类型\]/i, type: "question" as const },
     { pattern: /\[主回复\]/i, type: "main" as const },
