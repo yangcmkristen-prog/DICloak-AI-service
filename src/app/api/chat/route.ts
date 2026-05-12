@@ -61,51 +61,71 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
     // 构建知识库上下文（只传递最相关的知识库项）
     let knowledgeContext = "";
 
+    // 提取用户问题关键词（用于标签匹配）
+    const extractKeywords = (text: string): string[] => {
+      const lower = text.toLowerCase();
+      // 分词
+      const words = lower.split(/[\s,.!?;:，。！？；：、]+/).filter(w => w.length > 1);
+      // 中文提取2-4字子串
+      const subs: string[] = [];
+      for (let i = 0; i < lower.length - 1; i++) {
+        for (let len = 2; len <= 4; len++) {
+          if (i + len <= lower.length) {
+            const sub = lower.substring(i, i + len);
+            if (/^[\u4e00-\u9fa5]+$/.test(sub)) subs.push(sub);
+          }
+        }
+      }
+      return [...new Set([...words, ...subs])];
+    };
+    const userKeywords = extractKeywords(message);
+
+    // 处理术语定位符：提取 [已翻译:原文->译文] 中的译文
+    const processTermMarkers = (text: string): string => {
+      // 匹配 [已翻译:原文->译文] 格式，只保留译文
+      return text.replace(/\[已翻译:[^>]*->([^\]]+)\]/g, '$1');
+    };
+
     if (knowledge && (knowledge.faqItems?.length > 0 || knowledge.troubleshootingItems?.length > 0 || knowledge.outOfScopeItems?.length > 0)) {
-      // 计算匹配分数
-      const calculateMatchScore = (userMsg: string, item: { questionCN?: string; questionEN?: string; tags?: string[]; userPhrases?: string }) => {
+      // 计算匹配分数（增强标签匹配）
+      const calculateMatchScore = (userMsg: string, item: { questionCN?: string; questionEN?: string; tags?: string[]; userPhrases?: string }, keywords: string[]) => {
         let score = 0;
         const msgLower = userMsg.toLowerCase();
 
-        // 中文问题匹配
+        // 1. 问题文本匹配
         if (item.questionCN) {
           const cnLower = item.questionCN.toLowerCase();
-          // 完全包含
-          if (cnLower.includes(msgLower) || msgLower.includes(cnLower)) {
-            score += 10;
-          }
-          // 关键词匹配 - 支持中文
-          const keywords = msgLower.split(/[\s,.!?;:，。！？；：、]+/).filter(w => w.length > 1);
+          if (cnLower.includes(msgLower) || msgLower.includes(cnLower)) score += 10;
           keywords.forEach(kw => {
             if (cnLower.includes(kw)) score += 2;
           });
-          // 中文额外：提取2-4字的关键词
-          for (let i = 0; i < msgLower.length - 1; i++) {
-            for (let len = 2; len <= 4; len++) {
-              if (i + len <= msgLower.length) {
-                const sub = msgLower.substring(i, i + len);
-                if (cnLower.includes(sub)) score += 1;
-              }
-            }
-          }
         }
-
-        // 英文问题匹配
         if (item.questionEN) {
           const enLower = item.questionEN.toLowerCase();
-          if (enLower.includes(msgLower) || msgLower.includes(enLower)) {
-            score += 10;
-          }
-          const keywords = msgLower.split(/[\s,.!?;:，。！？；：、]+/).filter(w => w.length > 1);
+          if (enLower.includes(msgLower) || msgLower.includes(enLower)) score += 10;
           keywords.forEach(kw => {
             if (enLower.includes(kw)) score += 2;
           });
         }
 
-        // 标签匹配
-        if (item.tags) {
+        // 2. 标签匹配（关键词与标签匹配）
+        if (item.tags && item.tags.length > 0) {
           item.tags.forEach(tag => {
-            if (msgLower.includes(tag.toLowerCase())) score += 3;
+            const tagLower = tag.toLowerCase();
+            // 用户消息直接包含标签
+            if (msgLower.includes(tagLower)) score += 5;
+            // 关键词匹配标签
+            keywords.forEach(kw => {
+              if (tagLower.includes(kw) || kw.includes(tagLower)) score += 3;
+            });
+          });
+        }
+
+        // 3. 用户问法匹配
+        if (item.userPhrases) {
+          const phrases = item.userPhrases.split(/[,，;；\n]+/).map(p => p.trim().toLowerCase());
+          phrases.forEach(phrase => {
+            if (phrase && msgLower.includes(phrase)) score += 4;
           });
         }
 
@@ -116,7 +136,7 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
       type FaqItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; functionId?: string; termIds?: string[]; faqId?: string };
       const faqItems = (knowledge.faqItems || []) as FaqItem[];
       const matchedFaq = faqItems
-        .map((item: FaqItem) => ({ item, score: calculateMatchScore(message, item) }))
+        .map((item: FaqItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
         .filter(m => m.score > 0)
         .sort((a, b) => b.score - a.score)
         .slice(0, 5);
@@ -125,7 +145,7 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
       type TsItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; termIds?: string[]; faqId?: string };
       const tsItems = (knowledge.troubleshootingItems || []) as TsItem[];
       const matchedTs = tsItems
-        .map((item: TsItem) => ({ item, score: calculateMatchScore(message, item) }))
+        .map((item: TsItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
         .filter(m => m.score > 0)
         .sort((a, b) => b.score - a.score)
         .slice(0, 5);
@@ -134,16 +154,17 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
       type OosItem = { questionCN: string; questionEN?: string; answer: string; answerClient?: string; answerEndUser?: string };
       const oosItems = (knowledge.outOfScopeItems || []) as OosItem[];
       const matchedOos = oosItems
-        .map((item: OosItem) => ({ item, score: calculateMatchScore(message, item) }))
+        .map((item: OosItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
         .filter(m => m.score > 0)
         .sort((a, b) => b.score - a.score)
         .slice(0, 3);
 
       // 调试日志
       console.log("[MATCH DEBUG] User message:", message);
+      console.log("[MATCH DEBUG] User keywords:", userKeywords.slice(0, 10).join(', '));
       console.log("[MATCH DEBUG] Matched FAQ count:", matchedFaq.length);
       matchedFaq.forEach((m, i) => {
-        console.log(`[MATCH DEBUG] FAQ ${i+1}: ${m.item.faqId}, score: ${m.score}, question: ${m.item.questionCN}`);
+        console.log(`[MATCH DEBUG] FAQ ${i+1}: ${m.item.faqId}, score: ${m.score}, question: ${m.item.questionCN}, tags: ${m.item.tags?.join(',')}`);
       });
       console.log("[MATCH DEBUG] Matched TS count:", matchedTs.length);
       console.log("[MATCH DEBUG] Matched OOS count:", matchedOos.length);
@@ -153,14 +174,16 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
         knowledgeContext += "## FAQ Knowledge Base (matched by your question)\n";
         matchedFaq.forEach((m, index) => {
           const item = m.item;
+          // 处理术语定位符
+          const processedAnswer = processTermMarkers(item.answer);
           knowledgeContext += `[FAQ ${index + 1}]\n`;
           knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
-          knowledgeContext += `StandardAnswer: ${item.answer}\n`;
+          knowledgeContext += `StandardAnswer: ${processedAnswer}\n`;
+          if (item.tags && item.tags.length > 0) {
+            knowledgeContext += `Tags: ${item.tags.join(', ')}\n`;
+          }
           if (item.functionId) {
             knowledgeContext += `RelatedFunction: ${item.functionId}\n`;
-          }
-          if (item.termIds && item.termIds.length > 0) {
-            knowledgeContext += `RelatedTerms: ${item.termIds.join(', ')}\n`;
           }
           knowledgeContext += "\n";
         });
@@ -171,11 +194,13 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
         knowledgeContext += "## Troubleshooting Knowledge Base (matched by your question)\n";
         matchedTs.forEach((m, index) => {
           const item = m.item;
+          // 处理术语定位符
+          const processedAnswer = processTermMarkers(item.answer);
           knowledgeContext += `[Troubleshoot ${index + 1}]\n`;
           knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
-          knowledgeContext += `StandardAnswer: ${item.answer}\n`;
-          if (item.termIds && item.termIds.length > 0) {
-            knowledgeContext += `RelatedTerms: ${item.termIds.join(', ')}\n`;
+          knowledgeContext += `StandardAnswer: ${processedAnswer}\n`;
+          if (item.tags && item.tags.length > 0) {
+            knowledgeContext += `Tags: ${item.tags.join(', ')}\n`;
           }
           knowledgeContext += "\n";
         });
