@@ -23,14 +23,26 @@ interface ParsedReply {
 function parseReplies(content: string): ParsedReply[] {
   const result: ParsedReply[] = [];
   
+  // 支持两种格式：带方括号 [主回复] 和不带方括号 主回复
   const sections = [
-    { pattern: /\[问题类型\]/i, type: "question" as const },
-    { pattern: /\[主回复\]/i, type: "main" as const },
-    { pattern: /\[回复1\]/i, type: "main" as const },
-    { pattern: /\[补充建议\]/i, type: "supplement" as const },
-    { pattern: /\[需要补充的信息\]/i, type: "info" as const },
-    { pattern: /\[回复2\]/i, type: "supplement" as const },
-    { pattern: /\[回复3\]/i, type: "info" as const },
+    // 带方括号格式
+    { pattern: /^\[问题类型\]\s*$/i, type: "question" as const },
+    { pattern: /^\[主回复\]\s*$/i, type: "main" as const },
+    { pattern: /^\[回复1\]\s*$/i, type: "main" as const },
+    { pattern: /^\[补充建议\]\s*$/i, type: "supplement" as const },
+    { pattern: /^\[需要补充的信息\]\s*$/i, type: "info" as const },
+    { pattern: /^\[需补充的信息\]\s*$/i, type: "info" as const },
+    { pattern: /^\[回复2\]\s*$/i, type: "supplement" as const },
+    { pattern: /^\[回复3\]\s*$/i, type: "info" as const },
+    // 不带方括号格式
+    { pattern: /^问题类型\s*$/i, type: "question" as const },
+    { pattern: /^主回复\s*$/i, type: "main" as const },
+    { pattern: /^回复1\s*$/i, type: "main" as const },
+    { pattern: /^补充建议\s*$/i, type: "supplement" as const },
+    { pattern: /^需要补充的信息\s*$/i, type: "info" as const },
+    { pattern: /^需补充的信息\s*$/i, type: "info" as const },
+    { pattern: /^回复2\s*$/i, type: "supplement" as const },
+    { pattern: /^回复3\s*$/i, type: "info" as const },
   ];
 
   const lines = content.split("\n");
