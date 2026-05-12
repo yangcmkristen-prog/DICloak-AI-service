@@ -74,11 +74,20 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
           if (cnLower.includes(msgLower) || msgLower.includes(cnLower)) {
             score += 10;
           }
-          // 关键词匹配
-          const keywords = msgLower.split(/[\s,.!?;:]+/).filter(w => w.length > 1);
+          // 关键词匹配 - 支持中文
+          const keywords = msgLower.split(/[\s,.!?;:，。！？；：、]+/).filter(w => w.length > 1);
           keywords.forEach(kw => {
             if (cnLower.includes(kw)) score += 2;
           });
+          // 中文额外：提取2-4字的关键词
+          for (let i = 0; i < msgLower.length - 1; i++) {
+            for (let len = 2; len <= 4; len++) {
+              if (i + len <= msgLower.length) {
+                const sub = msgLower.substring(i, i + len);
+                if (cnLower.includes(sub)) score += 1;
+              }
+            }
+          }
         }
 
         // 英文问题匹配
@@ -87,7 +96,7 @@ Do NOT put [NeedInfo] inside [Suggestion] content.
           if (enLower.includes(msgLower) || msgLower.includes(enLower)) {
             score += 10;
           }
-          const keywords = msgLower.split(/[\s,.!?;:]+/).filter(w => w.length > 1);
+          const keywords = msgLower.split(/[\s,.!?;:，。！？；：、]+/).filter(w => w.length > 1);
           keywords.forEach(kw => {
             if (enLower.includes(kw)) score += 2;
           });
