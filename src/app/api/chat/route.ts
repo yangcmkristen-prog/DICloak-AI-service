@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { LLMClient, Config } from "coze-coding-dev-sdk";
 
 // 语言检测
 function detectLanguage(text: string): string {
@@ -349,101 +350,37 @@ ${historyContext}
 
     console.log(`[API] 调用模型: ${model}`);
 
-    const response = await fetch(`${COZE_API_ENDPOINT}/v3/chat`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${API_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          { role: "system", content: finalSystemPrompt },
-          { role: "user", content: message }
-        ],
-        stream: true,
-      }),
+    // 使用 LLMClient 调用
+    const config = new Config({
+      baseURL: COZE_API_ENDPOINT,
+      token: API_TOKEN,
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[API Error] ${response.status}: ${errorText}`);
-      throw new Error(`API error: ${response.status}`);
-    }
+    const client = new LLMClient(config);
 
     // 流式返回
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
-        const reader = response.body!.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-
+        
         try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-              console.log("[Stream] Done");
-              break;
-            }
+          const streamResponse = await client.stream({
+            model: model,
+            messages: [
+              { role: "system", content: finalSystemPrompt },
+              { role: "user", content: message }
+            ],
+          });
 
-            const chunk = decoder.decode(value, { stream: true });
-            buffer += chunk;
-
-            // 解析 SSE 事件
-            const events = buffer.split('\n\n');
-            buffer = events.pop() || '';
-
-            for (const event of events) {
-              const lines = event.split('\n');
-              let eventData = '';
-
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (trimmed.startsWith('data:')) {
-                  eventData = trimmed.slice(5).trim();
-                }
-              }
-
-              if (!eventData || eventData === '[DONE]') continue;
-
-              try {
-                const parsed = JSON.parse(eventData);
-                
-                // 尝试多种格式解析内容
-                let content = '';
-                
-                // 格式1: Coze API 格式
-                if (parsed.data?.content) {
-                  content = parsed.data.content;
-                }
-                // 格式2: OpenAI 格式
-                else if (parsed.choices?.[0]?.delta?.content) {
-                  content = parsed.choices[0].delta.content;
-                }
-                // 格式3: 直接 content 字段
-                else if (parsed.content) {
-                  content = parsed.content;
-                }
-                // 格式4: Coze 流式格式
-                else if (parsed.event === 'conversation.message.delta' && parsed.data?.content) {
-                  content = parsed.data.content;
-                }
-                // 格式5: Coze 另一种格式
-                else if (parsed.type === 'content' && parsed.content) {
-                  content = parsed.content;
-                }
-
-                if (content) {
-                  // 发送 SSE 格式数据
-                  const sseData = `data: ${JSON.stringify({ content })}\n\n`;
-                  controller.enqueue(encoder.encode(sseData));
-                }
-              } catch (e) {
-                console.log('[Parse Error]', eventData.substring(0, 100));
-              }
+          for await (const chunk of streamResponse) {
+            const content = chunk?.content || chunk?.data?.content || "";
+            if (content) {
+              console.log("[Content]", content.substring(0, 50));
+              const sseData = `data: ${JSON.stringify({ content })}\n\n`;
+              controller.enqueue(encoder.encode(sseData));
             }
           }
+          
+          console.log("[Stream] Done");
           controller.close();
         } catch (error) {
           console.error('[Stream Error]:', error);
