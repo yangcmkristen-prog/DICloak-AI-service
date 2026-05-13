@@ -290,10 +290,13 @@ export default function Home() {
       });
       
       let aiKeywords: string[] = [];
+      let originalKeywords: string[] = [];
       if (keywordsRes.ok) {
         const keywordsData = await keywordsRes.json();
-        aiKeywords = keywordsData.keywords || [];
-        console.log('[DEBUG] AI 提取的关键词:', aiKeywords);
+        originalKeywords = keywordsData.originalKeywords || [];
+        aiKeywords = keywordsData.englishKeywords || []; // 使用英语关键词匹配
+        console.log('[DEBUG] 原始关键词:', originalKeywords);
+        console.log('[DEBUG] 英语关键词:', aiKeywords);
       } else {
         console.log('[DEBUG] 关键词提取失败，使用备用方案');
       }

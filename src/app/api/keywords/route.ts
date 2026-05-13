@@ -12,26 +12,38 @@ export async function POST(request: NextRequest) {
     // API 配置
     const config = apiConfig || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
 
-    // 关键词提取的 System Prompt
-    const systemPrompt = `You are a keyword extraction assistant.
+    // 关键词提取的 System Prompt（方案3：一次调用同时提取+翻译）
+    const systemPrompt = `You are a keyword extraction and translation assistant.
 
-Your task is to extract 5-10 meaningful keywords from the user's question.
+Your task is to extract keywords from the user's question AND translate them to English.
 
 ## Rules:
-1. Extract words that are essential for understanding the user's intent
-2. Focus on: nouns, verbs, technical terms
-3. Ignore: common words like "how", "what", "is", "the", "a", "我", "如何", "什么"
-4. For Chinese: extract meaningful 2-4 character words
-5. For mixed language: extract keywords from all languages present
+1. Extract 5-10 meaningful keywords from the original text
+2. Focus on: nouns, verbs, technical terms, error messages
+3. Ignore: common words like "how", "what", "is", "the", "我", "如何", "什么"
+4. Translate ALL keywords to English (even if original is already English)
+
+## Examples:
+
+Input (Chinese): "如何创建成员账号"
+Output: {"original_keywords": ["创建", "成员", "账号"], "english_keywords": ["create", "member", "account"]}
+
+Input (Portuguese): "Por que o ambiente mostra extensão anormal?"
+Output: {"original_keywords": ["ambiente", "mostra", "extensão", "anormal"], "english_keywords": ["environment", "show", "extension", "abnormal"]}
+
+Input (Russian): "Как добавить расширение?"
+Output: {"original_keywords": ["добавить", "расширение"], "english_keywords": ["add", "extension"]}
+
+Input (Mixed): "为什么打开环境时显示检测到扩展有异常"
+Output: {"original_keywords": ["打开", "环境", "显示", "检测", "扩展", "异常"], "english_keywords": ["open", "environment", "show", "detect", "extension", "error"]}
 
 ## Output Format:
-Return ONLY a JSON array of keywords, nothing else.
-Example: ["create", "member", "account", "team", "API"]`;
+Return ONLY a JSON object with two arrays, nothing else.`;
 
-    const userPrompt = `Extract keywords from this question:
+    const userPrompt = `Extract keywords and translate to English:
 "${message}"
 
-Return only a JSON array of 5-10 keywords.`;
+Return JSON format: {"original_keywords": [...], "english_keywords": [...]}`;
 
     // 调用 AI API
     const llmConfig = new Config({
@@ -64,14 +76,18 @@ Return only a JSON array of 5-10 keywords.`;
     // 解析关键词
     console.log("[KEYWORDS] AI response:", fullContent);
 
-    // 尝试提取 JSON 数组
-    const jsonMatch = fullContent.match(/\[[\s\S]*?\]/);
+    // 尝试提取 JSON 对象
+    const jsonMatch = fullContent.match(/\{[\s\S]*?\}/);
     if (jsonMatch) {
       try {
-        const keywords = JSON.parse(jsonMatch[0]);
-        if (Array.isArray(keywords)) {
-          console.log("[KEYWORDS] Extracted:", keywords);
-          return NextResponse.json({ keywords });
+        const result = JSON.parse(jsonMatch[0]);
+        if (result.original_keywords && result.english_keywords) {
+          console.log("[KEYWORDS] Original:", result.original_keywords);
+          console.log("[KEYWORDS] English:", result.english_keywords);
+          return NextResponse.json({ 
+            originalKeywords: result.original_keywords,
+            englishKeywords: result.english_keywords 
+          });
         }
       } catch (e) {
         console.error("[KEYWORDS] Parse error:", e);
