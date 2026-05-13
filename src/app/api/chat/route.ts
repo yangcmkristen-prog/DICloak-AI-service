@@ -84,91 +84,72 @@ function identifyUserRole(message: string, history?: Array<{ role: string; conte
 }
 
 /**
- * 根据问题类型和用户身份生成格式要求
+ * 获取输出格式类型（返回给前端，用于生成格式标题）
  */
-function generateFormatRequirement(problemType: ProblemType, userRole: UserRole): string {
-  // A. 非故障类问题
-  if (problemType === 'feature_faq' || problemType === 'out_of_scope' || problemType === 'intent_unclear') {
-    return `## 输出格式（非故障类）
-
-📌【问题类型】
-${problemType === 'feature_faq' ? '功能咨询' : problemType === 'out_of_scope' ? '超出支持范围' : '意图不明确'}
-
-✅【主回复｜优先发送】
-完整输出 FAQ 标准答案，不要拆分
-
-💡【补充建议｜可选发送】
-独立的补充建议，不要承接主回复
-
-📝【需要补充的信息】
-需要用户提供的信息，如无需则写"无"`;
+function getOutputFormatType(problemType: ProblemType, userRole: UserRole): 'A' | 'B' | 'C' {
+  // A. 非故障类问题（feature_faq, out_of_scope, intent_unclear, info_insufficient）
+  if (problemType === 'feature_faq' || problemType === 'out_of_scope' || 
+      problemType === 'intent_unclear' || problemType === 'info_insufficient') {
+    return 'A';
   }
   
-  // B. 信息不足
-  if (problemType === 'info_insufficient') {
-    return `## 输出格式（信息不足）
-
-📌【问题类型】
-信息不足
-
-📝【需要补充的信息】
-请引导用户提供：报错信息、操作步骤、截图或具体问题描述`;
-  }
-  
-  // C. 故障排查 - 身份明确
+  // B. 故障排查 + 身份明确
   if (problemType === 'troubleshooting' && userRole !== 'unknown') {
-    return `## 输出格式（故障排查 - 身份明确）
-
-🛠️【问题类型】
-故障排查
-
-👤【身份状态】
-${userRole === 'client' ? 'DICloak 客户/管理员' : '终端用户'}
-
-✅【主回复｜优先发送】
-完整输出对应的故障排查答案
-
-💡【补充建议｜可选发送】
-独立的补充建议
-
-📝【需要补充的信息】
-需要用户提供的信息（报错、截图、操作步骤等）`;
+    return 'B';
   }
   
-  // D. 故障排查 - 身份不明确
-  if (problemType === 'troubleshooting' && userRole === 'unknown') {
-    return `## 输出格式（故障排查 - 身份不明确）
+  // C. 故障排查 + 身份不明确
+  return 'C';
+}
 
-🛠️【问题类型】
-故障排查
+/**
+ * 生成 AI 输出格式要求（AI 只输出内容，不带标题）
+ */
+function generateAIOutputFormat(problemType: ProblemType, userRole: UserRole): string {
+  // A 格式：非故障类问题
+  if (problemType === 'feature_faq' || problemType === 'out_of_scope' || 
+      problemType === 'intent_unclear' || problemType === 'info_insufficient') {
+    return `## 你需要输出的内容
 
-⚠️【身份状态】
-身份不明确，请客服判断
+[主回复]
+完整输出 FAQ 标准答案的所有内容，不要拆分到其他部分
 
-🟡【通用回复｜不确定身份时优先发送】
-适用于所有用户的通用排查建议
+[补充建议]
+独立的补充建议（如有），如无则写"无"
 
-🔵【客户回复｜适用于 DICloak 客户/管理员】
-针对管理员身份的解决方案
-
-🟣【终端用户回复｜简短版】
-针对终端用户的简短说明（联系管理员/服务商）
-
-📝【需要补充的信息】
-需要确认：用户是管理员还是终端用户，以及报错/截图等`;
+[需要补充的信息]
+需要用户提供的信息（如有），如无需则写"无"`;
   }
   
-  // 默认格式
-  return `## 输出格式
+  // B 格式：故障排查 + 身份明确
+  if (problemType === 'troubleshooting' && userRole !== 'unknown') {
+    const roleAnswer = userRole === 'client' ? 'client' : 'end_user';
+    return `## 你需要输出的内容
 
-📌【问题类型】
-待确认
+[主回复]
+完整输出 FAQ 中的「标准答案（${roleAnswer}）」，如为空则用「标准答案（通用）」
 
-✅【主回复】
-基于知识库的回复
+[补充建议]
+独立的补充建议（如有），如无则写"无"
 
-📝【需要补充的信息】
-需要用户提供的信息`;
+[需要补充的信息]
+需要用户提供的信息（如有），如无需则写"无"`;
+  }
+  
+  // C 格式：故障排查 + 身份不明确
+  return `## 你需要输出的内容
+
+[通用回复]
+完整输出 FAQ 中的「标准答案（通用）」，如为空则写"无"
+
+[客户回复]
+完整输出 FAQ 中的「标准答案（client）」，如为空则写"无"
+
+[终端用户回复]
+输出「标准答案（end_user）」的简短版，重点说明需联系账号/服务提供方，如为空则写"无"
+
+[需要补充的信息]
+生成追问，收集身份相关信息（如：账号是自己管理的还是他人提供的）`;
 }
 
 export async function POST(request: NextRequest) {
@@ -263,10 +244,11 @@ export async function POST(request: NextRequest) {
       return text.replace(/\[已翻译:[^>]*->([^\]]+)\]/g, '$1');
     };
 
-    // 初始化问题类型和格式要求（默认值）
+    // 初始化问题类型和格式（默认值）
     let problemType: ProblemType = 'info_insufficient';
     let userRole: UserRole = 'unknown';
-    let formatRequirement = generateFormatRequirement(problemType, userRole);
+    let outputFormatType: 'A' | 'B' | 'C' = 'A';
+    let aiOutputFormat = generateAIOutputFormat(problemType, userRole);
 
     if (knowledge && (knowledge.faqItems?.length > 0 || knowledge.troubleshootingItems?.length > 0 || knowledge.outOfScopeItems?.length > 0)) {
       // 计算匹配分数（增强标签匹配）
@@ -346,10 +328,12 @@ export async function POST(request: NextRequest) {
       // 更新块外变量
       problemType = problemTypeResult.type;
       userRole = userRoleResult.role;
-      formatRequirement = generateFormatRequirement(problemType, userRole);
+      outputFormatType = getOutputFormatType(problemType, userRole);
+      aiOutputFormat = generateAIOutputFormat(problemType, userRole);
       
       console.log("[TYPE DEBUG] 问题类型:", problemType, "-", problemTypeResult.reason);
       console.log("[TYPE DEBUG] 用户身份:", userRole, "-", userRoleResult.reason);
+      console.log("[TYPE DEBUG] 输出格式:", outputFormatType);
       console.log("[TYPE DEBUG] 匹配分数 - FAQ:", topFaqScore, "TS:", topTsScore, "OOS:", topOosScore);
 
       // 调试日志
@@ -449,7 +433,7 @@ ${message}
 
 ${languageRule}
 
-${formatRequirement}
+${aiOutputFormat}
 
 ${knowledgeContext}
 ${historyContext}
@@ -464,6 +448,19 @@ Please generate reply based on the knowledge base above.`;
     } else {
       console.log("[DEBUG] 知识库上下文前300字符:", knowledgeContext.substring(0, 300));
     }
+
+    // 构建元数据（前端用于生成格式标题）
+    const metaData = JSON.stringify({
+      problemType,
+      userRole,
+      outputFormatType,
+      problemTypeLabel: problemType === 'feature_faq' ? '功能咨询' :
+                        problemType === 'troubleshooting' ? '故障排查' :
+                        problemType === 'out_of_scope' ? '超出支持范围' :
+                        problemType === 'intent_unclear' ? '意图不明确' : '信息不足',
+      userRoleLabel: userRole === 'client' ? 'DICloak 客户/管理员' :
+                     userRole === 'end_user' ? '终端用户' : '身份不明确'
+    });
 
     // 调用 AI API
     const llmConfig = new Config({
@@ -484,6 +481,9 @@ Please generate reply based on the knowledge base above.`;
     const stream = new ReadableStream({
       async start(controller) {
         try {
+          // 首先发送元数据给前端
+          controller.enqueue(new TextEncoder().encode(`[META]${metaData}[/META]\n`));
+          
           for await (const chunk of client.stream(messages, llmConfigStream)) {
             const content = Array.isArray(chunk.content) 
               ? chunk.content.map(c => 'text' in c ? c.text : '').join('')

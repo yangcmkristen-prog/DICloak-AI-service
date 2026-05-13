@@ -14,40 +14,75 @@ interface ChatAreaProps {
   isGenerating: boolean;
 }
 
+// 元数据类型
+interface MetaData {
+  problemType: string;
+  userRole: string;
+  outputFormatType: 'A' | 'B' | 'C';
+  problemTypeLabel: string;
+  userRoleLabel: string;
+}
+
+// 解析 META 数据
+function parseMetaData(content: string): { metaData: MetaData | null; cleanContent: string } {
+  const metaMatch = content.match(/\[META\]([\s\S]*?)\[\/META\]/);
+  if (metaMatch) {
+    try {
+      const metaData = JSON.parse(metaMatch[1].trim());
+      const cleanContent = content.replace(/\[META\][\s\S]*?\[\/META\]/, '').trim();
+      return { metaData, cleanContent };
+    } catch (e) {
+      console.error('[META Parse Error]', e);
+    }
+  }
+  return { metaData: null, cleanContent: content };
+}
+
 // 解析 AI 回复，按类型分组
 interface ParsedReply {
-  type: "question" | "main" | "supplement" | "info";
+  type: "question" | "main" | "supplement" | "info" | "common" | "client" | "end_user" | "identity";
   content: string;
 }
 
-function parseReplies(content: string): ParsedReply[] {
+function parseReplies(content: string, metaData: MetaData | null): ParsedReply[] {
   const result: ParsedReply[] = [];
   
+  // 首先解析 META 数据
+  const { metaData: parsedMeta, cleanContent } = parseMetaData(content);
+  const finalMeta = parsedMeta || metaData;
+  
   // 提取并记录 FAQ ID
-  const faqIdMatch = content.match(/\[FAQ_ID:\s*([^\]]+)\]/i);
+  const faqIdMatch = cleanContent.match(/\[FAQ_ID:\s*([^\]]+)\]/i);
   if (faqIdMatch) {
     const faqId = faqIdMatch[1].trim();
     console.log(`[FAQ Used] ${faqId}`);
   }
   
   // 提取并记录 function_id
-  const functionIdMatch = content.match(/\[FUNCTION_ID:\s*([^\]]+)\]/i);
+  const functionIdMatch = cleanContent.match(/\[FUNCTION_ID:\s*([^\]]+)\]/i);
   if (functionIdMatch) {
     const functionId = functionIdMatch[1].trim();
     console.log(`[FUNCTION Used] ${functionId}`);
   }
+
+  // 根据格式类型定义不同的解析模式
+  const formatType = finalMeta?.outputFormatType || 'A';
   
   const sections = [
     { pattern: /\[问题类型\]/i, type: "question" as const },
+    { pattern: /\[身份状态\]/i, type: "identity" as const },
     { pattern: /\[主回复\]/i, type: "main" as const },
     { pattern: /\[回复1\]/i, type: "main" as const },
+    { pattern: /\[通用回复\]/i, type: "common" as const },
+    { pattern: /\[客户回复\]/i, type: "client" as const },
+    { pattern: /\[终端用户回复\]/i, type: "end_user" as const },
     { pattern: /\[补充建议\]/i, type: "supplement" as const },
     { pattern: /\[需要补充的信息\]/i, type: "info" as const },
     { pattern: /\[回复2\]/i, type: "supplement" as const },
     { pattern: /\[回复3\]/i, type: "info" as const },
   ];
 
-  const lines = content.split("\n");
+  const lines = cleanContent.split("\n");
   
   let currentSection: ParsedReply | null = null;
   let sectionContent: string[] = [];
@@ -96,7 +131,7 @@ function parseReplies(content: string): ParsedReply[] {
   }
 
   if (result.length === 0) {
-    return [{ type: "question", content: content.trim() }];
+    return [{ type: "question", content: cleanContent.trim() }];
   }
 
   return result;
@@ -131,7 +166,8 @@ function ReplyCard({
   copiedId,
   expandedTranslations,
   translations,
-  translatingIds
+  translatingIds,
+  metaData
 }: { 
   reply: ParsedReply; 
   index: number;
@@ -142,20 +178,26 @@ function ReplyCard({
   expandedTranslations: Record<string, boolean>;
   translations: Record<string, string>;
   translatingIds: Record<string, boolean>;
+  metaData?: MetaData | null;
 }) {
   const pureContent = extractPureContent(reply.content);
   
   if (!pureContent) return null;
   
+  // 根据格式类型生成标题
   const titleMap: Record<string, string> = {
     question: "问题类型",
+    identity: "身份状态",
     main: "主回复",
+    common: "通用回复",
+    client: "客户回复",
+    end_user: "终端用户回复",
     supplement: "补充建议",
     info: "需要补充的信息"
   };
   
   const title = titleMap[reply.type] || `回复${index + 1}`;
-  const isQuestion = reply.type === "question";
+  const isQuestion = reply.type === "question" || reply.type === "identity";
   const translationId = `${messageId}-${reply.type}-${index}`;
   const isExpanded = expandedTranslations[translationId];
   const hasTranslation = !!translations[translationId];
@@ -240,12 +282,31 @@ function AIReplies({
   translations: Record<string, string>;
   translatingIds: Record<string, boolean>;
 }) {
-  const parsed = parseReplies(content);
+  // 首先解析 META 数据
+  const { metaData, cleanContent } = parseMetaData(content);
   
-  // 显示顺序：问题类型 -> 主回复 -> 补充建议 -> 需要补充的信息
+  // 输出 META 信息到控制台
+  if (metaData) {
+    console.log('[META] 问题类型:', metaData.problemTypeLabel);
+    console.log('[META] 用户身份:', metaData.userRoleLabel);
+    console.log('[META] 输出格式:', metaData.outputFormatType);
+  }
+  
+  const parsed = parseReplies(cleanContent, metaData);
+  
+  // 根据格式类型排序
   const sorted = [...parsed].sort((a, b) => {
-    const order = { question: 0, main: 1, supplement: 2, info: 3 };
-    return order[a.type] - order[b.type];
+    const order: Record<string, number> = { 
+      question: 0, 
+      identity: 1,
+      main: 2, 
+      common: 2,
+      client: 3,
+      end_user: 4,
+      supplement: 5, 
+      info: 6 
+    };
+    return (order[a.type] || 99) - (order[b.type] || 99);
   });
   
   // 确保只有一个主回复（忽略多余的[主回复]/[回复1]）
@@ -272,6 +333,7 @@ function AIReplies({
           expandedTranslations={expandedTranslations}
           translations={translations}
           translatingIds={translatingIds}
+          metaData={metaData}
         />
       ))}
     </div>
