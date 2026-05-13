@@ -3,7 +3,7 @@ import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, history, knowledge, systemPrompt, apiConfig, detectedLanguage } = await request.json();
+    const { message, history, knowledge, systemPrompt, apiConfig, detectedLanguage, aiKeywords } = await request.json();
 
     if (!message) {
       return NextResponse.json({ error: "消息不能为空" }, { status: 400 });
@@ -11,6 +11,7 @@ export async function POST(request: NextRequest) {
 
     // 调试知识库数据
     console.log('[DEBUG] 后端接收语言:', detectedLanguage);
+    console.log('[DEBUG] AI 关键词:', aiKeywords);
     if (knowledge) {
       console.log('[DEBUG] FAQ数量:', knowledge.faqItems?.length || 0);
       console.log('[DEBUG] 术语库数量:', knowledge.termItems?.length || 0);
@@ -82,7 +83,7 @@ Information needed from user to provide more specific help
     // 构建知识库上下文（只传递最相关的知识库项）
     let knowledgeContext = "";
 
-    // 提取用户问题关键词（用于标签匹配）
+    // 关键词来源：优先使用 AI 提取的关键词，否则使用本地提取
     const extractKeywords = (text: string): string[] => {
       const lower = text.toLowerCase();
       // 分词
@@ -99,7 +100,12 @@ Information needed from user to provide more specific help
       }
       return [...new Set([...words, ...subs])];
     };
-    const userKeywords = extractKeywords(message);
+    
+    // 优先使用 AI 提取的关键词
+    const userKeywords = aiKeywords && aiKeywords.length > 0 
+      ? aiKeywords.map((k: string) => k.toLowerCase())
+      : extractKeywords(message);
+    console.log('[DEBUG] 使用的关键词:', userKeywords);
 
     // 处理术语定位符：提取 [已翻译:原文->译文] 中的译文
     const processTermMarkers = (text: string): string => {
@@ -189,13 +195,14 @@ Information needed from user to provide more specific help
 
       // 构建 FAQ 上下文
       if (matchedFaq.length > 0) {
-        knowledgeContext += "## FAQ Knowledge Base (matched by your question)\n";
-        knowledgeContext += "IMPORTANT: You MUST start your reply with [FAQ_ID: xxx] where xxx is the FAQ ID you used.\n\n";
+        knowledgeContext += "## FAQ Knowledge Base (sorted by relevance score)\n";
+        knowledgeContext += "IMPORTANT: You MUST start your reply with [FAQ_ID: xxx] where xxx is the FAQ ID you used.\n";
+        knowledgeContext += "HINT: Higher score = more relevant. Prefer FAQs with score >= 10.\n\n";
         matchedFaq.slice(0, 20).forEach((m, index) => {
           const item = m.item;
           // 处理术语定位符
           const processedAnswer = processTermMarkers(item.answer);
-          knowledgeContext += `[FAQ ${index + 1}] ID: ${item.faqId || 'unknown'}\n`;
+          knowledgeContext += `[FAQ ${index + 1}] ID: ${item.faqId || 'unknown'} | Score: ${m.score}\n`;
           knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
           knowledgeContext += `StandardAnswer: ${processedAnswer}\n`;
           if (item.tags && item.tags.length > 0) {
@@ -210,13 +217,14 @@ Information needed from user to provide more specific help
 
       // 构建 Troubleshooting 上下文
       if (matchedTs.length > 0) {
-        knowledgeContext += "## Troubleshooting Knowledge Base (matched by your question)\n";
-        knowledgeContext += "IMPORTANT: You MUST start your reply with [FAQ_ID: xxx] where xxx is the FAQ ID you used.\n\n";
+        knowledgeContext += "## Troubleshooting Knowledge Base (sorted by relevance score)\n";
+        knowledgeContext += "IMPORTANT: You MUST start your reply with [TS_ID: xxx] where xxx is the FAQ ID you used.\n";
+        knowledgeContext += "HINT: Higher score = more relevant. Prefer items with score >= 10.\n\n";
         matchedTs.slice(0, 20).forEach((m, index) => {
           const item = m.item;
           // 处理术语定位符
           const processedAnswer = processTermMarkers(item.answer);
-          knowledgeContext += `[TS ${index + 1}] ID: ${item.faqId || 'unknown'}\n`;
+          knowledgeContext += `[TS ${index + 1}] ID: ${item.faqId || 'unknown'} | Score: ${m.score}\n`;
           knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
           knowledgeContext += `StandardAnswer: ${processedAnswer}\n`;
           if (item.tags && item.tags.length > 0) {
