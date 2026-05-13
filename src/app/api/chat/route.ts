@@ -108,10 +108,37 @@ Information needed from user to provide more specific help
     };
     
     // 优先使用 AI 提取的关键词
-    const userKeywords = aiKeywords && aiKeywords.length > 0 
+    const rawKeywords: string[] = aiKeywords && aiKeywords.length > 0 
       ? aiKeywords.map((k: string) => k.toLowerCase())
       : extractKeywords(message);
-    console.log('[DEBUG] 使用的关键词:', userKeywords);
+    
+    // 中英文关键词映射（用于匹配英文标签）
+    const keywordMapping: Record<string, string[]> = {
+      '扩展': ['extension', 'plugin', 'addon'],
+      '异常': ['error', 'exception', 'abnormal', 'issue'],
+      '检测': ['detect', 'check', 'scan'],
+      '显示': ['show', 'display', 'appear'],
+      '环境': ['environment', 'profile', 'browser'],
+      '打开': ['open', 'launch', 'start'],
+      '创建': ['create', 'add', 'new'],
+      '成员': ['member', 'user', 'account'],
+      '代理': ['proxy', 'ip', 'network'],
+      '登录': ['login', 'signin', 'auth'],
+      '账号': ['account', 'user', 'member'],
+      '同步': ['sync', 'synchronize'],
+      '设置': ['setting', 'config', 'preference'],
+      '权限': ['permission', 'role', 'access'],
+      '团队': ['team', 'group', 'organization'],
+    };
+    
+    // 扩展关键词：添加英文对应词
+    const userKeywords: string[] = [...new Set(rawKeywords.flatMap((kw: string) => {
+      const mapped = keywordMapping[kw] || [];
+      return [kw, ...mapped];
+    }))] as string[];
+    
+    console.log('[DEBUG] 原始关键词:', rawKeywords);
+    console.log('[DEBUG] 扩展后关键词:', userKeywords);
 
     // 处理术语定位符：提取 [已翻译:原文->译文] 中的译文
     const processTermMarkers = (text: string): string => {
