@@ -1,6 +1,176 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
 
+// ==================== 问题类型与身份识别 ====================
+
+type ProblemType = 'feature_faq' | 'troubleshooting' | 'user_routing' | 'out_of_scope' | 'info_insufficient' | 'intent_unclear';
+type UserRole = 'client' | 'end_user' | 'unknown';
+
+/**
+ * 识别问题类型
+ */
+function identifyProblemType(
+  message: string,
+  matchedFaqScore: number,
+  matchedTsScore: number,
+  matchedOosScore: number
+): { type: ProblemType; reason: string } {
+  const msgLower = message.toLowerCase();
+  
+  // 1. 检查是否超出支持范围（编程、AI工具、视频制作等）
+  const outOfScopeKeywords = ['chatgpt', 'claude', 'midjourney', 'runway', 'freepik', 'canva', '写代码', '编程', 'ai生成', '视频制作', '剪辑', '绘图', '文案生成'];
+  if (outOfScopeKeywords.some(kw => msgLower.includes(kw))) {
+    return { type: 'out_of_scope', reason: '用户提到的内容不属于 DICloak 功能范围' };
+  }
+  
+  // 2. 检查是否信息不足（描述宽泛）
+  const vaguePhrases = ['打不开', '进不去', '有问题', '不工作', '不好用', '报错', 'error', '有问题'];
+  const hasVagueOnly = vaguePhrases.some(p => msgLower.includes(p)) && message.length < 20;
+  if (hasVagueOnly && matchedFaqScore < 5 && matchedTsScore < 5) {
+    return { type: 'info_insufficient', reason: '问题描述过于宽泛，缺少具体信息' };
+  }
+  
+  // 3. 检查是否意图不明确（订阅/套餐相关但未明确用途）
+  const subscriptionKeywords = ['订阅', '套餐', '价格', '购买', 'subscription', 'pricing', 'plan'];
+  const hasSubscriptionMention = subscriptionKeywords.some(kw => msgLower.includes(kw));
+  if (hasSubscriptionMention && matchedFaqScore < 5) {
+    return { type: 'intent_unclear', reason: '用户提到订阅/价格但意图不明确' };
+  }
+  
+  // 4. 根据匹配分数判断类型
+  if (matchedTsScore >= matchedFaqScore && matchedTsScore >= matchedOosScore && matchedTsScore > 0) {
+    return { type: 'troubleshooting', reason: '匹配到故障排查知识库' };
+  }
+  
+  if (matchedOosScore > 0 && matchedOosScore > matchedFaqScore) {
+    return { type: 'out_of_scope', reason: '匹配到超出支持范围知识库' };
+  }
+  
+  if (matchedFaqScore > 0) {
+    return { type: 'feature_faq', reason: '匹配到功能FAQ知识库' };
+  }
+  
+  // 5. 默认返回信息不足
+  return { type: 'info_insufficient', reason: '未匹配到相关知识库' };
+}
+
+/**
+ * 识别用户身份
+ */
+function identifyUserRole(message: string, history?: Array<{ role: string; content: string }>): { role: UserRole; reason: string } {
+  const allText = (message + ' ' + (history?.map(h => h.content).join(' ') || '')).toLowerCase();
+  
+  // 终端用户特征
+  const endUserIndicators = [
+    '账号是别人给的', '账号来自', '第三方', '不是管理员', 
+    '服务商', '别人提供的', '管理员给的', '老师给的',
+    'account was given', 'from third party', 'not admin'
+  ];
+  if (endUserIndicators.some(ind => allText.includes(ind))) {
+    return { role: 'end_user', reason: '用户提到账号来自第三方或他人' };
+  }
+  
+  // 客户/管理员特征
+  const clientIndicators = [
+    '我是管理员', '我的团队', '管理成员', '设置环境', 
+    '我购买的', '我的套餐', '管理代理', '数据同步',
+    'i am admin', 'my team', 'i purchased', 'manage members'
+  ];
+  if (clientIndicators.some(ind => allText.includes(ind))) {
+    return { role: 'client', reason: '用户提到自己是管理员或在进行管理操作' };
+  }
+  
+  return { role: 'unknown', reason: '用户身份不明确' };
+}
+
+/**
+ * 根据问题类型和用户身份生成格式要求
+ */
+function generateFormatRequirement(problemType: ProblemType, userRole: UserRole): string {
+  // A. 非故障类问题
+  if (problemType === 'feature_faq' || problemType === 'out_of_scope' || problemType === 'intent_unclear') {
+    return `## 输出格式（非故障类）
+
+📌【问题类型】
+${problemType === 'feature_faq' ? '功能咨询' : problemType === 'out_of_scope' ? '超出支持范围' : '意图不明确'}
+
+✅【主回复｜优先发送】
+完整输出 FAQ 标准答案，不要拆分
+
+💡【补充建议｜可选发送】
+独立的补充建议，不要承接主回复
+
+📝【需要补充的信息】
+需要用户提供的信息，如无需则写"无"`;
+  }
+  
+  // B. 信息不足
+  if (problemType === 'info_insufficient') {
+    return `## 输出格式（信息不足）
+
+📌【问题类型】
+信息不足
+
+📝【需要补充的信息】
+请引导用户提供：报错信息、操作步骤、截图或具体问题描述`;
+  }
+  
+  // C. 故障排查 - 身份明确
+  if (problemType === 'troubleshooting' && userRole !== 'unknown') {
+    return `## 输出格式（故障排查 - 身份明确）
+
+🛠️【问题类型】
+故障排查
+
+👤【身份状态】
+${userRole === 'client' ? 'DICloak 客户/管理员' : '终端用户'}
+
+✅【主回复｜优先发送】
+完整输出对应的故障排查答案
+
+💡【补充建议｜可选发送】
+独立的补充建议
+
+📝【需要补充的信息】
+需要用户提供的信息（报错、截图、操作步骤等）`;
+  }
+  
+  // D. 故障排查 - 身份不明确
+  if (problemType === 'troubleshooting' && userRole === 'unknown') {
+    return `## 输出格式（故障排查 - 身份不明确）
+
+🛠️【问题类型】
+故障排查
+
+⚠️【身份状态】
+身份不明确，请客服判断
+
+🟡【通用回复｜不确定身份时优先发送】
+适用于所有用户的通用排查建议
+
+🔵【客户回复｜适用于 DICloak 客户/管理员】
+针对管理员身份的解决方案
+
+🟣【终端用户回复｜简短版】
+针对终端用户的简短说明（联系管理员/服务商）
+
+📝【需要补充的信息】
+需要确认：用户是管理员还是终端用户，以及报错/截图等`;
+  }
+  
+  // 默认格式
+  return `## 输出格式
+
+📌【问题类型】
+待确认
+
+✅【主回复】
+基于知识库的回复
+
+📝【需要补充的信息】
+需要用户提供的信息`;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { message, history, knowledge, systemPrompt, apiConfig, detectedLanguage, aiKeywords } = await request.json();
@@ -37,54 +207,27 @@ export async function POST(request: NextRequest) {
     // API 配置
     const config = apiConfig || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
 
-    // 优先使用前端传递的 System Prompt
-    const finalSystemPrompt = systemPrompt || `You are a DICloak customer service assistant.
+    // 精简版 System Prompt（复杂逻辑已由前端/后端处理）
+    const baseSystemPrompt = `You are a DICloak customer service assistant.
 
-Focus on helping customer service staff quickly generate professional, friendly customer replies.
+## Core Rules
+1. Generate professional, friendly customer replies
+2. Use the FAQ StandardAnswer as the basis for your reply
+3. Do NOT expose internal logic (FAQ, knowledge base, matching, etc.)
+4. Reply in the same language as the user's question
 
-## CRITICAL RULE: FAQ ID Selection
-You MUST ONLY use FAQ IDs from the knowledge base provided below.
-- DO NOT invent or guess FAQ IDs
-- DO NOT use FAQ IDs from previous conversations
-- ONLY use IDs that appear in the [FAQ X] ID: xxx lines
-- Choose the FAQ with the HIGHEST Score that matches the user's question
+## FAQ Selection
+- Choose the FAQ with HIGHEST Score
+- Prefer FAQs with Score >= 10
+- Start your reply with [FAQ_ID: xxx] or [TS_ID: xxx]
 
-## FAQ Selection Strategy
-1. Look at the Score for each FAQ - higher score = more relevant
-2. Prefer FAQs with Score >= 10
-3. If no FAQ has Score >= 10, choose the one with highest Score
-4. Read the FAQ's StandardAnswer and use it as the basis for your reply
+## Term Translation
+- Replace {{UI terms}} with translated terms
+- Remove {{}} symbols in output
+- For languages not in term library, translate the entire content`;
 
-## Output Format (CRITICAL - MUST FOLLOW EXACTLY)
-
-Step 1: First line MUST be the FAQ ID you selected from the provided list:
-[FAQ_ID: xxx] - where xxx is from the [FAQ X] ID: xxx lines
-
-Step 2: Then use these EXACT Chinese labels for content sections:
-[问题类型]
-Brief description of the issue category
-
-[主回复]
-The core answer content based on the FAQ's StandardAnswer
-
-[补充建议]
-Additional advice or tips (each suggestion on separate line)
-
-[需要补充的信息]
-Information needed from user to provide more specific help
-
-## Important Rules:
-- Do NOT use [Main], [Suggestion], [NeedInfo] - use Chinese labels only
-- Do NOT put [需要补充的信息] inside [补充建议] content
-- Always start with [FAQ_ID: xxx] where xxx is from the provided FAQ list
-
-## Multi-turn Conversation
-- Remember previous conversation context
-- If user mentions their role or provides info, use it for targeted advice
-- If user asks follow-up, combine with previous context
-
-## Language
-- Reply in the same language as the user's question`;
+    // 优先使用前端传递的 System Prompt，否则使用精简版
+    const finalSystemPrompt = systemPrompt || baseSystemPrompt;
 
     // 构建知识库上下文（只传递最相关的知识库项）
     let knowledgeContext = "";
@@ -119,6 +262,11 @@ Information needed from user to provide more specific help
       // 匹配 [已翻译:原文->译文] 格式，只保留译文
       return text.replace(/\[已翻译:[^>]*->([^\]]+)\]/g, '$1');
     };
+
+    // 初始化问题类型和格式要求（默认值）
+    let problemType: ProblemType = 'info_insufficient';
+    let userRole: UserRole = 'unknown';
+    let formatRequirement = generateFormatRequirement(problemType, userRole);
 
     if (knowledge && (knowledge.faqItems?.length > 0 || knowledge.troubleshootingItems?.length > 0 || knowledge.outOfScopeItems?.length > 0)) {
       // 计算匹配分数（增强标签匹配）
@@ -186,6 +334,23 @@ Information needed from user to provide more specific help
       const matchedOos = oosItems
         .map((item: OosItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
         .filter(m => m.score > 0);
+
+      // ==================== 问题类型与身份识别 ====================
+      const topFaqScore = matchedFaq.length > 0 ? Math.max(...matchedFaq.map(m => m.score)) : 0;
+      const topTsScore = matchedTs.length > 0 ? Math.max(...matchedTs.map(m => m.score)) : 0;
+      const topOosScore = matchedOos.length > 0 ? Math.max(...matchedOos.map(m => m.score)) : 0;
+      
+      const problemTypeResult = identifyProblemType(message, topFaqScore, topTsScore, topOosScore);
+      const userRoleResult = identifyUserRole(message, history);
+      
+      // 更新块外变量
+      problemType = problemTypeResult.type;
+      userRole = userRoleResult.role;
+      formatRequirement = generateFormatRequirement(problemType, userRole);
+      
+      console.log("[TYPE DEBUG] 问题类型:", problemType, "-", problemTypeResult.reason);
+      console.log("[TYPE DEBUG] 用户身份:", userRole, "-", userRoleResult.reason);
+      console.log("[TYPE DEBUG] 匹配分数 - FAQ:", topFaqScore, "TS:", topTsScore, "OOS:", topOosScore);
 
       // 调试日志
       console.log("[MATCH DEBUG] User message:", message);
@@ -283,6 +448,8 @@ Information needed from user to provide more specific help
 ${message}
 
 ${languageRule}
+
+${formatRequirement}
 
 ${knowledgeContext}
 ${historyContext}
