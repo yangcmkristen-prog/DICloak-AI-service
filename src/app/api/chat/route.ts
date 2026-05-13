@@ -42,24 +42,30 @@ export async function POST(request: NextRequest) {
 
 Focus on helping customer service staff quickly generate professional, friendly customer replies.
 
-## FAQ Matching Strategy (IMPORTANT)
-When receiving multiple FAQs from knowledge base:
-1. Analyze the semantic relevance between user question and each FAQ
-2. Consider: FAQ tags, standard question, user phrases
-3. Select the MOST relevant FAQ to answer
-4. If multiple FAQs are relevant, combine them appropriately
+## CRITICAL RULE: FAQ ID Selection
+You MUST ONLY use FAQ IDs from the knowledge base provided below.
+- DO NOT invent or guess FAQ IDs
+- DO NOT use FAQ IDs from previous conversations
+- ONLY use IDs that appear in the [FAQ X] ID: xxx lines
+- Choose the FAQ with the HIGHEST Score that matches the user's question
+
+## FAQ Selection Strategy
+1. Look at the Score for each FAQ - higher score = more relevant
+2. Prefer FAQs with Score >= 10
+3. If no FAQ has Score >= 10, choose the one with highest Score
+4. Read the FAQ's StandardAnswer and use it as the basis for your reply
 
 ## Output Format (CRITICAL - MUST FOLLOW EXACTLY)
 
-Step 1: First line MUST be the FAQ ID you used:
-[FAQ_ID: xxx] or [TS_ID: xxx] or [OOS_ID: xxx]
+Step 1: First line MUST be the FAQ ID you selected from the provided list:
+[FAQ_ID: xxx] - where xxx is from the [FAQ X] ID: xxx lines
 
 Step 2: Then use these EXACT Chinese labels for content sections:
 [问题类型]
 Brief description of the issue category
 
 [主回复]
-The core answer content based on the FAQ
+The core answer content based on the FAQ's StandardAnswer
 
 [补充建议]
 Additional advice or tips (each suggestion on separate line)
@@ -70,7 +76,7 @@ Information needed from user to provide more specific help
 ## Important Rules:
 - Do NOT use [Main], [Suggestion], [NeedInfo] - use Chinese labels only
 - Do NOT put [需要补充的信息] inside [补充建议] content
-- Always start with [FAQ_ID: xxx] or [TS_ID: xxx] or [OOS_ID: xxx]
+- Always start with [FAQ_ID: xxx] where xxx is from the provided FAQ list
 
 ## Multi-turn Conversation
 - Remember previous conversation context
