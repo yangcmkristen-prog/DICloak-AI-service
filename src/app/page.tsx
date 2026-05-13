@@ -72,6 +72,78 @@ function isKnowledgeBaseEmpty(kb: any): boolean {
   );
 }
 
+// 前端用 AI 关键词匹配 FAQ
+function matchFaqsByKeywords(knowledge: any, keywords: string[], userMessage: string): { faqs: any[], troubleshooting: any[] } {
+  if (!knowledge || keywords.length === 0) {
+    return { faqs: knowledge?.faqItems || [], troubleshooting: knowledge?.troubleshootingItems || [] };
+  }
+
+  const msgLower = userMessage.toLowerCase();
+  const keywordsLower = keywords.map(k => k.toLowerCase());
+
+  // 计算匹配分数
+  const calculateScore = (item: any): number => {
+    let score = 0;
+
+    // 1. 关键词匹配标签
+    if (item.tags && Array.isArray(item.tags)) {
+      item.tags.forEach((tag: string) => {
+        const tagLower = tag.toLowerCase();
+        keywordsLower.forEach(kw => {
+          if (tagLower.includes(kw) || kw.includes(tagLower)) score += 5;
+        });
+        // 用户消息直接包含标签
+        if (msgLower.includes(tagLower)) score += 3;
+      });
+    }
+
+    // 2. 关键词匹配标准问题
+    if (item.questionCN) {
+      const qLower = item.questionCN.toLowerCase();
+      keywordsLower.forEach(kw => {
+        if (qLower.includes(kw)) score += 4;
+      });
+    }
+    if (item.questionEN) {
+      const qLower = item.questionEN.toLowerCase();
+      keywordsLower.forEach(kw => {
+        if (qLower.includes(kw)) score += 4;
+      });
+    }
+
+    // 3. 关键词匹配用户问法
+    if (item.userPhrases) {
+      const phrases = item.userPhrases.split(/[,，;；\n]+/).map((p: string) => p.trim().toLowerCase());
+      phrases.forEach((phrase: string) => {
+        if (phrase && msgLower.includes(phrase)) score += 3;
+        keywordsLower.forEach(kw => {
+          if (phrase.includes(kw)) score += 2;
+        });
+      });
+    }
+
+    return score;
+  };
+
+  // 匹配 FAQ
+  const faqScores = (knowledge.faqItems || [])
+    .map((item: any) => ({ item, score: calculateScore(item) }))
+    .filter((m: any) => m.score > 0)
+    .sort((a: any, b: any) => b.score - a.score);
+
+  // 匹配 Troubleshooting
+  const tsScores = (knowledge.troubleshootingItems || [])
+    .map((item: any) => ({ item, score: calculateScore(item) }))
+    .filter((m: any) => m.score > 0)
+    .sort((a: any, b: any) => b.score - a.score);
+
+  // 取前 20 个
+  return {
+    faqs: faqScores.slice(0, 20).map((m: any) => m.item),
+    troubleshooting: tsScores.slice(0, 20).map((m: any) => m.item),
+  };
+}
+
 export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationIdState] = useState<string | null>(null);
@@ -206,6 +278,31 @@ export default function Home() {
         ? systemDataResult.data.apiConfig
         : getApiConfig();
 
+      // Step 1: AI 提取关键词
+      console.log('[DEBUG] 正在提取关键词...');
+      const keywordsRes = await fetch("/api/keywords", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: content,
+          apiConfig: currentApiConfig,
+        }),
+      });
+      
+      let aiKeywords: string[] = [];
+      if (keywordsRes.ok) {
+        const keywordsData = await keywordsRes.json();
+        aiKeywords = keywordsData.keywords || [];
+        console.log('[DEBUG] AI 提取的关键词:', aiKeywords);
+      } else {
+        console.log('[DEBUG] 关键词提取失败，使用备用方案');
+      }
+
+      // Step 2: 前端用关键词匹配 FAQ
+      const matchedFaqs = matchFaqsByKeywords(knowledgeData, aiKeywords, content);
+      console.log('[DEBUG] 匹配到 FAQ 数量:', matchedFaqs.faqs.length);
+      console.log('[DEBUG] 匹配到 TS 数量:', matchedFaqs.troubleshooting.length);
+
       // 构建请求
       const detectedLang = detectLanguage(content);
       console.log('[DEBUG] 检测语言:', detectedLang, '原文:', content);
@@ -218,10 +315,16 @@ export default function Home() {
             role: m.role,
             content: m.content,
           })),
-          knowledge: knowledgeData,
+          knowledge: {
+            ...knowledgeData,
+            // 只传递匹配到的 FAQ，减少传输量
+            faqItems: matchedFaqs.faqs.length > 0 ? matchedFaqs.faqs : knowledgeData.faqItems,
+            troubleshootingItems: matchedFaqs.troubleshooting.length > 0 ? matchedFaqs.troubleshooting : knowledgeData.troubleshootingItems,
+          },
           systemPrompt: systemPrompt,
           apiConfig: currentApiConfig,
           detectedLanguage: detectedLang,
+          aiKeywords: aiKeywords, // 传递 AI 提取的关键词给后端
         }),
       });
 
