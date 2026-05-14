@@ -17,6 +17,7 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
 };
 
 export const MODEL_OPTIONS = [
+  // Coze 平台模型
   { value: 'doubao-seed-2-0-pro-260215', label: '豆包 Pro', provider: 'coze' },
   { value: 'doubao-seed-2-0-lite-260215', label: '豆包 Lite', provider: 'coze' },
   { value: 'doubao-seed-2-0-mini-260215', label: '豆包 Mini', provider: 'coze' },
@@ -33,6 +34,10 @@ export const MODEL_OPTIONS = [
   { value: 'minimax-m2-5-260212', label: 'MiniMax M2.5', provider: 'coze' },
   { value: 'minimax-m2-7-260318', label: 'MiniMax M2.7', provider: 'coze' },
   { value: 'qwen-3-5-plus-260215', label: 'Qwen 3.5', provider: 'coze' },
+  // DeepSeek 直连模型
+  { value: 'deepseek-chat', label: 'DeepSeek Chat', provider: 'deepseek' },
+  { value: 'deepseek-coder', label: 'DeepSeek Coder', provider: 'deepseek' },
+  { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner', provider: 'deepseek' },
 ];
 
 export const PROVIDER_INFO: Record<string, {
@@ -48,6 +53,13 @@ export const PROVIDER_INFO: Record<string, {
     defaultModel: 'doubao-seed-2-0-lite-260215',
     baseUrl: '',
     keyPlaceholder: '输入你的 Coze API Token',
+  },
+  deepseek: {
+    label: 'DeepSeek',
+    name: 'DeepSeek',
+    defaultModel: 'deepseek-chat',
+    baseUrl: 'https://api.deepseek.com/v1',
+    keyPlaceholder: '输入你的 DeepSeek API Key (sk-xxx)',
   },
 };
 

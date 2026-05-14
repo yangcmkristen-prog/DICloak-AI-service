@@ -463,20 +463,15 @@ Please generate reply based on the knowledge base above.`;
     });
 
     // 调用 AI API
-    const llmConfig = new Config({
-      apiKey: config.apiKey,
-      baseUrl: config.baseUrl || "https://api.coze.cn/v1",
-    });
-
-    const client = new LLMClient(llmConfig);
-    const llmConfigStream = {
-      model: config.model || "doubao-seed-2-0-lite-260215",
-      temperature: 0.7,
-    };
     const messages = [
       { role: "system" as const, content: finalSystemPrompt },
       { role: "user" as const, content: userMessage },
     ];
+
+    // 检查 API Key
+    if (config.provider === 'deepseek' && !config.apiKey) {
+      return NextResponse.json({ error: "请先配置 DeepSeek API Key" }, { status: 400 });
+    }
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -484,12 +479,75 @@ Please generate reply based on the knowledge base above.`;
           // 首先发送元数据给前端
           controller.enqueue(new TextEncoder().encode(`[META]${metaData}[/META]\n`));
           
-          for await (const chunk of client.stream(messages, llmConfigStream)) {
-            const content = Array.isArray(chunk.content) 
-              ? chunk.content.map(c => 'text' in c ? c.text : '').join('')
-              : chunk.content;
-            if (content) {
-              controller.enqueue(new TextEncoder().encode(content));
+          if (config.provider === 'deepseek') {
+            // DeepSeek 使用 OpenAI 兼容 API
+            const baseUrl = config.baseUrl || 'https://api.deepseek.com/v1';
+            const response = await fetch(`${baseUrl}/chat/completions`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${config.apiKey}`,
+              },
+              body: JSON.stringify({
+                model: config.model || 'deepseek-chat',
+                messages: messages.map(m => ({ role: m.role, content: m.content })),
+                temperature: 0.7,
+                stream: true,
+              }),
+            });
+
+            if (!response.ok) {
+              throw new Error(`DeepSeek API error: ${response.status} ${response.statusText}`);
+            }
+
+            const reader = response.body?.getReader();
+            if (!reader) throw new Error('No response body');
+
+            const decoder = new TextDecoder();
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              const chunk = decoder.decode(value, { stream: true });
+              const lines = chunk.split('\n');
+
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  const data = line.slice(6);
+                  if (data === '[DONE]') continue;
+                  try {
+                    const parsed = JSON.parse(data);
+                    const content = parsed.choices?.[0]?.delta?.content || '';
+                    if (content) {
+                      controller.enqueue(new TextEncoder().encode(content));
+                    }
+                  } catch {
+                    // Ignore parse errors
+                  }
+                }
+              }
+            }
+          } else {
+            // Coze/豆包 使用 SDK
+            const llmConfig = new Config({
+              apiKey: config.apiKey,
+              baseUrl: config.baseUrl || "https://api.coze.cn/v1",
+            });
+
+            const client = new LLMClient(llmConfig);
+            const llmConfigStream = {
+              model: config.model || "doubao-seed-2-0-lite-260215",
+              temperature: 0.7,
+            };
+
+            for await (const chunk of client.stream(messages, llmConfigStream)) {
+              const content = Array.isArray(chunk.content) 
+                ? chunk.content.map(c => 'text' in c ? c.text : '').join('')
+                : chunk.content;
+              if (content) {
+                controller.enqueue(new TextEncoder().encode(content));
+              }
             }
           }
           controller.close();
