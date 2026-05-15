@@ -1,5 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LLMClient, Config } from "coze-coding-dev-sdk";
+import { getSupabaseClient } from '@/storage/database/supabase-client';
+
+// 从后端获取 API 配置
+async function getBackendApiConfig(): Promise<{
+  provider: string;
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+} | null> {
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from('system_configs')
+      .select('*')
+      .eq('config_key', 'default')
+      .maybeSingle();
+
+    if (error || !data?.config_value?.apiConfig) {
+      return null;
+    }
+
+    return data.config_value.apiConfig;
+  } catch (error) {
+    console.error('[Keywords API] 获取后端配置失败:', error);
+    return null;
+  }
+}
 
 // 统一的 AI 流式调用函数，支持 Coze 和 DeepSeek
 async function callAIStream(
@@ -91,14 +118,14 @@ async function callAIStream(
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, apiConfig } = await request.json();
+    const { message } = await request.json();
 
     if (!message) {
       return NextResponse.json({ error: "消息不能为空" }, { status: 400 });
     }
 
-    // API 配置
-    const config = apiConfig || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
+    // 从后端获取 API 配置（安全：API Key 不暴露给前端）
+    const config = await getBackendApiConfig() || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
 
     // 检查 API Key
     if (config.provider === 'deepseek' && !config.apiKey) {

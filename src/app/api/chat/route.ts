@@ -1,5 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
+import { getSupabaseClient } from '@/storage/database/supabase-client';
+
+// ==================== 后端获取 API 配置 ====================
+
+async function getBackendApiConfig(): Promise<{
+  provider: string;
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+} | null> {
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from('system_configs')
+      .select('*')
+      .eq('config_key', 'default')
+      .maybeSingle();
+
+    if (error || !data?.config_value?.apiConfig) {
+      return null;
+    }
+
+    return data.config_value.apiConfig;
+  } catch (error) {
+    console.error('[API Config] 获取后端配置失败:', error);
+    return null;
+  }
+}
 
 // ==================== 问题类型与身份识别 ====================
 
@@ -186,7 +214,9 @@ export async function POST(request: NextRequest) {
     const languageRule = languageRules[detectedLanguage] || languageRules.zh;
 
     // API 配置
-    const config = apiConfig || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
+    // 从后端获取 API 配置（安全：API Key 不暴露给前端）
+    const backendConfig = await getBackendApiConfig();
+    const config = backendConfig || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
 
     // 精简版 System Prompt（复杂逻辑已由前端/后端处理）
     const baseSystemPrompt = `You are a DICloak customer service assistant.
