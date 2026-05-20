@@ -510,8 +510,8 @@ Please generate reply based on the knowledge base above.`;
           controller.enqueue(new TextEncoder().encode(`[META]${metaData}[/META]\n`));
           
           if (config.provider === 'deepseek') {
-            // DeepSeek 使用 OpenAI 兼容 API
-            const baseUrl = config.baseUrl || 'https://api.deepseek.com/v1';
+            // DeepSeek 使用 OpenAI 兼容 API (不需要 /v1 后缀)
+            const baseUrl = config.baseUrl || 'https://api.deepseek.com';
             const response = await fetch(`${baseUrl}/chat/completions`, {
               method: 'POST',
               headers: {

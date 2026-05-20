@@ -57,7 +57,7 @@ export const PROVIDER_INFO: Record<string, {
     label: 'DeepSeek',
     name: 'DeepSeek',
     defaultModel: 'deepseek-v4-flash',
-    baseUrl: 'https://api.deepseek.com/v1',
+    baseUrl: 'https://api.deepseek.com', // 不需要 /v1 后缀
     keyPlaceholder: '输入你的 DeepSeek API Key (sk-xxx)',
   },
 };
