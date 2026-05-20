@@ -182,7 +182,18 @@ function generateAIOutputFormat(problemType: ProblemType, userRole: UserRole): s
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, history, knowledge, systemPrompt, apiConfig, detectedLanguage, aiKeywords } = await request.json();
+    const body = await request.json();
+    const { message, history, knowledge, systemPrompt, apiConfig, detectedLanguage, aiKeywords } = body;
+    
+    // 调试：检查接收到的 knowledge
+    console.log('[DEBUG] 后端接收到的请求体字段:', Object.keys(body));
+    console.log('[DEBUG] knowledge 类型:', typeof knowledge);
+    console.log('[DEBUG] knowledge 是否为数组:', Array.isArray(knowledge));
+    console.log('[DEBUG] knowledge 是否为对象:', knowledge && typeof knowledge === 'object');
+    if (knowledge && typeof knowledge === 'object') {
+      console.log('[DEBUG] knowledge 的键:', Object.keys(knowledge));
+      console.log('[DEBUG] knowledge.faqItems 数量:', knowledge.faqItems?.length || 0);
+    }
 
     if (!message) {
       return NextResponse.json({ error: "消息不能为空" }, { status: 400 });
@@ -497,6 +508,12 @@ Please generate reply based on the knowledge base above.`;
       { role: "system" as const, content: finalSystemPrompt },
       { role: "user" as const, content: userMessage },
     ];
+
+    // 调试日志：追踪发送给 AI 的内容
+    console.log("[AI DEBUG] System Prompt 长度:", finalSystemPrompt.length);
+    console.log("[AI DEBUG] User Message 长度:", userMessage.length);
+    console.log("[AI DEBUG] User Message 前500字符:", userMessage.substring(0, 500));
+    console.log("[AI DEBUG] knowledgeContext 长度:", knowledgeContext.length);
 
     // 检查 API Key
     if (config.provider === 'deepseek' && !config.apiKey) {
