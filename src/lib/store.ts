@@ -34,10 +34,9 @@ export const MODEL_OPTIONS = [
   { value: 'minimax-m2-5-260212', label: 'MiniMax M2.5', provider: 'coze' },
   { value: 'minimax-m2-7-260318', label: 'MiniMax M2.7', provider: 'coze' },
   { value: 'qwen-3-5-plus-260215', label: 'Qwen 3.5', provider: 'coze' },
-  // DeepSeek 直连模型
-  { value: 'deepseek-chat', label: 'DeepSeek Chat', provider: 'deepseek' },
-  { value: 'deepseek-coder', label: 'DeepSeek Coder', provider: 'deepseek' },
-  { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner', provider: 'deepseek' },
+  // DeepSeek 直连模型 (v4 版本)
+  { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash (快速)', provider: 'deepseek' },
+  { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro (增强)', provider: 'deepseek' },
 ];
 
 export const PROVIDER_INFO: Record<string, {
@@ -57,7 +56,7 @@ export const PROVIDER_INFO: Record<string, {
   deepseek: {
     label: 'DeepSeek',
     name: 'DeepSeek',
-    defaultModel: 'deepseek-chat',
+    defaultModel: 'deepseek-v4-flash',
     baseUrl: 'https://api.deepseek.com/v1',
     keyPlaceholder: '输入你的 DeepSeek API Key (sk-xxx)',
   },
