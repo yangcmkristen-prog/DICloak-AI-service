@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
+import type { ConversationContext, ApiConfig, Conversation } from './types';
+import { generateId } from './types';
 
 // Supabase 配置
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -64,24 +66,25 @@ export const PROVIDER_INFO: Record<string, {
 
 // ============ 类型定义 ============
 
-export interface ApiConfig {
-  provider: string;
-  apiKey: string;
-  model: string;
-  baseUrl: string;
-  customConfig?: {
-    endpoint?: string;
-    modelName?: string;
-    headers?: Record<string, string>;
-  };
-}
+// 重新导出类型
+export type { Conversation, ConversationContext, ApiConfig } from './types';
 
-export interface Conversation {
-  id: string;
-  title: string;
-  messages: Message[];
-  createdAt: number;
-  updatedAt: number;
+// 创建默认对话上下文
+export function createDefaultContext(): ConversationContext {
+  return {
+    clientLanguage: '',
+    summary: '',
+    confirmedIdentity: null,
+    confirmedProblemType: null,
+    confirmedFunctionModule: null,
+    confirmedErrorInfo: null,
+    confirmedOperationSteps: null,
+    hasScreenshot: false,
+    hasRecording: false,
+    subscriptionIntent: null,
+    previousSuggestions: [],
+    missingInfo: [],
+  };
 }
 
 export interface Message {
@@ -300,7 +303,21 @@ export function createConversation(title?: string): Conversation {
     title: title || `对话 ${conversations.length + 1}`,
     messages: [],
     createdAt: Date.now(),
-    updatedAt: Date.now()
+    updatedAt: Date.now(),
+    context: {
+      clientLanguage: '',
+      confirmedIdentity: null,
+      confirmedProblemType: null,
+      confirmedFunctionModule: null,
+      confirmedErrorInfo: null,
+      confirmedOperationSteps: null,
+      hasScreenshot: false,
+      hasRecording: false,
+      subscriptionIntent: null,
+      previousSuggestions: [],
+      missingInfo: [],
+      summary: ''
+    }
   };
   
   conversations.unshift(newConversation);
@@ -339,12 +356,6 @@ export function setCurrentConversationId(id: string | null): void {
   } else {
     localStorage.removeItem('diclok_current_conversation');
   }
-}
-
-// ============ 工具函数 ============
-
-export function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).substring(2);
 }
 
 // ============ 语言检测 ============

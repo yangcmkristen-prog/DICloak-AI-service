@@ -18,9 +18,9 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
-import { DEFAULT_SYSTEM_PROMPT, getKnowledgeStats, replaceKnowledgeData, getKnowledgeBase, getApiConfig, saveApiConfig, ApiConfig, DEFAULT_API_CONFIG, MODEL_OPTIONS, PROVIDER_INFO, saveKnowledgeBase } from "@/lib/store";
+import { DEFAULT_SYSTEM_PROMPT, getKnowledgeStats, replaceKnowledgeData, getKnowledgeBase, getApiConfig, saveApiConfig, DEFAULT_API_CONFIG, MODEL_OPTIONS, PROVIDER_INFO, saveKnowledgeBase } from "@/lib/store";
 import { importExcelFile, importMultipleExcelFiles, ImportResult } from "@/lib/excel-parser";
-import { KnowledgeBase } from "@/lib/types";
+import { KnowledgeBase, ApiConfig } from "@/lib/types";
 import { toast } from "sonner";
 
 interface KnowledgeManagerProps {
@@ -327,6 +327,9 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
         mappingItems: [],
         functionKnowledge: [],
         termItems: [],
+        apiEndpoints: [],
+        apiParameters: [],
+        pricingPlans: [],
         lastUpdated: Date.now(),
       });
       toast.success("知识库已清空");

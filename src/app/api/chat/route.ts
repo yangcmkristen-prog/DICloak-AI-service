@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import type { ConversationContext } from '@/lib/types';
 
 // ==================== 后端获取 API 配置 ====================
 
@@ -31,41 +32,248 @@ async function getBackendApiConfig(): Promise<{
 
 // ==================== 问题类型与身份识别 ====================
 
-type ProblemType = 'feature_faq' | 'troubleshooting' | 'user_routing' | 'out_of_scope' | 'info_insufficient' | 'intent_unclear';
+type ProblemType = 
+  | 'api_problem'           // API 问题
+  | 'subscription_problem'  // 套餐/价格/订阅问题
+  | 'troubleshooting'       // 故障排查
+  | 'info_insufficient'     // 信息不足
+  | 'intent_unclear'        // 意图不明确
+  | 'out_of_scope'          // 超出支持范围
+  | 'feature_faq'           // 功能咨询
+  | 'user_routing';         // 终端用户问题
 type UserRole = 'client' | 'end_user' | 'unknown';
 
+// ==================== 信息不足检测 ====================
+
 /**
- * 识别问题类型
+ * 检测是否为信息不足场景
+ */
+function checkInfoInsufficient(message: string): { isInsufficient: boolean; missingInfo: string[] } {
+  const msgLower = message.toLowerCase().trim();
+  const missingInfo: string[] = [];
+  
+  // 宽泛描述关键词
+  const vaguePhrases = [
+    '打不开', '进不去', '有问题', '失败了', '不能用', '不工作', 
+    '异常', '报错', 'error', 'failed', 'not working', 'broken',
+    '不行', '无法', '不能', '出问题'
+  ];
+  
+  // 检查是否只有宽泛描述
+  const hasVaguePhrase = vaguePhrases.some(p => msgLower.includes(p));
+  
+  // 检查是否缺少具体信息
+  const hasErrorDetail = msgLower.length > 30 && 
+    (msgLower.includes('错误') || msgLower.includes('error code') || 
+     msgLower.includes('err_') || msgLower.includes('0x'));
+  const hasOperationSteps = msgLower.includes('步骤') || msgLower.includes('操作') || 
+    msgLower.includes('点击') || msgLower.includes('选择') || msgLower.includes('step');
+  const hasScreenshot = msgLower.includes('截图') || msgLower.includes('录屏') || 
+    msgLower.includes('screenshot') || msgLower.includes('图片');
+  const hasSpecificModule = msgLower.includes('环境') || msgLower.includes('成员') || 
+    msgLower.includes('代理') || msgLower.includes('扩展') || msgLower.includes('分组');
+  const hasIdentity = msgLower.includes('管理员') || msgLower.includes('成员') || 
+    msgLower.includes('终端用户') || msgLower.includes('我购买');
+  
+  // 收集缺少的信息
+  if (!hasErrorDetail) missingInfo.push('具体报错内容或错误代码');
+  if (!hasOperationSteps) missingInfo.push('操作步骤描述');
+  if (!hasScreenshot) missingInfo.push('截图或录屏');
+  if (!hasSpecificModule) missingInfo.push('具体功能模块');
+  if (!hasIdentity) missingInfo.push('使用身份（管理员/成员/终端用户）');
+  
+  // 判断是否为信息不足
+  const isInsufficient = hasVaguePhrase && 
+    message.length < 50 && 
+    !hasErrorDetail && 
+    !hasOperationSteps &&
+    missingInfo.length >= 3;
+  
+  return { isInsufficient, missingInfo };
+}
+
+// ==================== API 问题检测 ====================
+
+const API_KEYWORDS = [
+  'api', '接口', 'endpoint', 'request', 'response', 
+  'parameter', '参数', 'http', 'rest', 'webhook',
+  '调用', '请求', '返回', 'json', 'curl'
+];
+
+function checkApiProblem(message: string): { isApiProblem: boolean; apiAction?: string; apiObject?: string } {
+  const msgLower = message.toLowerCase();
+  
+  // 检查是否包含 API 相关关键词
+  const hasApiKeyword = API_KEYWORDS.some(kw => msgLower.includes(kw));
+  if (!hasApiKeyword) {
+    return { isApiProblem: false };
+  }
+  
+  // 识别操作动作
+  const actionPatterns: Record<string, string[]> = {
+    'create': ['创建', '新增', '添加', 'create', 'add', 'new', 'post'],
+    'read': ['查询', '获取', '读取', 'get', 'read', 'list', 'fetch', '获取'],
+    'update': ['修改', '更新', '编辑', 'update', 'edit', 'modify', 'put', 'patch'],
+    'delete': ['删除', '移除', 'delete', 'remove', 'del'],
+    'start': ['启动', '开启', 'start', 'launch', 'open'],
+    'stop': ['停止', '关闭', 'stop', 'close', 'shutdown'],
+    'import': ['导入', 'import', 'upload'],
+    'export': ['导出', 'export', 'download']
+  };
+  
+  let apiAction: string | undefined;
+  for (const [action, patterns] of Object.entries(actionPatterns)) {
+    if (patterns.some(p => msgLower.includes(p))) {
+      apiAction = action;
+      break;
+    }
+  }
+  
+  // 识别操作对象
+  const objectPatterns: Record<string, string[]> = {
+    'environment': ['环境', 'environment', 'profile', '浏览器'],
+    'member': ['成员', 'member', '用户', 'user'],
+    'group': ['分组', 'group', '群组'],
+    'proxy': ['代理', 'proxy'],
+    'extension': ['扩展', 'extension', '插件', 'plugin'],
+    'account': ['账号', 'account'],
+    'tag': ['标签', 'tag', '标记']
+  };
+  
+  let apiObject: string | undefined;
+  for (const [obj, patterns] of Object.entries(objectPatterns)) {
+    if (patterns.some(p => msgLower.includes(p))) {
+      apiObject = obj;
+      break;
+    }
+  }
+  
+  return { isApiProblem: true, apiAction, apiObject };
+}
+
+// ==================== 套餐/价格问题检测 ====================
+
+const SUBSCRIPTION_KEYWORDS = [
+  '订阅', '套餐', '价格', '购买', 'plan', 'price', 
+  'billing', 'upgrade', '付费', '订阅', '续费',
+  'subscription', 'pricing', '多少钱', '收费'
+];
+
+const NON_DICLOAK_KEYWORDS = [
+  'chatgpt', 'gpt', 'claude', 'ai写作', 'ai生成',
+  '编程', '写代码', '视频制作', '剪辑', '绘图',
+  'midjourney', 'runway', 'freepik', 'canva',
+  '文案', '翻译', '配音'
+];
+
+function checkSubscriptionProblem(message: string): { 
+  isSubscriptionProblem: boolean; 
+  isDicloak: boolean | null;  // true=明确是DICloak, false=明确不是, null=不明确
+  nonDicloakPurpose?: string;
+} {
+  const msgLower = message.toLowerCase();
+  
+  // 检查是否包含订阅/价格相关关键词
+  const hasSubscriptionKeyword = SUBSCRIPTION_KEYWORDS.some(kw => msgLower.includes(kw));
+  if (!hasSubscriptionKeyword) {
+    return { isSubscriptionProblem: false, isDicloak: null };
+  }
+  
+  // 检查是否明确提到 DICloak
+  const hasDicloakMention = msgLower.includes('dicloak') || 
+    msgLower.includes('浏览器') || msgLower.includes('环境') ||
+    msgLower.includes('账号共享') || msgLower.includes('多账号');
+  
+  // 检查是否提到非 DICloak 用途
+  let nonDicloakPurpose: string | undefined;
+  for (const kw of NON_DICLOAK_KEYWORDS) {
+    if (msgLower.includes(kw)) {
+      nonDicloakPurpose = kw;
+      break;
+    }
+  }
+  
+  if (nonDicloakPurpose) {
+    return { isSubscriptionProblem: true, isDicloak: false, nonDicloakPurpose };
+  }
+  
+  if (hasDicloakMention) {
+    return { isSubscriptionProblem: true, isDicloak: true };
+  }
+  
+  // 意图不明确
+  return { isSubscriptionProblem: true, isDicloak: null };
+}
+
+/**
+ * 识别问题类型（后端规则分类，AI 不能改变）
  */
 function identifyProblemType(
   message: string,
   matchedFaqScore: number,
   matchedTsScore: number,
-  matchedOosScore: number
-): { type: ProblemType; reason: string } {
-  const msgLower = message.toLowerCase();
+  matchedOosScore: number,
+  conversationContext?: ConversationContext
+): { type: ProblemType; reason: string; apiInfo?: any; subscriptionInfo?: any } {
+  const msgLower = message.toLowerCase().trim();
   
-  // 1. 检查是否超出支持范围（编程、AI工具、视频制作等）
-  const outOfScopeKeywords = ['chatgpt', 'claude', 'midjourney', 'runway', 'freepik', 'canva', '写代码', '编程', 'ai生成', '视频制作', '剪辑', '绘图', '文案生成'];
+  // 1. 信息不足检测（优先级最高）
+  const infoCheck = checkInfoInsufficient(message);
+  if (infoCheck.isInsufficient) {
+    return { 
+      type: 'info_insufficient', 
+      reason: `信息不足，缺少：${infoCheck.missingInfo.join('、')}` 
+    };
+  }
+  
+  // 2. API 问题检测
+  const apiCheck = checkApiProblem(message);
+  if (apiCheck.isApiProblem) {
+    return { 
+      type: 'api_problem', 
+      reason: `API问题 - 动作: ${apiCheck.apiAction || '未知'}, 对象: ${apiCheck.apiObject || '未知'}`,
+      apiInfo: apiCheck
+    };
+  }
+  
+  // 3. 套餐/价格问题检测
+  const subscriptionCheck = checkSubscriptionProblem(message);
+  if (subscriptionCheck.isSubscriptionProblem) {
+    // 明确不是 DICloak 用途 → 超出支持范围
+    if (subscriptionCheck.isDicloak === false) {
+      return { 
+        type: 'out_of_scope', 
+        reason: `超出支持范围 - 用户询问: ${subscriptionCheck.nonDicloakPurpose}`,
+        subscriptionInfo: subscriptionCheck
+      };
+    }
+    // 意图不明确 → 需要澄清
+    if (subscriptionCheck.isDicloak === null) {
+      return { 
+        type: 'intent_unclear', 
+        reason: '订阅/价格问题但意图不明确，需澄清是否为 DICloak',
+        subscriptionInfo: subscriptionCheck
+      };
+    }
+    // 明确是 DICloak → 套餐问题
+    return { 
+      type: 'subscription_problem', 
+      reason: 'DICloak 套餐/价格问题',
+      subscriptionInfo: subscriptionCheck
+    };
+  }
+  
+  // 4. 检查是否超出支持范围（非 API/订阅场景）
+  const outOfScopeKeywords = [
+    'chatgpt', 'gpt-4', 'claude', 'midjourney', 'runway', 
+    'freepik', 'canva', 'ai写作', 'ai生成', '编程工具',
+    '视频制作', '剪辑软件', '绘图工具'
+  ];
   if (outOfScopeKeywords.some(kw => msgLower.includes(kw))) {
-    return { type: 'out_of_scope', reason: '用户提到的内容不属于 DICloak 功能范围' };
+    return { type: 'out_of_scope', reason: '超出 DICloak 支持范围' };
   }
   
-  // 2. 检查是否信息不足（描述宽泛）
-  const vaguePhrases = ['打不开', '进不去', '有问题', '不工作', '不好用', '报错', 'error', '有问题'];
-  const hasVagueOnly = vaguePhrases.some(p => msgLower.includes(p)) && message.length < 20;
-  if (hasVagueOnly && matchedFaqScore < 5 && matchedTsScore < 5) {
-    return { type: 'info_insufficient', reason: '问题描述过于宽泛，缺少具体信息' };
-  }
-  
-  // 3. 检查是否意图不明确（订阅/套餐相关但未明确用途）
-  const subscriptionKeywords = ['订阅', '套餐', '价格', '购买', 'subscription', 'pricing', 'plan'];
-  const hasSubscriptionMention = subscriptionKeywords.some(kw => msgLower.includes(kw));
-  if (hasSubscriptionMention && matchedFaqScore < 5) {
-    return { type: 'intent_unclear', reason: '用户提到订阅/价格但意图不明确' };
-  }
-  
-  // 4. 根据匹配分数判断类型
+  // 5. 根据匹配分数判断类型
   if (matchedTsScore >= matchedFaqScore && matchedTsScore >= matchedOosScore && matchedTsScore > 0) {
     return { type: 'troubleshooting', reason: '匹配到故障排查知识库' };
   }
@@ -78,7 +286,7 @@ function identifyProblemType(
     return { type: 'feature_faq', reason: '匹配到功能FAQ知识库' };
   }
   
-  // 5. 默认返回信息不足
+  // 6. 默认返回信息不足
   return { type: 'info_insufficient', reason: '未匹配到相关知识库' };
 }
 
