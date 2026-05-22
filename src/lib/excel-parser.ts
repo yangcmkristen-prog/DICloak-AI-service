@@ -7,6 +7,9 @@ import {
   FunctionKnowledge,
   TermItem,
   KnowledgeBase,
+  ApiEndpoint,
+  ApiParameter,
+  PricingPlan,
   generateId,
 } from './types';
 
@@ -223,6 +226,69 @@ function parseTermSheet(sheet: XLSX.WorkSheet): TermItem[] {
     });
 }
 
+// 解析 API 端点表
+function parseApiEndpointSheet(sheet: XLSX.WorkSheet): ApiEndpoint[] {
+  const data = XLSX.utils.sheet_to_json<Record<string, CellValue>>(sheet, { defval: '' });
+  return data
+    .filter(row => getCellValue(row['api_id']) || getCellValue(row['API名称']))
+    .map(row => ({
+      id: generateId(),
+      apiId: getCellValue(row['api_id']),
+      apiName: getCellValue(row['API名称']),
+      apiType: getCellValue(row['API类型']) || 'HTTP API',
+      method: getCellValue(row['请求方法']) || 'GET',
+      endpoint: getCellValue(row['端点']),
+      description: getCellValue(row['功能描述']),
+      module: getCellValue(row['所属模块']),
+      object: getCellValue(row['操作对象']),
+      operation: getCellValue(row['操作类型']),
+      isSupported: getCellValue(row['是否支持']) !== '否',
+    }));
+}
+
+// 解析 API 参数表
+function parseApiParameterSheet(sheet: XLSX.WorkSheet): ApiParameter[] {
+  const data = XLSX.utils.sheet_to_json<Record<string, CellValue>>(sheet, { defval: '' });
+  return data
+    .filter(row => getCellValue(row['api_id']) || getCellValue(row['参数名']))
+    .map(row => ({
+      id: generateId(),
+      apiId: getCellValue(row['api_id']),
+      paramName: getCellValue(row['参数名']),
+      paramType: getCellValue(row['参数类型']) || 'string',
+      isRequired: getCellValue(row['是否必填']) === '是' || getCellValue(row['是否必填']) === 'true',
+      defaultValue: getCellValue(row['默认值']),
+      description: getCellValue(row['参数说明']),
+      validationRule: getCellValue(row['验证规则']),
+      example: getCellValue(row['示例值']),
+    }));
+}
+
+// 解析价格功能表
+function parsePricingSheet(sheet: XLSX.WorkSheet): PricingPlan[] {
+  const data = XLSX.utils.sheet_to_json<Record<string, CellValue>>(sheet, { defval: '' });
+  return data
+    .filter(row => getCellValue(row['套餐名称']) || getCellValue(row['plan_name']))
+    .map(row => {
+      // 解析功能列表
+      const featuresStr = getCellValue(row['包含功能']);
+      const features = featuresStr ? featuresStr.split(/[,，;；\n]+/).map(s => s.trim()).filter(Boolean) : [];
+      
+      return {
+        id: generateId(),
+        planName: getCellValue(row['套餐名称']) || getCellValue(row['plan_name']),
+        planNameCN: getCellValue(row['套餐中文名']) || getCellValue(row['套餐名称']),
+        price: getNumericValue(row['价格']) || 0,
+        priceUnit: getCellValue(row['价格单位']) || '月',
+        memberLimit: getNumericValue(row['成员数限制']) || 0,
+        environmentLimit: getNumericValue(row['环境数限制']) || 0,
+        profileLimit: getNumericValue(row['配置文件数限制']) || 0,
+        features,
+        description: getCellValue(row['套餐说明']) || getCellValue(row['描述']),
+      };
+    });
+}
+
 // 从 Sheet 名称推断类型
 function inferSheetType(sheetName: string): string {
   const name = sheetName.toLowerCase();
@@ -232,6 +298,9 @@ function inferSheetType(sheetName: string): string {
   if (name.includes('out_of_scope') || name.includes('outofscope')) return 'out_of_scope';
   if (name.includes('mapping') || name.includes('map')) return 'mapping';
   if (name.includes('功能知识库') || name.includes('function')) return 'function_knowledge';
+  if (name.includes('api端点') || name.includes('api_endpoint') || name.includes('端点')) return 'api_endpoint';
+  if (name.includes('api参数') || name.includes('api_parameter') || name.includes('参数明细')) return 'api_parameter';
+  if (name.includes('价格') || name.includes('pricing') || name.includes('套餐')) return 'pricing';
   // Sheet1 可能是术语库
   if (name === 'sheet1' || name.includes('术语库') || name.includes('term')) return 'term';
   return 'unknown';
@@ -242,7 +311,7 @@ export interface ImportResult {
   success: boolean;
   message: string;
   fileName: string;  // 文件名
-  fileType: 'faq' | 'term' | 'function';  // 文件类型
+  fileType: 'faq' | 'term' | 'function' | 'api' | 'pricing';  // 文件类型
   stats: {
     faqCount: number;
     troubleshootingCount: number;
@@ -250,6 +319,9 @@ export interface ImportResult {
     mappingCount: number;
     functionCount: number;
     termCount: number;
+    apiEndpointCount: number;
+    apiParameterCount: number;
+    pricingCount: number;
   };
   data?: Partial<KnowledgeBase>;
 }
@@ -267,6 +339,9 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
       mappingItems: [],
       functionKnowledge: [],
       termItems: [],
+      apiEndpoints: [],
+      apiParameters: [],
+      pricingPlans: [],
     };
 
     for (const sheetName of sheetNames) {
@@ -305,6 +380,18 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
           const termItems = parseTermSheet(sheet);
           result.termItems!.push(...termItems);
           break;
+        case 'api_endpoint':
+          const apiEndpoints = parseApiEndpointSheet(sheet);
+          result.apiEndpoints!.push(...apiEndpoints);
+          break;
+        case 'api_parameter':
+          const apiParameters = parseApiParameterSheet(sheet);
+          result.apiParameters!.push(...apiParameters);
+          break;
+        case 'pricing':
+          const pricingPlans = parsePricingSheet(sheet);
+          result.pricingPlans!.push(...pricingPlans);
+          break;
         default:
           // 尝试通用解析
           console.log(`未识别的 Sheet 类型: ${sheetName}`);
@@ -317,13 +404,22 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
       result.outOfScopeItems!.length +
       result.mappingItems!.length +
       result.functionKnowledge!.length +
-      result.termItems!.length;
+      result.termItems!.length +
+      result.apiEndpoints!.length +
+      result.apiParameters!.length +
+      result.pricingPlans!.length;
 
     // 判断文件类型
     const faqSheets = ['feature_faq', 'troubleshooting', 'user_routing', 'out_of_scope', 'mapping'];
     const functionSheets = ['功能知识库'];
-    let fileType: 'faq' | 'term' | 'function' = 'faq';
-    if (sheetNames.some(s => functionSheets.includes(s))) {
+    const apiSheets = ['api端点', 'api_endpoint', 'api参数', 'api_parameter'];
+    const pricingSheets = ['价格', 'pricing', '套餐'];
+    let fileType: 'faq' | 'term' | 'function' | 'api' | 'pricing' = 'faq';
+    if (sheetNames.some(s => apiSheets.some(api => s.toLowerCase().includes(api)))) {
+      fileType = 'api';
+    } else if (sheetNames.some(s => pricingSheets.some(p => s.toLowerCase().includes(p)))) {
+      fileType = 'pricing';
+    } else if (sheetNames.some(s => functionSheets.includes(s))) {
       fileType = 'function';
     } else if (sheetNames.some(s => s === 'Sheet1' || s.toLowerCase().includes('term'))) {
       // 术语库通常只有 Sheet1 或包含 term
@@ -344,6 +440,9 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
         mappingCount: result.mappingItems!.length,
         functionCount: result.functionKnowledge!.length,
         termCount: result.termItems!.length,
+        apiEndpointCount: result.apiEndpoints!.length,
+        apiParameterCount: result.apiParameters!.length,
+        pricingCount: result.pricingPlans!.length,
       },
       data: result,
     };
@@ -360,6 +459,9 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
         mappingCount: 0,
         functionCount: 0,
         termCount: 0,
+        apiEndpointCount: 0,
+        apiParameterCount: 0,
+        pricingCount: 0,
       },
     };
   }
@@ -379,6 +481,9 @@ export async function importMultipleExcelFiles(files: File[]): Promise<{
     mappingItems: [],
     functionKnowledge: [],
     termItems: [],
+    apiEndpoints: [],
+    apiParameters: [],
+    pricingPlans: [],
   };
 
   for (const file of files) {
@@ -392,6 +497,9 @@ export async function importMultipleExcelFiles(files: File[]): Promise<{
       combinedData.mappingItems!.push(...(result.data.mappingItems || []));
       combinedData.functionKnowledge!.push(...(result.data.functionKnowledge || []));
       combinedData.termItems!.push(...(result.data.termItems || []));
+      combinedData.apiEndpoints!.push(...(result.data.apiEndpoints || []));
+      combinedData.apiParameters!.push(...(result.data.apiParameters || []));
+      combinedData.pricingPlans!.push(...(result.data.pricingPlans || []));
     }
   }
 
@@ -402,6 +510,9 @@ export async function importMultipleExcelFiles(files: File[]): Promise<{
     mappingCount: combinedData.mappingItems!.length,
     functionCount: combinedData.functionKnowledge!.length,
     termCount: combinedData.termItems!.length,
+    apiEndpointCount: combinedData.apiEndpoints!.length,
+    apiParameterCount: combinedData.apiParameters!.length,
+    pricingCount: combinedData.pricingPlans!.length,
   };
 
   return {

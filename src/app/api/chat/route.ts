@@ -151,6 +151,145 @@ function checkApiProblem(message: string): { isApiProblem: boolean; apiAction?: 
   return { isApiProblem: true, apiAction, apiObject };
 }
 
+/**
+ * 检索 API 端点表
+ * 根据 apiAction 和 apiObject 检索 API 端点与参数明细表
+ */
+function searchApiEndpoints(
+  apiAction: string | undefined,
+  apiObject: string | undefined,
+  apiEndpoints: Array<{
+    apiId?: string;
+    apiName?: string;
+    apiType?: string;
+    method?: string;
+    endpoint?: string;
+    description?: string;
+    module?: string;
+    object?: string;
+    operation?: string;
+    isSupported?: boolean;
+  }>,
+  apiParameters: Array<{
+    apiId?: string;
+    paramName?: string;
+    paramType?: string;
+    isRequired?: boolean;
+    defaultValue?: string;
+    description?: string;
+    validationRule?: string;
+    example?: string;
+  }> = []
+): {
+  found: boolean;
+  endpoints: typeof apiEndpoints;
+  parameters: typeof apiParameters;
+  summary: string;
+} {
+  if (!apiEndpoints || apiEndpoints.length === 0) {
+    return { found: false, endpoints: [], parameters: [], summary: 'API 端点表未加载' };
+  }
+
+  // 过滤匹配的端点
+  const matchedEndpoints = apiEndpoints.filter(ep => {
+    let match = true;
+    
+    // 匹配操作类型
+    if (apiAction && ep.operation) {
+      match = match && ep.operation.toLowerCase().includes(apiAction.toLowerCase());
+    }
+    
+    // 匹配操作对象
+    if (apiObject && ep.object) {
+      match = match && ep.object.toLowerCase().includes(apiObject.toLowerCase());
+    }
+    
+    return match;
+  });
+
+  if (matchedEndpoints.length === 0) {
+    return { 
+      found: false, 
+      endpoints: [], 
+      parameters: [], 
+      summary: `未找到匹配的 API 端点 (操作: ${apiAction || '未知'}, 对象: ${apiObject || '未知'})` 
+    };
+  }
+
+  // 获取关联的参数
+  const matchedApiIds = matchedEndpoints.map(ep => ep.apiId).filter(Boolean);
+  const matchedParameters = apiParameters.filter(p => 
+    p.apiId && matchedApiIds.includes(p.apiId)
+  );
+
+  // 生成摘要
+  const summary = matchedEndpoints.map(ep => {
+    const params = matchedParameters.filter(p => p.apiId === ep.apiId);
+    const requiredParams = params.filter(p => p.isRequired).map(p => p.paramName);
+    return `${ep.apiName || ep.apiId}: ${ep.method} ${ep.endpoint}${requiredParams.length > 0 ? ` (必填: ${requiredParams.join(', ')})` : ''}`;
+  }).join('\n');
+
+  return {
+    found: true,
+    endpoints: matchedEndpoints,
+    parameters: matchedParameters,
+    summary
+  };
+}
+
+/**
+ * 检索价格功能表
+ */
+function searchPricingPlans(
+  pricingPlans: Array<{
+    planName?: string;
+    planNameCN?: string;
+    price?: number;
+    priceUnit?: string;
+    memberLimit?: number;
+    environmentLimit?: number;
+    profileLimit?: number;
+    features?: string[];
+    description?: string;
+  }>,
+  query?: string
+): {
+  found: boolean;
+  plans: typeof pricingPlans;
+  summary: string;
+} {
+  if (!pricingPlans || pricingPlans.length === 0) {
+    return { found: false, plans: [], summary: '价格功能表未加载' };
+  }
+
+  // 如果有查询关键词，过滤匹配的套餐
+  let matchedPlans = pricingPlans;
+  if (query) {
+    const queryLower = query.toLowerCase();
+    matchedPlans = pricingPlans.filter(plan => 
+      (plan.planName && plan.planName.toLowerCase().includes(queryLower)) ||
+      (plan.planNameCN && plan.planNameCN.includes(query)) ||
+      (plan.features && plan.features.some(f => f.toLowerCase().includes(queryLower)))
+    );
+  }
+
+  if (matchedPlans.length === 0) {
+    return { found: false, plans: [], summary: '未找到匹配的套餐信息' };
+  }
+
+  // 生成摘要
+  const summary = matchedPlans.map(plan => {
+    const features = plan.features?.slice(0, 3).join(', ') || '';
+    return `${plan.planNameCN || plan.planName}: ¥${plan.price}/${plan.priceUnit}${plan.memberLimit ? `, 成员数: ${plan.memberLimit}` : ''}${plan.environmentLimit ? `, 环境数: ${plan.environmentLimit}` : ''}${features ? `\n  功能: ${features}...` : ''}`;
+  }).join('\n\n');
+
+  return {
+    found: true,
+    plans: matchedPlans,
+    summary
+  };
+}
+
 // ==================== 套餐/价格问题检测 ====================
 
 const SUBSCRIPTION_KEYWORDS = [
@@ -671,6 +810,28 @@ export async function POST(request: NextRequest) {
       console.log("[TYPE DEBUG] 输出格式:", outputFormatType);
       console.log("[TYPE DEBUG] 匹配分数 - FAQ:", topFaqScore, "TS:", topTsScore, "OOS:", topOosScore);
 
+      // ==================== API 端点表检索 ====================
+      let apiSearchResult: { found: boolean; endpoints: unknown[]; parameters: unknown[]; summary: string } | null = null;
+      if (problemType === 'api_problem' && problemTypeResult.apiInfo) {
+        apiSearchResult = searchApiEndpoints(
+          problemTypeResult.apiInfo.apiAction,
+          problemTypeResult.apiInfo.apiObject,
+          knowledge.apiEndpoints || [],
+          knowledge.apiParameters || []
+        );
+        console.log("[API DEBUG] API 检索结果:", apiSearchResult.found ? "找到" : "未找到");
+        console.log("[API DEBUG] 匹配端点数:", apiSearchResult.endpoints.length);
+        console.log("[API DEBUG] 摘要:", apiSearchResult.summary);
+      }
+
+      // ==================== 价格功能表检索 ====================
+      let pricingSearchResult: { found: boolean; plans: unknown[]; summary: string } | null = null;
+      if (problemType === 'subscription_problem' || problemType === 'intent_unclear') {
+        pricingSearchResult = searchPricingPlans(knowledge.pricingPlans || [], message);
+        console.log("[PRICING DEBUG] 价格检索结果:", pricingSearchResult.found ? "找到" : "未找到");
+        console.log("[PRICING DEBUG] 匹配套餐数:", pricingSearchResult.plans.length);
+      }
+
       // 调试日志
       console.log("[MATCH DEBUG] User message:", message);
       console.log("[MATCH DEBUG] User keywords:", userKeywords.slice(0, 10).join(', '));
@@ -752,6 +913,86 @@ export async function POST(request: NextRequest) {
           }
           if (item.answerEndUser) {
             knowledgeContext += `EndUserAnswer: ${item.answerEndUser}\n`;
+          }
+          knowledgeContext += "\n";
+        });
+      }
+
+      // 构建 API 端点上下文
+      if (apiSearchResult && apiSearchResult.found) {
+        knowledgeContext += "## API Endpoints (from API Table - HIGHEST PRIORITY)\n";
+        knowledgeContext += "IMPORTANT: API endpoints, methods, and parameters MUST come from this table. DO NOT fabricate.\n\n";
+        apiSearchResult.endpoints.forEach((ep: unknown, index: number) => {
+          const endpoint = ep as {
+            apiId?: string;
+            apiName?: string;
+            apiType?: string;
+            method?: string;
+            endpoint?: string;
+            description?: string;
+            module?: string;
+            object?: string;
+            operation?: string;
+            isSupported?: boolean;
+          };
+          knowledgeContext += `[API ${index + 1}] ${endpoint.apiName || endpoint.apiId}\n`;
+          knowledgeContext += `  API ID: ${endpoint.apiId}\n`;
+          knowledgeContext += `  Type: ${endpoint.apiType || 'HTTP API'}\n`;
+          knowledgeContext += `  Method: ${endpoint.method}\n`;
+          knowledgeContext += `  Endpoint: ${endpoint.endpoint}\n`;
+          knowledgeContext += `  Description: ${endpoint.description}\n`;
+          knowledgeContext += `  Supported: ${endpoint.isSupported !== false ? 'Yes' : 'No'}\n`;
+          
+          // 添加关联参数
+          const relatedParams = apiSearchResult?.parameters.filter(
+            (p: unknown) => (p as { apiId?: string }).apiId === endpoint.apiId
+          ) || [];
+          if (relatedParams.length > 0) {
+            knowledgeContext += `  Parameters:\n`;
+            relatedParams.forEach((param: unknown) => {
+              const p = param as {
+                paramName?: string;
+                paramType?: string;
+                isRequired?: boolean;
+                defaultValue?: string;
+                description?: string;
+              };
+              knowledgeContext += `    - ${p.paramName} (${p.paramType || 'string'})${p.isRequired ? ' [REQUIRED]' : ''}\n`;
+              if (p.description) {
+                knowledgeContext += `      ${p.description}\n`;
+              }
+            });
+          }
+          knowledgeContext += "\n";
+        });
+      }
+
+      // 构建价格功能表上下文
+      if (pricingSearchResult && pricingSearchResult.found) {
+        knowledgeContext += "## Pricing Plans (from Pricing Table)\n";
+        knowledgeContext += "IMPORTANT: Use this pricing information for subscription/plan questions.\n\n";
+        pricingSearchResult.plans.forEach((plan: unknown, index: number) => {
+          const p = plan as {
+            planName?: string;
+            planNameCN?: string;
+            price?: number;
+            priceUnit?: string;
+            memberLimit?: number;
+            environmentLimit?: number;
+            profileLimit?: number;
+            features?: string[];
+            description?: string;
+          };
+          knowledgeContext += `[Plan ${index + 1}] ${p.planNameCN || p.planName}\n`;
+          knowledgeContext += `  Price: ¥${p.price}/${p.priceUnit || '月'}\n`;
+          if (p.memberLimit) knowledgeContext += `  Member Limit: ${p.memberLimit}\n`;
+          if (p.environmentLimit) knowledgeContext += `  Environment Limit: ${p.environmentLimit}\n`;
+          if (p.profileLimit) knowledgeContext += `  Profile Limit: ${p.profileLimit}\n`;
+          if (p.features && p.features.length > 0) {
+            knowledgeContext += `  Features: ${p.features.join(', ')}\n`;
+          }
+          if (p.description) {
+            knowledgeContext += `  Description: ${p.description}\n`;
           }
           knowledgeContext += "\n";
         });
