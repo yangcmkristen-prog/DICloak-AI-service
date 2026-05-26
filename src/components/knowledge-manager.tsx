@@ -79,6 +79,9 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   const [customModelName, setCustomModelName] = useState("");
   // 同步状态
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+  // Prompt 版本信息
+  const [promptVersion, setPromptVersion] = useState<number | null>(null);
+  const [promptUpdatedAt, setPromptUpdatedAt] = useState<string | null>(null);
 
   // 加载数据 - 从数据库和 localStorage 同步
   useEffect(() => {
@@ -130,6 +133,13 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
         if (config.systemPrompt) {
           setSystemPrompt(config.systemPrompt);
           localStorage.setItem("diclok_system_prompt", config.systemPrompt);
+        }
+        // 设置版本信息
+        if (config.version !== undefined) {
+          setPromptVersion(config.version);
+        }
+        if (config.updatedAt) {
+          setPromptUpdatedAt(config.updatedAt);
         }
         // 设置 API 配置
         if (config.apiConfig) {
@@ -199,9 +209,17 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
       });
       if (!response.ok) {
         console.error('同步系统配置到数据库失败');
+        return null;
       }
+      const data = await response.json();
+      // 更新版本号状态
+      if (data.version !== undefined) {
+        setPromptVersion(data.version);
+      }
+      return data;
     } catch (error) {
       console.error('同步系统配置到数据库失败:', error);
+      return null;
     }
   };
 
@@ -615,8 +633,23 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
             <Settings className="w-5 h-5" />
             系统 Prompt 设置
           </CardTitle>
-          <CardDescription>
-            设置 AI 客服助手的系统提示词，用于定义 AI 的角色和行为规范
+          <CardDescription className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span>设置 AI 客服助手的系统提示词，用于定义 AI 的角色和行为规范</span>
+            {promptVersion !== null && (
+              <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full font-medium">
+                v{promptVersion}
+              </span>
+            )}
+            {promptUpdatedAt && (
+              <span className="text-xs text-muted-foreground">
+                更新于 {new Date(promptUpdatedAt).toLocaleString('zh-CN', { 
+                  month: '2-digit', 
+                  day: '2-digit', 
+                  hour: '2-digit', 
+                  minute: '2-digit' 
+                })}
+              </span>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

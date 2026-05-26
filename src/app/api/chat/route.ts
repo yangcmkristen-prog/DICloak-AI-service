@@ -30,6 +30,30 @@ async function getBackendApiConfig(): Promise<{
   }
 }
 
+// 获取系统配置版本信息
+async function getSystemConfigVersion(): Promise<{ version: number; updatedAt: string } | null> {
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from('system_configs')
+      .select('version, updated_at')
+      .eq('config_key', 'default')
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return {
+      version: data.version || 1,
+      updatedAt: data.updated_at || new Date().toISOString(),
+    };
+  } catch (error) {
+    console.error('[Config Version] 获取版本信息失败:', error);
+    return null;
+  }
+}
+
 // ==================== 问题类型与身份识别 ====================
 
 type ProblemType = 
@@ -1139,6 +1163,9 @@ Please generate reply based on the knowledge base above.`;
       console.log("[DEBUG] 知识库上下文前300字符:", knowledgeContext.substring(0, 300));
     }
 
+    // 获取系统配置版本信息
+    const configVersion = await getSystemConfigVersion();
+
     // 构建元数据（前端用于生成格式标题）
     const metaData = JSON.stringify({
       problemType,
@@ -1149,7 +1176,9 @@ Please generate reply based on the knowledge base above.`;
                         problemType === 'out_of_scope' ? '超出支持范围' :
                         problemType === 'intent_unclear' ? '意图不明确' : '信息不足',
       userRoleLabel: userRole === 'client' ? 'DICloak 客户/管理员' :
-                     userRole === 'end_user' ? '终端用户' : '身份不明确'
+                     userRole === 'end_user' ? '终端用户' : '身份不明确',
+      promptVersion: configVersion?.version || 1,
+      promptUpdatedAt: configVersion?.updatedAt || new Date().toISOString(),
     });
 
     // 调用 AI API

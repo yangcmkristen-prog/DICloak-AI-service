@@ -33,6 +33,7 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       data: data.config_value,
+      version: data.version || 1,
       updatedAt: data.updated_at,
     });
   } catch (error) {
@@ -49,6 +50,15 @@ export async function POST(request: NextRequest) {
 
     const client = getSupabaseClient();
 
+    // 先获取当前版本号
+    const { data: existingConfig } = await client
+      .from('system_configs')
+      .select('version')
+      .eq('config_key', CONFIG_KEY)
+      .maybeSingle();
+    
+    const newVersion = (existingConfig?.version || 0) + 1;
+
     // 使用 upsert 插入或更新
     const { data, error } = await client
       .from('system_configs')
@@ -59,6 +69,7 @@ export async function POST(request: NextRequest) {
             systemPrompt: systemPrompt || '',
             apiConfig: apiConfig || null,
           },
+          version: newVersion,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'config_key' }
@@ -74,6 +85,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: data,
+      version: newVersion,
       updatedAt: data.updated_at,
     });
   } catch (error) {
