@@ -289,6 +289,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
           apiEndpoints: [],
           apiParameters: [],
           pricingPlans: [],
+          pricingRawTable: undefined,
           fileNames: {
             faqFile: '',
             termFile: '',
@@ -309,6 +310,10 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
             combinedData.apiEndpoints!.push(...(result.data.apiEndpoints || []));
             combinedData.apiParameters!.push(...(result.data.apiParameters || []));
             combinedData.pricingPlans!.push(...(result.data.pricingPlans || []));
+            // 处理 pricingRawTable（覆盖而非合并）
+            if (result.data.pricingRawTable) {
+              combinedData.pricingRawTable = result.data.pricingRawTable;
+            }
           }
           // 记录文件名
           if (result.fileName) {
