@@ -459,8 +459,10 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
     } else if (sheetNames.some(s => functionSheets.includes(s))) {
       fileType = 'function';
     } else if (sheetNames.some(s => s === 'Sheet1' || s.toLowerCase().includes('term'))) {
-      // 术语库通常只有 Sheet1 或包含 term
-      if (result.termItems && result.termItems.length > 0 && result.faqItems!.length === 0) {
+      // Sheet1 可能是价格表或术语库，根据实际解析结果判断
+      if (result.pricingPlans && result.pricingPlans.length > 0) {
+        fileType = 'pricing';
+      } else if (result.termItems && result.termItems.length > 0 && result.faqItems!.length === 0) {
         fileType = 'term';
       }
     }

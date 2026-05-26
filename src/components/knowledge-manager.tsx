@@ -205,7 +205,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     }
   };
 
-  const updateStats = useCallback((fileNames?: { faqFile?: string; termFile?: string; functionFile?: string }) => {
+  const updateStats = useCallback((fileNames?: { faqFile?: string; termFile?: string; functionFile?: string; apiFile?: string; pricingFile?: string }) => {
     const currentStats = getKnowledgeStats();
     if (fileNames) {
       currentStats.fileNames = fileNames;
