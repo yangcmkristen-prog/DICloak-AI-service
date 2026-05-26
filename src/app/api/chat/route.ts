@@ -990,10 +990,18 @@ export async function POST(request: NextRequest) {
                 isRequired?: boolean;
                 defaultValue?: string;
                 description?: string;
+                example?: string;
+                validationRule?: string;
               };
               knowledgeContext += `    - ${p.paramName} (${p.paramType || 'string'})${p.isRequired ? ' [REQUIRED]' : ''}\n`;
               if (p.description) {
-                knowledgeContext += `      ${p.description}\n`;
+                knowledgeContext += `      Description: ${p.description}\n`;
+              }
+              if (p.example) {
+                knowledgeContext += `      Example/Options: ${p.example}\n`;
+              }
+              if (p.validationRule) {
+                knowledgeContext += `      Validation: ${p.validationRule}\n`;
               }
             });
           }
