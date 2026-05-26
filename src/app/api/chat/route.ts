@@ -885,8 +885,16 @@ export async function POST(request: NextRequest) {
       // ==================== 价格功能表检索 ====================
       let pricingSearchResult: { found: boolean; plans: unknown[]; summary: string } | null = null;
       if (problemType === 'subscription_problem' || problemType === 'intent_unclear') {
-        pricingSearchResult = searchPricingPlans(knowledge.pricingPlans || [], message);
+        // 套餐推荐类问题，不使用关键词过滤，直接返回所有套餐供 AI 参考
+        const subscriptionKeywords = ['推荐', '哪个', '适合', '选择', '比较', 'difference', 'compare', 'recommend', 'which'];
+        const isRecommendQuestion = subscriptionKeywords.some(k => message.toLowerCase().includes(k));
+        
+        // 如果是推荐类问题，不传递 query；如果是具体套餐查询（如 "Plus 套餐多少钱"），传递 query
+        const queryForPricing = isRecommendQuestion ? undefined : message;
+        
+        pricingSearchResult = searchPricingPlans(knowledge.pricingPlans || [], queryForPricing);
         console.log("[PRICING DEBUG] 价格检索结果:", pricingSearchResult.found ? "找到" : "未找到");
+        console.log("[PRICING DEBUG] 推荐问题:", isRecommendQuestion);
         console.log("[PRICING DEBUG] 匹配套餐数:", pricingSearchResult.plans.length);
       }
 
