@@ -10,6 +10,7 @@ import {
   ApiEndpoint,
   ApiParameter,
   PricingPlan,
+  PricingRawTable,
   generateId,
 } from './types';
 
@@ -238,7 +239,13 @@ function parseApiEndpointSheet(sheet: XLSX.WorkSheet): ApiEndpoint[] {
       apiType: getCellValue(row['API类型']) || 'HTTP API',
       method: getCellValue(row['请求方法']) || 'GET',
       endpoint: getCellValue(row['端点路径']),
-      description: getCellValue(row['主要用途']) || getCellValue(row['备注']),
+      fullpathRule: getCellValue(row['完整路径规则']),
+      authMethod: getCellValue(row['鉴权方式']),
+      paramLocation: getCellValue(row['请求参数位置']),
+      needsEnvId: getCellValue(row['是否需要env_id']),
+      description: getCellValue(row['主要用途']),
+      responseFields: getCellValue(row['成功响应核心字段']),
+      remark: getCellValue(row['备注']),
       module: getCellValue(row['接口模块']),
       object: '', // 从功能中提取
       operation: '', // 从功能中提取
@@ -254,30 +261,49 @@ function parseApiParameterSheet(sheet: XLSX.WorkSheet): ApiParameter[] {
     .map(row => ({
       id: generateId(),
       apiId: getCellValue(row['api_id']),
+      apiType: getCellValue(row['API类型']),
+      module: getCellValue(row['接口模块']),
+      functionName: getCellValue(row['功能']),
+      method: getCellValue(row['请求方法']),
+      endpoint: getCellValue(row['端点路径']),
+      paramLocation: getCellValue(row['参数位置']),
       paramName: getCellValue(row['参数名']),
       paramType: getCellValue(row['数据类型']) || 'string',
       isRequired: getCellValue(row['是否必填']) === '是' || getCellValue(row['是否必填']) === 'true',
-      defaultValue: '',
       description: getCellValue(row['说明']),
-      validationRule: getCellValue(row['适用场景']),
       example: getCellValue(row['可选值/示例']),
+      validationRule: getCellValue(row['适用场景']),
+      remark: getCellValue(row['备注']),
     }));
 }
 
 // 解析价格功能表（功能对比表格式）
-function parsePricingSheet(sheet: XLSX.WorkSheet): PricingPlan[] {
+function parsePricingSheet(sheet: XLSX.WorkSheet): { plans: PricingPlan[]; rawTable: PricingRawTable } {
   const data = XLSX.utils.sheet_to_json<Record<string, CellValue>>(sheet, { defval: '' });
   
   // 提取套餐名称（从列名中获取）
   const columns = Object.keys(data[0] || {});
   const planColumns = columns.filter(col => col !== 'Features' && col.includes('/'));
   
+  // 保存原始表格数据
+  const rawTable: PricingRawTable = {
+    columns: columns,
+    rows: data.map(row => {
+      const rowObj: Record<string, string> = {};
+      columns.forEach(col => {
+        rowObj[col] = String(row[col] ?? '');
+      });
+      return rowObj;
+    }),
+    lastUpdated: Date.now(),
+  };
+  
   // 为每个套餐创建一条记录
   const plans: PricingPlan[] = planColumns.map(planCol => {
     const [planName, planNameCN] = planCol.split('/');
     const features: string[] = [];
     
-    // 收集该套餐支持的功能
+    // 收集该套餐支持功能
     data.forEach(row => {
       const featureName = getCellValue(row['Features']);
       const featureValue = row[planCol];
@@ -300,7 +326,7 @@ function parsePricingSheet(sheet: XLSX.WorkSheet): PricingPlan[] {
     };
   });
   
-  return plans;
+  return { plans, rawTable };
 }
 
 // 从 Sheet 名称推断类型
@@ -406,8 +432,9 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
           result.apiParameters!.push(...apiParameters);
           break;
         case 'pricing':
-          const pricingPlans = parsePricingSheet(sheet);
-          result.pricingPlans!.push(...pricingPlans);
+          const pricingResult = parsePricingSheet(sheet);
+          result.pricingPlans!.push(...pricingResult.plans);
+          result.pricingRawTable = pricingResult.rawTable;
           break;
         case 'sheet1':
           // Sheet1 需要自动检测类型
@@ -416,8 +443,9 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
             // 如果有 Features 列和套餐列（包含 '/'），则是价格功能表
             if (columns.includes('Features') && columns.some(col => col.includes('/'))) {
               console.log('[EXCEL DEBUG] Sheet1 检测为价格功能表');
-              const plans = parsePricingSheet(sheet);
-              result.pricingPlans!.push(...plans);
+              const sheet1PricingResult = parsePricingSheet(sheet);
+              result.pricingPlans!.push(...sheet1PricingResult.plans);
+              result.pricingRawTable = sheet1PricingResult.rawTable;
             }
             // 如果有 term_id 或 中文/英文 列，则是术语库
             else if (columns.includes('term_id') || (columns.includes('中文') && columns.includes('英文'))) {

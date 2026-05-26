@@ -812,14 +812,14 @@ export async function POST(request: NextRequest) {
         .filter(m => m.score > 0); // 只过滤匹配到的，不排序不限制数量，由 AI 判断相关度
 
       // Troubleshooting 匹配过滤
-      type TsItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; termIds?: string[]; faqId?: string };
+      type TsItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; answerClient?: string; answerEndUser?: string; functionId?: string; termIds?: string[]; faqId?: string };
       const tsItems = (knowledge.troubleshootingItems || []) as TsItem[];
       const matchedTs = tsItems
         .map((item: TsItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
         .filter(m => m.score > 0);
 
       // Out of Scope 匹配过滤
-      type OosItem = { questionCN: string; questionEN?: string; answer: string; answerClient?: string; answerEndUser?: string };
+      type OosItem = { questionCN: string; questionEN?: string; userPhrases?: string; tags?: string[]; answer: string; answerClient?: string; answerEndUser?: string; faqId?: string };
       const oosItems = (knowledge.outOfScopeItems || []) as OosItem[];
       const matchedOos = oosItems
         .map((item: OosItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
@@ -897,6 +897,9 @@ export async function POST(request: NextRequest) {
           const processedAnswer = processTermMarkers(translatedAnswer);
           knowledgeContext += `[FAQ ${index + 1}] ID: ${item.faqId || 'unknown'} | Score: ${m.score}\n`;
           knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
+          if (item.userPhrases) {
+            knowledgeContext += `UserPhrases: ${item.userPhrases}\n`;
+          }
           knowledgeContext += `StandardAnswer: ${processedAnswer}\n`;
           if (item.tags && item.tags.length > 0) {
             knowledgeContext += `Tags: ${item.tags.join(', ')}\n`;
@@ -922,11 +925,37 @@ export async function POST(request: NextRequest) {
             detectedLanguage || 'zh',
             knowledge.termItems || []
           );
-          // 处理术语定位符
           const processedAnswer = processTermMarkers(translatedAnswer);
+          
+          // 翻译 client 和 end_user 答案
+          const translatedAnswerClient = item.answerClient ? processTermMarkers(translateTerms(
+            item.answerClient, 
+            item.termIds, 
+            detectedLanguage || 'zh',
+            knowledge.termItems || []
+          )) : '';
+          const translatedAnswerEndUser = item.answerEndUser ? processTermMarkers(translateTerms(
+            item.answerEndUser, 
+            item.termIds, 
+            detectedLanguage || 'zh',
+            knowledge.termItems || []
+          )) : '';
+          
           knowledgeContext += `[TS ${index + 1}] ID: ${item.faqId || 'unknown'} | Score: ${m.score}\n`;
           knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
-          knowledgeContext += `StandardAnswer: ${processedAnswer}\n`;
+          if (item.userPhrases) {
+            knowledgeContext += `UserPhrases: ${item.userPhrases}\n`;
+          }
+          knowledgeContext += `StandardAnswer (通用): ${processedAnswer}\n`;
+          if (translatedAnswerClient) {
+            knowledgeContext += `StandardAnswer (client): ${translatedAnswerClient}\n`;
+          }
+          if (translatedAnswerEndUser) {
+            knowledgeContext += `StandardAnswer (end_user): ${translatedAnswerEndUser}\n`;
+          }
+          if (item.functionId) {
+            knowledgeContext += `RelatedFunction: ${item.functionId}\n`;
+          }
           if (item.tags && item.tags.length > 0) {
             knowledgeContext += `Tags: ${item.tags.join(', ')}\n`;
           }
@@ -939,14 +968,20 @@ export async function POST(request: NextRequest) {
         knowledgeContext += "## Out of Scope Knowledge Base (for reference)\n";
         matchedOos.forEach((m, index) => {
           const item = m.item;
-          knowledgeContext += `[OutOfScope ${index + 1}]\n`;
+          knowledgeContext += `[OutOfScope ${index + 1}] ID: ${item.faqId || 'unknown'}\n`;
           knowledgeContext += `Problem: ${item.questionCN || item.questionEN}\n`;
+          if (item.userPhrases) {
+            knowledgeContext += `UserPhrases: ${item.userPhrases}\n`;
+          }
           knowledgeContext += `StandardAnswer: ${item.answer}\n`;
           if (item.answerClient) {
             knowledgeContext += `ClientAnswer: ${item.answerClient}\n`;
           }
           if (item.answerEndUser) {
             knowledgeContext += `EndUserAnswer: ${item.answerEndUser}\n`;
+          }
+          if (item.tags && item.tags.length > 0) {
+            knowledgeContext += `Tags: ${item.tags.join(', ')}\n`;
           }
           knowledgeContext += "\n";
         });
@@ -962,8 +997,14 @@ export async function POST(request: NextRequest) {
             apiName?: string;
             apiType?: string;
             method?: string;
+            fullpathRule?: string;
+            authMethod?: string;
+            paramLocation?: string;
+            needsEnvId?: string;
             endpoint?: string;
             description?: string;
+            responseFields?: string;
+            remark?: string;
             module?: string;
             object?: string;
             operation?: string;
@@ -974,7 +1015,13 @@ export async function POST(request: NextRequest) {
           knowledgeContext += `  Type: ${endpoint.apiType || 'HTTP API'}\n`;
           knowledgeContext += `  Method: ${endpoint.method}\n`;
           knowledgeContext += `  Endpoint: ${endpoint.endpoint}\n`;
+          if (endpoint.fullpathRule) knowledgeContext += `  Full Path Rule: ${endpoint.fullpathRule}\n`;
+          if (endpoint.authMethod) knowledgeContext += `  Auth Method: ${endpoint.authMethod}\n`;
+          if (endpoint.paramLocation) knowledgeContext += `  Param Location: ${endpoint.paramLocation}\n`;
+          if (endpoint.needsEnvId) knowledgeContext += `  Needs env_id: ${endpoint.needsEnvId}\n`;
           knowledgeContext += `  Description: ${endpoint.description}\n`;
+          if (endpoint.responseFields) knowledgeContext += `  Response Fields: ${endpoint.responseFields}\n`;
+          if (endpoint.remark) knowledgeContext += `  Remark: ${endpoint.remark}\n`;
           knowledgeContext += `  Supported: ${endpoint.isSupported !== false ? 'Yes' : 'No'}\n`;
           
           // 添加关联参数
@@ -985,24 +1032,31 @@ export async function POST(request: NextRequest) {
             knowledgeContext += `  Parameters:\n`;
             relatedParams.forEach((param: unknown) => {
               const p = param as {
+                apiType?: string;
+                module?: string;
+                functionName?: string;
+                method?: string;
+                endpoint?: string;
+                paramLocation?: string;
                 paramName?: string;
                 paramType?: string;
                 isRequired?: boolean;
-                defaultValue?: string;
                 description?: string;
                 example?: string;
                 validationRule?: string;
+                remark?: string;
               };
               knowledgeContext += `    - ${p.paramName} (${p.paramType || 'string'})${p.isRequired ? ' [REQUIRED]' : ''}\n`;
-              if (p.description) {
-                knowledgeContext += `      Description: ${p.description}\n`;
-              }
-              if (p.example) {
-                knowledgeContext += `      Example/Options: ${p.example}\n`;
-              }
-              if (p.validationRule) {
-                knowledgeContext += `      Validation: ${p.validationRule}\n`;
-              }
+              if (p.apiType) knowledgeContext += `      API Type: ${p.apiType}\n`;
+              if (p.module) knowledgeContext += `      Module: ${p.module}\n`;
+              if (p.functionName) knowledgeContext += `      Function: ${p.functionName}\n`;
+              if (p.method) knowledgeContext += `      Method: ${p.method}\n`;
+              if (p.endpoint) knowledgeContext += `      Endpoint: ${p.endpoint}\n`;
+              if (p.paramLocation) knowledgeContext += `      Param Location: ${p.paramLocation}\n`;
+              if (p.description) knowledgeContext += `      Description: ${p.description}\n`;
+              if (p.example) knowledgeContext += `      Example/Options: ${p.example}\n`;
+              if (p.validationRule) knowledgeContext += `      Validation: ${p.validationRule}\n`;
+              if (p.remark) knowledgeContext += `      Remark: ${p.remark}\n`;
             });
           }
           knowledgeContext += "\n";
@@ -1013,31 +1067,35 @@ export async function POST(request: NextRequest) {
       if (pricingSearchResult && pricingSearchResult.found) {
         knowledgeContext += "## Pricing Plans (from Pricing Table)\n";
         knowledgeContext += "IMPORTANT: Use this pricing information for subscription/plan questions.\n\n";
-        pricingSearchResult.plans.forEach((plan: unknown, index: number) => {
-          const p = plan as {
-            planName?: string;
-            planNameCN?: string;
-            price?: number;
-            priceUnit?: string;
-            memberLimit?: number;
-            environmentLimit?: number;
-            profileLimit?: number;
-            features?: string[];
-            description?: string;
-          };
-          knowledgeContext += `[Plan ${index + 1}] ${p.planNameCN || p.planName}\n`;
-          knowledgeContext += `  Price: ¥${p.price}/${p.priceUnit || '月'}\n`;
-          if (p.memberLimit) knowledgeContext += `  Member Limit: ${p.memberLimit}\n`;
-          if (p.environmentLimit) knowledgeContext += `  Environment Limit: ${p.environmentLimit}\n`;
-          if (p.profileLimit) knowledgeContext += `  Profile Limit: ${p.profileLimit}\n`;
-          if (p.features && p.features.length > 0) {
-            knowledgeContext += `  Features: ${p.features.join(', ')}\n`;
-          }
-          if (p.description) {
-            knowledgeContext += `  Description: ${p.description}\n`;
-          }
-          knowledgeContext += "\n";
-        });
+        // 输出完整的横向表格
+        knowledgeContext += "## Pricing Feature Comparison Table\n";
+        knowledgeContext += "This table shows feature availability and limits for each plan.\n\n";
+        
+        // 获取原始表格数据
+        const rawTable = knowledge.pricingRawTable;
+        if (rawTable && rawTable.columns && rawTable.rows) {
+          // 输出表头
+          knowledgeContext += "| " + rawTable.columns.join(" | ") + " |\n";
+          knowledgeContext += "| " + rawTable.columns.map(() => "---").join(" | ") + " |\n";
+          
+          // 输出每行数据
+          rawTable.rows.forEach((row: Record<string, string>) => {
+            const values = rawTable.columns.map((col: string) => row[col] || "-");
+            knowledgeContext += "| " + values.join(" | ") + " |\n";
+          });
+        } else {
+          // 如果没有原始表格数据，使用套餐列表
+          knowledgeContext += "Plans found:\n";
+          pricingSearchResult.plans.forEach((plan: unknown, index: number) => {
+            const p = plan as {
+              planName?: string;
+              planNameCN?: string;
+              features?: string[];
+            };
+            knowledgeContext += `${index + 1}. ${p.planNameCN || p.planName}: ${p.features?.length || 0} features\n`;
+          });
+        }
+        knowledgeContext += "\n";
       }
     }
 

@@ -148,12 +148,18 @@ export type ProblemType =
 export interface ApiEndpoint {
   id: string;
   apiId: string;              // api_id
-  apiName: string;            // API 名称
+  apiName: string;            // API 名称（功能）
   apiType: string;            // API 类型 (HTTP API / Local API)
   method: string;             // 请求方法 (GET/POST/PUT/DELETE)
   endpoint: string;           // 端点路径
-  description: string;        // 功能描述
-  module: string;             // 所属模块
+  fullpathRule?: string;      // 完整路径规则
+  authMethod?: string;        // 鉴权方式
+  paramLocation?: string;     // 请求参数位置
+  needsEnvId?: string;        // 是否需要env_id
+  description: string;        // 主要用途
+  responseFields?: string;    // 成功响应核心字段
+  remark?: string;            // 备注
+  module: string;             // 所属模块（接口模块）
   object: string;             // 操作对象
   operation: string;          // 操作类型 (create/read/update/delete)
   isSupported: boolean;       // 是否支持
@@ -162,13 +168,19 @@ export interface ApiEndpoint {
 export interface ApiParameter {
   id: string;
   apiId: string;              // 关联的 api_id
+  apiType?: string;           // API 类型
+  module?: string;            // 接口模块
+  functionName?: string;      // 功能名称
+  method?: string;            // 请求方法
+  endpoint?: string;          // 端点路径
+  paramLocation?: string;     // 参数位置
   paramName: string;          // 参数名
   paramType: string;          // 参数类型
   isRequired: boolean;        // 是否必填
-  defaultValue?: string;      // 默认值
   description: string;        // 参数说明
-  validationRule?: string;    // 验证规则
-  example?: string;           // 示例值
+  example?: string;           // 可选值/示例
+  validationRule?: string;    // 适用场景
+  remark?: string;            // 备注
 }
 
 // API 表完整数据
@@ -193,6 +205,14 @@ export interface PricingPlan {
   description: string;        // 套餐说明
 }
 
+// 价格功能表原始数据（横向表格）
+export interface PricingRawTable {
+  columns: string[];          // 列名（Features + 套餐列）
+  rows: Record<string, string>[];  // 每行数据
+  lastUpdated: number;
+  fileName?: string;
+}
+
 export interface PricingTable {
   plans: PricingPlan[];
   featureComparison: Record<string, boolean[]>;  // 功能对比表
@@ -208,11 +228,10 @@ export interface KnowledgeBase {
   mappingItems: MappingItem[];
   functionKnowledge: FunctionKnowledge[];
   termItems: TermItem[];
-  // 新增：API 端点与参数表
   apiEndpoints: ApiEndpoint[];
   apiParameters: ApiParameter[];
-  // 新增：价格功能表
   pricingPlans: PricingPlan[];
+  pricingRawTable?: PricingRawTable;  // 价格功能表原始数据
   lastUpdated: number;
   fileNames?: {
     faqFile?: string;
