@@ -145,11 +145,16 @@ export function getKnowledgeStats(data?: Record<string, any>): {
   mappingCount: number;
   functionCount: number;
   termCount: number;
+  apiEndpointCount: number;
+  apiParameterCount: number;
+  pricingPlanCount: number;
   lastUpdated: number;
   fileNames: {
     faqFile?: string;
     termFile?: string;
     functionFile?: string;
+    apiFile?: string;
+    pricingFile?: string;
   };
 } {
   const result = {
@@ -159,8 +164,11 @@ export function getKnowledgeStats(data?: Record<string, any>): {
     mappingCount: 0,
     functionCount: 0,
     termCount: 0,
+    apiEndpointCount: 0,
+    apiParameterCount: 0,
+    pricingPlanCount: 0,
     lastUpdated: 0,
-    fileNames: {} as { faqFile?: string; termFile?: string; functionFile?: string },
+    fileNames: {} as { faqFile?: string; termFile?: string; functionFile?: string; apiFile?: string; pricingFile?: string },
   };
   
   // 如果没有传入数据，从 localStorage 读取
@@ -199,6 +207,15 @@ export function getKnowledgeStats(data?: Record<string, any>): {
   }
   if (knowledgeData.termItems) {
     result.termCount += knowledgeData.termItems.length;
+  }
+  if (knowledgeData.apiEndpoints) {
+    result.apiEndpointCount += knowledgeData.apiEndpoints.length;
+  }
+  if (knowledgeData.apiParameters) {
+    result.apiParameterCount += knowledgeData.apiParameters.length;
+  }
+  if (knowledgeData.pricingPlans) {
+    result.pricingPlanCount += knowledgeData.pricingPlans.length;
   }
   
   // 获取文件名

@@ -42,11 +42,16 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     mappingCount: number;
     functionCount: number;
     termCount: number;
+    apiEndpointCount: number;
+    apiParameterCount: number;
+    pricingPlanCount: number;
     lastUpdated: number;
     fileNames: {
       faqFile?: string;
       termFile?: string;
       functionFile?: string;
+      apiFile?: string;
+      pricingFile?: string;
     };
   }>({
     faqCount: 0,
@@ -55,6 +60,9 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     mappingCount: 0,
     functionCount: 0,
     termCount: 0,
+    apiEndpointCount: 0,
+    apiParameterCount: 0,
+    pricingPlanCount: 0,
     lastUpdated: 0,
     fileNames: {
       faqFile: undefined,
@@ -260,10 +268,15 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
           mappingItems: [],
           functionKnowledge: [],
           termItems: [],
+          apiEndpoints: [],
+          apiParameters: [],
+          pricingPlans: [],
           fileNames: {
             faqFile: '',
             termFile: '',
             functionFile: '',
+            apiFile: '',
+            pricingFile: '',
           },
         };
 
@@ -275,6 +288,9 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
             combinedData.mappingItems!.push(...(result.data.mappingItems || []));
             combinedData.functionKnowledge!.push(...(result.data.functionKnowledge || []));
             combinedData.termItems!.push(...(result.data.termItems || []));
+            combinedData.apiEndpoints!.push(...(result.data.apiEndpoints || []));
+            combinedData.apiParameters!.push(...(result.data.apiParameters || []));
+            combinedData.pricingPlans!.push(...(result.data.pricingPlans || []));
           }
           // 记录文件名
           if (result.fileName) {
@@ -284,6 +300,10 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
               combinedData.fileNames!.termFile = result.fileName;
             } else if (result.fileType === 'function') {
               combinedData.fileNames!.functionFile = result.fileName;
+            } else if (result.fileType === 'api') {
+              combinedData.fileNames!.apiFile = result.fileName;
+            } else if (result.fileType === 'pricing') {
+              combinedData.fileNames!.pricingFile = result.fileName;
             }
           }
         }
@@ -390,7 +410,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   };
 
   const totalItems = stats.faqCount + stats.troubleshootingCount + stats.outOfScopeCount + 
-                     stats.mappingCount + stats.functionCount + stats.termCount;
+                     stats.mappingCount + stats.functionCount + stats.termCount +
+                     stats.apiEndpointCount + stats.apiParameterCount + stats.pricingPlanCount;
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -471,6 +492,9 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                         {result.stats.mappingCount > 0 && <span>映射: {result.stats.mappingCount}</span>}
                         {result.stats.functionCount > 0 && <span>功能: {result.stats.functionCount}</span>}
                         {result.stats.termCount > 0 && <span>术语: {result.stats.termCount}</span>}
+                        {result.stats.apiEndpointCount > 0 && <span>API端点: {result.stats.apiEndpointCount}</span>}
+                        {result.stats.apiParameterCount > 0 && <span>API参数: {result.stats.apiParameterCount}</span>}
+                        {result.stats.pricingPlanCount > 0 && <span>套餐: {result.stats.pricingPlanCount}</span>}
                       </div>
                     )}
                   </div>
@@ -527,9 +551,12 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                 <StatCard label="问题映射" count={stats.mappingCount} color="purple" />
                 <StatCard label="功能知识" count={stats.functionCount} color="green" />
                 <StatCard label="术语库" count={stats.termCount} color="pink" />
+                <StatCard label="API端点" count={stats.apiEndpointCount} color="cyan" />
+                <StatCard label="API参数" count={stats.apiParameterCount} color="teal" />
+                <StatCard label="价格套餐" count={stats.pricingPlanCount} color="amber" />
               </div>
               {/* 生效的表格文件 */}
-              {(stats.fileNames.faqFile || stats.fileNames.termFile || stats.fileNames.functionFile) && (
+              {(stats.fileNames.faqFile || stats.fileNames.termFile || stats.fileNames.functionFile || stats.fileNames.apiFile || stats.fileNames.pricingFile) && (
                 <div className="p-3 bg-muted/50 rounded-lg text-sm">
                   <div className="font-medium mb-2">当前生效的表格:</div>
                   <div className="space-y-1 text-muted-foreground">
@@ -549,6 +576,18 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                       <div className="flex items-center gap-2">
                         <FileSpreadsheet className="w-4 h-4 text-green-500" />
                         <span className="truncate" title={stats.fileNames.functionFile}>{stats.fileNames.functionFile}</span>
+                      </div>
+                    )}
+                    {stats.fileNames.apiFile && (
+                      <div className="flex items-center gap-2">
+                        <FileSpreadsheet className="w-4 h-4 text-cyan-500" />
+                        <span className="truncate" title={stats.fileNames.apiFile}>{stats.fileNames.apiFile}</span>
+                      </div>
+                    )}
+                    {stats.fileNames.pricingFile && (
+                      <div className="flex items-center gap-2">
+                        <FileSpreadsheet className="w-4 h-4 text-amber-500" />
+                        <span className="truncate" title={stats.fileNames.pricingFile}>{stats.fileNames.pricingFile}</span>
                       </div>
                     )}
                   </div>
@@ -812,6 +851,9 @@ function StatCard({ label, count, color }: { label: string; count: number; color
     purple: "bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300",
     green: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300",
     pink: "bg-pink-100 text-pink-700 dark:bg-pink-900/50 dark:text-pink-300",
+    cyan: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-300",
+    teal: "bg-teal-100 text-teal-700 dark:bg-teal-900/50 dark:text-teal-300",
+    amber: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
   };
 
   return (

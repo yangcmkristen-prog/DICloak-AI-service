@@ -230,19 +230,19 @@ function parseTermSheet(sheet: XLSX.WorkSheet): TermItem[] {
 function parseApiEndpointSheet(sheet: XLSX.WorkSheet): ApiEndpoint[] {
   const data = XLSX.utils.sheet_to_json<Record<string, CellValue>>(sheet, { defval: '' });
   return data
-    .filter(row => getCellValue(row['api_id']) || getCellValue(row['API名称']))
+    .filter(row => getCellValue(row['api_id']) || getCellValue(row['功能']))
     .map(row => ({
       id: generateId(),
       apiId: getCellValue(row['api_id']),
-      apiName: getCellValue(row['API名称']),
+      apiName: getCellValue(row['功能']),
       apiType: getCellValue(row['API类型']) || 'HTTP API',
       method: getCellValue(row['请求方法']) || 'GET',
-      endpoint: getCellValue(row['端点']),
-      description: getCellValue(row['功能描述']),
-      module: getCellValue(row['所属模块']),
-      object: getCellValue(row['操作对象']),
-      operation: getCellValue(row['操作类型']),
-      isSupported: getCellValue(row['是否支持']) !== '否',
+      endpoint: getCellValue(row['端点路径']),
+      description: getCellValue(row['主要用途']) || getCellValue(row['备注']),
+      module: getCellValue(row['接口模块']),
+      object: '', // 从功能中提取
+      operation: '', // 从功能中提取
+      isSupported: true,
     }));
 }
 
@@ -250,43 +250,57 @@ function parseApiEndpointSheet(sheet: XLSX.WorkSheet): ApiEndpoint[] {
 function parseApiParameterSheet(sheet: XLSX.WorkSheet): ApiParameter[] {
   const data = XLSX.utils.sheet_to_json<Record<string, CellValue>>(sheet, { defval: '' });
   return data
-    .filter(row => getCellValue(row['api_id']) || getCellValue(row['参数名']))
+    .filter(row => getCellValue(row['参数名']) || getCellValue(row['api_id']))
     .map(row => ({
       id: generateId(),
       apiId: getCellValue(row['api_id']),
       paramName: getCellValue(row['参数名']),
-      paramType: getCellValue(row['参数类型']) || 'string',
+      paramType: getCellValue(row['数据类型']) || 'string',
       isRequired: getCellValue(row['是否必填']) === '是' || getCellValue(row['是否必填']) === 'true',
-      defaultValue: getCellValue(row['默认值']),
-      description: getCellValue(row['参数说明']),
-      validationRule: getCellValue(row['验证规则']),
-      example: getCellValue(row['示例值']),
+      defaultValue: '',
+      description: getCellValue(row['说明']),
+      validationRule: getCellValue(row['适用场景']),
+      example: getCellValue(row['可选值/示例']),
     }));
 }
 
-// 解析价格功能表
+// 解析价格功能表（功能对比表格式）
 function parsePricingSheet(sheet: XLSX.WorkSheet): PricingPlan[] {
   const data = XLSX.utils.sheet_to_json<Record<string, CellValue>>(sheet, { defval: '' });
-  return data
-    .filter(row => getCellValue(row['套餐名称']) || getCellValue(row['plan_name']))
-    .map(row => {
-      // 解析功能列表
-      const featuresStr = getCellValue(row['包含功能']);
-      const features = featuresStr ? featuresStr.split(/[,，;；\n]+/).map(s => s.trim()).filter(Boolean) : [];
-      
-      return {
-        id: generateId(),
-        planName: getCellValue(row['套餐名称']) || getCellValue(row['plan_name']),
-        planNameCN: getCellValue(row['套餐中文名']) || getCellValue(row['套餐名称']),
-        price: getNumericValue(row['价格']) || 0,
-        priceUnit: getCellValue(row['价格单位']) || '月',
-        memberLimit: getNumericValue(row['成员数限制']) || 0,
-        environmentLimit: getNumericValue(row['环境数限制']) || 0,
-        profileLimit: getNumericValue(row['配置文件数限制']) || 0,
-        features,
-        description: getCellValue(row['套餐说明']) || getCellValue(row['描述']),
-      };
+  
+  // 提取套餐名称（从列名中获取）
+  const columns = Object.keys(data[0] || {});
+  const planColumns = columns.filter(col => col !== 'Features' && col.includes('/'));
+  
+  // 为每个套餐创建一条记录
+  const plans: PricingPlan[] = planColumns.map(planCol => {
+    const [planName, planNameCN] = planCol.split('/');
+    const features: string[] = [];
+    
+    // 收集该套餐支持的功能
+    data.forEach(row => {
+      const featureName = getCellValue(row['Features']);
+      const featureValue = row[planCol];
+      if (featureName && featureValue !== undefined && featureValue !== '' && featureValue !== 0 && featureValue !== false) {
+        features.push(featureName);
+      }
     });
+    
+    return {
+      id: generateId(),
+      planName: planName || planCol,
+      planNameCN: planNameCN || planCol,
+      price: 0, // 价格信息需要从详细数据中提取
+      priceUnit: '月',
+      memberLimit: 0,
+      environmentLimit: 0,
+      profileLimit: 0,
+      features,
+      description: String(data.find(row => row['Features'] === 'profile count')?.[planCol] || ''),
+    };
+  });
+  
+  return plans;
 }
 
 // 从 Sheet 名称推断类型
@@ -298,11 +312,14 @@ function inferSheetType(sheetName: string): string {
   if (name.includes('out_of_scope') || name.includes('outofscope')) return 'out_of_scope';
   if (name.includes('mapping') || name.includes('map')) return 'mapping';
   if (name.includes('功能知识库') || name.includes('function')) return 'function_knowledge';
-  if (name.includes('api端点') || name.includes('api_endpoint') || name.includes('端点')) return 'api_endpoint';
+  // API 端点表识别
+  if (name.includes('api端点') || name.includes('api_endpoint') || name.includes('端点总表')) return 'api_endpoint';
   if (name.includes('api参数') || name.includes('api_parameter') || name.includes('参数明细')) return 'api_parameter';
-  if (name.includes('价格') || name.includes('pricing') || name.includes('套餐')) return 'pricing';
-  // Sheet1 可能是术语库
-  if (name === 'sheet1' || name.includes('术语库') || name.includes('term')) return 'term';
+  // 价格功能表识别
+  if (name.includes('价格') || name.includes('pricing') || name.includes('套餐') || name.includes('功能对比')) return 'pricing';
+  // Sheet1 可能是术语库或价格表
+  if (name === 'sheet1') return 'sheet1';
+  if (name.includes('术语库') || name.includes('term')) return 'term';
   return 'unknown';
 }
 
@@ -321,7 +338,7 @@ export interface ImportResult {
     termCount: number;
     apiEndpointCount: number;
     apiParameterCount: number;
-    pricingCount: number;
+    pricingPlanCount: number;
   };
   data?: Partial<KnowledgeBase>;
 }
@@ -392,6 +409,26 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
           const pricingPlans = parsePricingSheet(sheet);
           result.pricingPlans!.push(...pricingPlans);
           break;
+        case 'sheet1':
+          // Sheet1 需要自动检测类型
+          if (sheetData.length > 0) {
+            const columns = Object.keys(sheetData[0]);
+            // 如果有 Features 列和套餐列（包含 '/'），则是价格功能表
+            if (columns.includes('Features') && columns.some(col => col.includes('/'))) {
+              console.log('[EXCEL DEBUG] Sheet1 检测为价格功能表');
+              const plans = parsePricingSheet(sheet);
+              result.pricingPlans!.push(...plans);
+            }
+            // 如果有 term_id 或 中文/英文 列，则是术语库
+            else if (columns.includes('term_id') || (columns.includes('中文') && columns.includes('英文'))) {
+              console.log('[EXCEL DEBUG] Sheet1 检测为术语库');
+              const terms = parseTermSheet(sheet);
+              result.termItems!.push(...terms);
+            } else {
+              console.log('[EXCEL DEBUG] Sheet1 类型未识别，列名:', columns);
+            }
+          }
+          break;
         default:
           // 尝试通用解析
           console.log(`未识别的 Sheet 类型: ${sheetName}`);
@@ -442,7 +479,7 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
         termCount: result.termItems!.length,
         apiEndpointCount: result.apiEndpoints!.length,
         apiParameterCount: result.apiParameters!.length,
-        pricingCount: result.pricingPlans!.length,
+        pricingPlanCount: result.pricingPlans!.length,
       },
       data: result,
     };
@@ -461,7 +498,7 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
         termCount: 0,
         apiEndpointCount: 0,
         apiParameterCount: 0,
-        pricingCount: 0,
+        pricingPlanCount: 0,
       },
     };
   }
@@ -512,7 +549,7 @@ export async function importMultipleExcelFiles(files: File[]): Promise<{
     termCount: combinedData.termItems!.length,
     apiEndpointCount: combinedData.apiEndpoints!.length,
     apiParameterCount: combinedData.apiParameters!.length,
-    pricingCount: combinedData.pricingPlans!.length,
+    pricingPlanCount: combinedData.pricingPlans!.length,
   };
 
   return {
