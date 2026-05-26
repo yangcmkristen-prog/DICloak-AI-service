@@ -298,7 +298,7 @@ function AIReplies({
   
   const parsed = parseReplies(cleanContent, metaData);
   
-  // 根据格式类型排序
+  // 根据格式类型排序（使用 ?? 而不是 ||，因为 0 是有效值）
   const sorted = [...parsed].sort((a, b) => {
     const order: Record<string, number> = { 
       question: 0, 
@@ -310,7 +310,7 @@ function AIReplies({
       supplement: 5, 
       info: 6 
     };
-    return (order[a.type] || 99) - (order[b.type] || 99);
+    return (order[a.type] ?? 99) - (order[b.type] ?? 99);
   });
   
   // 确保只有一个主回复（忽略多余的[主回复]/[回复1]）
