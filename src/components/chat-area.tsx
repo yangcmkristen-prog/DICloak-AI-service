@@ -68,18 +68,19 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
   // 根据格式类型定义不同的解析模式
   const formatType = finalMeta?.outputFormatType || 'A';
   
+  // 支持多种格式变体：[问题类型]、📌【问题类型】、【问题类型】等
   const sections = [
-    { pattern: /\[问题类型\]/i, type: "question" as const },
-    { pattern: /\[身份状态\]/i, type: "identity" as const },
-    { pattern: /\[主回复\]/i, type: "main" as const },
-    { pattern: /\[回复1\]/i, type: "main" as const },
-    { pattern: /\[通用回复\]/i, type: "common" as const },
-    { pattern: /\[客户回复\]/i, type: "client" as const },
-    { pattern: /\[终端用户回复\]/i, type: "end_user" as const },
-    { pattern: /\[补充建议\]/i, type: "supplement" as const },
-    { pattern: /\[需要补充的信息\]/i, type: "info" as const },
-    { pattern: /\[回复2\]/i, type: "supplement" as const },
-    { pattern: /\[回复3\]/i, type: "info" as const },
+    { pattern: /(?:📌\s*)?(?:【|\[)\s*问题类型\s*(?:】|\])/i, type: "question" as const },
+    { pattern: /(?:⚠️\s*)?(?:【|\[)\s*身份状态\s*(?:】|\])/i, type: "identity" as const },
+    { pattern: /(?:✅\s*)?(?:【|\[)\s*主回复[^】\]]*(?:】|\])/i, type: "main" as const },
+    { pattern: /(?:✅\s*)?(?:【|\[)\s*回复1\s*(?:】|\])/i, type: "main" as const },
+    { pattern: /(?:🟡\s*)?(?:【|\[)\s*通用回复[^】\]]*(?:】|\])/i, type: "common" as const },
+    { pattern: /(?:🔵\s*)?(?:【|\[)\s*客户回复[^】\]]*(?:】|\])/i, type: "client" as const },
+    { pattern: /(?:🟣\s*)?(?:【|\[)\s*终端用户回复[^】\]]*(?:】|\])/i, type: "end_user" as const },
+    { pattern: /(?:💡\s*)?(?:【|\[)\s*补充建议[^】\]]*(?:】|\])/i, type: "supplement" as const },
+    { pattern: /(?:📝\s*)?(?:【|\[)\s*需要补充的信息[^】\]]*(?:】|\])/i, type: "info" as const },
+    { pattern: /(?:💡\s*)?(?:【|\[)\s*回复2\s*(?:】|\])/i, type: "supplement" as const },
+    { pattern: /(?:📝\s*)?(?:【|\[)\s*回复3\s*(?:】|\])/i, type: "info" as const },
   ];
 
   const lines = cleanContent.split("\n");
@@ -184,19 +185,20 @@ function ReplyCard({
   
   if (!pureContent) return null;
   
-  // 根据格式类型生成标题
-  const titleMap: Record<string, string> = {
-    question: "问题类型",
-    identity: "身份状态",
-    main: "主回复",
-    common: "通用回复",
-    client: "客户回复",
-    end_user: "终端用户回复",
-    supplement: "补充建议",
-    info: "需要补充的信息"
+  // 根据格式类型生成标题（带图标和说明）
+  const titleConfig: Record<string, { icon: string; label: string; hint?: string }> = {
+    question: { icon: "📌", label: "问题类型" },
+    identity: { icon: "⚠️", label: "身份状态" },
+    main: { icon: "✅", label: "主回复", hint: "优先发送" },
+    common: { icon: "🟡", label: "通用回复", hint: "身份不明确时优先发送" },
+    client: { icon: "🔵", label: "客户回复", hint: "适用于 DICloak 客户/管理员" },
+    end_user: { icon: "🟣", label: "终端用户回复", hint: "适用于账号由他人提供的用户" },
+    supplement: { icon: "💡", label: "补充建议", hint: "可选发送" },
+    info: { icon: "📝", label: "需要补充的信息" }
   };
   
-  const title = titleMap[reply.type] || `回复${index + 1}`;
+  const config = titleConfig[reply.type] || { icon: "💬", label: `回复${index + 1}` };
+  const title = config.hint ? `${config.label} | ${config.hint}` : config.label;
   const isQuestion = reply.type === "question" || reply.type === "identity";
   const translationId = `${messageId}-${reply.type}-${index}`;
   const isExpanded = expandedTranslations[translationId];
@@ -206,8 +208,10 @@ function ReplyCard({
   return (
     <div key={index} className="space-y-2">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">
-          {title}
+        <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 flex items-center gap-1.5">
+          <span>{config.icon}</span>
+          <span>{config.label}</span>
+          {config.hint && <span className="text-xs text-gray-400 dark:text-gray-500">| {config.hint}</span>}
         </h4>
         {!isQuestion && (
           <div className="flex items-center gap-1">
