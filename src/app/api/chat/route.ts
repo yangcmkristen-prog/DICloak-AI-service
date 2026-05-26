@@ -192,19 +192,53 @@ function searchApiEndpoints(
 
   // 过滤匹配的端点
   const matchedEndpoints = apiEndpoints.filter(ep => {
-    let match = true;
+    // 从 apiName 推断操作和对象
+    const apiNameLower = (ep.apiName || '').toLowerCase();
+    const methodLower = (ep.method || '').toLowerCase();
+    const apiIdLower = (ep.apiId || '').toLowerCase();
     
     // 匹配操作类型
-    if (apiAction && ep.operation) {
-      match = match && ep.operation.toLowerCase().includes(apiAction.toLowerCase());
+    let actionMatch = true;
+    if (apiAction) {
+      const actionKeywords: Record<string, string[]> = {
+        'create': ['创建', '新增', '添加', 'create', 'add', 'new'],
+        'read': ['查询', '获取', '读取', 'get', 'read', 'list', 'fetch'],
+        'update': ['修改', '更新', '编辑', 'update', 'edit', 'modify'],
+        'delete': ['删除', '移除', 'delete', 'remove', 'del'],
+        'start': ['启动', '开启', 'start', 'launch', 'open', '打开'],
+        'stop': ['停止', '关闭', 'stop', 'close'],
+        'import': ['导入', 'import', 'upload'],
+        'export': ['导出', 'export', 'download']
+      };
+      const keywords = actionKeywords[apiAction] || [apiAction];
+      actionMatch = keywords.some(k => 
+        apiNameLower.includes(k.toLowerCase()) || 
+        methodLower.includes(k.toLowerCase()) ||
+        apiIdLower.includes(k.toLowerCase())
+      );
     }
     
     // 匹配操作对象
-    if (apiObject && ep.object) {
-      match = match && ep.object.toLowerCase().includes(apiObject.toLowerCase());
+    let objectMatch = true;
+    if (apiObject) {
+      const objectKeywords: Record<string, string[]> = {
+        'environment': ['环境', 'environment', 'profile', '浏览器', 'env'],
+        'member': ['成员', 'member', '用户', 'user'],
+        'group': ['分组', 'group', '群组'],
+        'proxy': ['代理', 'proxy'],
+        'extension': ['扩展', 'extension', '插件', 'plugin'],
+        'account': ['账号', 'account'],
+        'tag': ['标签', 'tag']
+      };
+      const keywords = objectKeywords[apiObject] || [apiObject];
+      objectMatch = keywords.some(k => 
+        apiNameLower.includes(k.toLowerCase()) || 
+        apiIdLower.includes(k.toLowerCase()) ||
+        (ep.endpoint || '').toLowerCase().includes(k.toLowerCase())
+      );
     }
     
-    return match;
+    return actionMatch && objectMatch;
   });
 
   if (matchedEndpoints.length === 0) {
