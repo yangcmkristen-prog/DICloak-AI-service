@@ -356,6 +356,13 @@ const SUBSCRIPTION_KEYWORDS = [
   'subscription', 'pricing', '多少钱', '收费'
 ];
 
+// 套餐名称关键词（用于识别套餐功能对比问题）
+const PLAN_NAME_KEYWORDS = [
+  '免费版', 'free', '基础版', 'base', '高阶版', 'plus', 
+  '共享版', 'share', '专业版', 'pro', '企业版', 'enterprise',
+  'free plan', 'base plan', 'plus plan', 'share plan'
+];
+
 const NON_DICLOAK_KEYWORDS = [
   'chatgpt', 'gpt', 'claude', 'ai写作', 'ai生成',
   '编程', '写代码', '视频制作', '剪辑', '绘图',
@@ -372,7 +379,11 @@ function checkSubscriptionProblem(message: string): {
   
   // 检查是否包含订阅/价格相关关键词
   const hasSubscriptionKeyword = SUBSCRIPTION_KEYWORDS.some(kw => msgLower.includes(kw));
-  if (!hasSubscriptionKeyword) {
+  
+  // 检查是否包含套餐名称（用于识别"基础版支持XX功能"类问题）
+  const hasPlanName = PLAN_NAME_KEYWORDS.some(kw => msgLower.includes(kw.toLowerCase()));
+  
+  if (!hasSubscriptionKeyword && !hasPlanName) {
     return { isSubscriptionProblem: false, isDicloak: null };
   }
   
@@ -869,8 +880,11 @@ export async function POST(request: NextRequest) {
       console.log("[TYPE DEBUG] 匹配分数 - FAQ:", topFaqScore, "TS:", topTsScore, "OOS:", topOosScore);
 
       // ==================== API 端点表检索 ====================
+      // 当检测到 API 相关问题时，始终检索 API 端点表
+      // 不再仅依赖 problemType === 'api_problem'，因为 API 功能查询可能被归类为其他类型
       let apiSearchResult: { found: boolean; endpoints: unknown[]; parameters: unknown[]; summary: string } | null = null;
-      if (problemType === 'api_problem' && problemTypeResult.apiInfo) {
+      const isApiQuestion = problemType === 'api_problem' || (problemTypeResult.apiInfo !== undefined);
+      if (isApiQuestion && problemTypeResult.apiInfo) {
         apiSearchResult = searchApiEndpoints(
           problemTypeResult.apiInfo.apiAction,
           problemTypeResult.apiInfo.apiObject,
@@ -883,13 +897,18 @@ export async function POST(request: NextRequest) {
       }
 
       // ==================== 价格功能表检索 ====================
+      // 当检测到套餐/价格相关问题时，始终检索价格功能表
+      // 不再依赖 problemType === 'subscription_problem'，因为套餐功能对比问题可能被归类为其他类型
       let pricingSearchResult: { found: boolean; plans: unknown[]; summary: string } | null = null;
-      if (problemType === 'subscription_problem' || problemType === 'intent_unclear') {
+      const isPricingQuestion = problemType === 'subscription_problem' || 
+                                problemType === 'intent_unclear' || 
+                                (problemTypeResult.subscriptionInfo !== undefined);
+      if (isPricingQuestion) {
         // 套餐推荐类问题，不使用关键词过滤，直接返回所有套餐供 AI 参考
-        const subscriptionKeywords = ['推荐', '哪个', '适合', '选择', '比较', 'difference', 'compare', 'recommend', 'which'];
+        const subscriptionKeywords = ['推荐', '哪个', '适合', '选择', '比较', 'difference', 'compare', 'recommend', 'which', '支持', '能否', '可以', '功能'];
         const isRecommendQuestion = subscriptionKeywords.some(k => message.toLowerCase().includes(k));
         
-        // 如果是推荐类问题，不传递 query；如果是具体套餐查询（如 "Plus 套餐多少钱"），传递 query
+        // 如果是推荐类问题或套餐功能对比问题，不传递 query；如果是具体套餐查询（如 "Plus 套餐多少钱"），传递 query
         const queryForPricing = isRecommendQuestion ? undefined : message;
         
         pricingSearchResult = searchPricingPlans(knowledge.pricingPlans || [], queryForPricing);
@@ -911,9 +930,130 @@ export async function POST(request: NextRequest) {
       console.log("[MATCH DEBUG] Matched TS count:", matchedTs.length);
       console.log("[MATCH DEBUG] Matched OOS count:", matchedOos.length);
 
+      // ==========================================
+      // 根据问题类型决定上下文构建顺序
+      // API 问题：API 端点表优先
+      // 套餐问题：价格功能表优先
+      // 其他问题：FAQ 优先
+      // ==========================================
+      
+      // 更新优先级判断（考虑检索结果）
+      const finalIsApiQuestion = isApiQuestion || apiSearchResult?.found;
+      const finalIsPricingQuestion = isPricingQuestion || pricingSearchResult?.found;
+      
+      console.log("[PRIORITY DEBUG] isApiQuestion:", finalIsApiQuestion, "isPricingQuestion:", finalIsPricingQuestion);
+
+      // 使用临时变量存储优先上下文
+      let priorityContext = "";
+      
+      // 优先构建 API 端点上下文（如果是 API 问题）
+      if (apiSearchResult && apiSearchResult.found) {
+        priorityContext += "## API Endpoints (from API Table - HIGHEST PRIORITY)\n";
+        priorityContext += "IMPORTANT: For API questions, you MUST use this API table data first. FAQ is supplementary.\n";
+        priorityContext += "DO NOT fabricate API endpoints, methods, or parameters not in this table.\n\n";
+        apiSearchResult.endpoints.forEach((ep: unknown, index: number) => {
+          const endpoint = ep as {
+            apiId?: string;
+            apiName?: string;
+            apiType?: string;
+            method?: string;
+            fullpathRule?: string;
+            endpoint?: string;
+            authMethod?: string;
+            description?: string;
+            module?: string;
+            requestParamLocation?: string;
+            needEnvId?: string;
+            isSupported?: string;
+            successResponse?: string;
+            remarks?: string;
+          };
+          priorityContext += `[API ${index + 1}] ${endpoint.apiName || 'Unknown'}\n`;
+          priorityContext += `  API ID: ${endpoint.apiId || ''}\n`;
+          priorityContext += `  Type: ${endpoint.apiType || 'HTTP API'}\n`;
+          priorityContext += `  Method: ${endpoint.method || 'GET'}\n`;
+          priorityContext += `  Endpoint: ${endpoint.endpoint || ''}\n`;
+          if (endpoint.fullpathRule) priorityContext += `  Full Path: ${endpoint.fullpathRule}\n`;
+          if (endpoint.authMethod) priorityContext += `  Auth: ${endpoint.authMethod}\n`;
+          if (endpoint.description) priorityContext += `  Description: ${endpoint.description}\n`;
+          if (endpoint.module) priorityContext += `  Module: ${endpoint.module}\n`;
+          if (endpoint.requestParamLocation) priorityContext += `  Param Location: ${endpoint.requestParamLocation}\n`;
+          if (endpoint.needEnvId) priorityContext += `  Need env_id: ${endpoint.needEnvId}\n`;
+          if (endpoint.isSupported !== undefined) priorityContext += `  Supported: ${endpoint.isSupported}\n`;
+          if (endpoint.successResponse) priorityContext += `  Success Response: ${endpoint.successResponse}\n`;
+          if (endpoint.remarks) priorityContext += `  Remarks: ${endpoint.remarks}\n`;
+          
+          // 添加参数信息
+          const params = (apiSearchResult.parameters as unknown[]).filter((p): p is { apiId?: string } => {
+            const param = p as { apiId?: string };
+            return param.apiId === endpoint.apiId;
+          });
+          if (params.length > 0) {
+            priorityContext += `  Parameters:\n`;
+            params.forEach((p) => {
+              const param = p as {
+                paramName?: string;
+                paramNameCn?: string;
+                paramType?: string;
+                isRequired?: boolean;
+                description?: string;
+                example?: string;
+                validationRule?: string;
+                applicableScenarios?: string;
+              };
+              const required = param.isRequired ? ' [REQUIRED]' : '';
+              priorityContext += `    - ${param.paramName || ''} (${param.paramType || 'any'})${required}\n`;
+              if (param.paramNameCn) priorityContext += `      Name CN: ${param.paramNameCn}\n`;
+              if (param.description) priorityContext += `      Description: ${param.description}\n`;
+              if (param.example) priorityContext += `      Example/Options: ${param.example}\n`;
+              if (param.validationRule) priorityContext += `      Validation: ${param.validationRule}\n`;
+              if (param.applicableScenarios) priorityContext += `      Applicable: ${param.applicableScenarios}\n`;
+            });
+          }
+          priorityContext += "\n";
+        });
+      }
+
+      // 优先构建价格功能表上下文（如果是套餐问题）
+      if (pricingSearchResult && pricingSearchResult.found) {
+        priorityContext += "## Pricing Feature Comparison Table (HIGHEST PRIORITY)\n";
+        priorityContext += "IMPORTANT: For subscription/plan questions, you MUST use this pricing table data first.\n";
+        priorityContext += "Use FAQ as supplementary only. Follow the pricing recommendation rules in system prompt.\n\n";
+        
+        // 输出原始横向表格
+        if (knowledge.pricingRawTable) {
+          const rawTable = knowledge.pricingRawTable;
+          priorityContext += "| " + rawTable.columns.join(" | ") + " |\n";
+          priorityContext += "| " + rawTable.columns.map(() => "---").join(" | ") + " |\n";
+          rawTable.rows.forEach((row: Record<string, string>) => {
+            priorityContext += "| " + rawTable.columns.map((col: string) => row[col] || "").join(" | ") + " |\n";
+          });
+        } else if (pricingSearchResult.plans) {
+          // 如果没有原始表格，使用解析后的套餐数据
+          pricingSearchResult.plans.forEach((plan, index) => {
+            const planData = plan as { planName?: string; planNameCN?: string; price?: number; priceUnit?: string; features?: string[] };
+            priorityContext += `[Plan ${index + 1}] ${planData.planNameCN || planData.planName}\n`;
+            if (planData.price) priorityContext += `  Price: ${planData.price}/${planData.priceUnit || 'month'}\n`;
+            if (planData.features && planData.features.length > 0) {
+              priorityContext += `  Features: ${planData.features.join(', ')}\n`;
+            }
+            priorityContext += "\n";
+          });
+        }
+        priorityContext += "\n";
+      }
+
+      // 将优先上下文添加到最前面
+      knowledgeContext = priorityContext + knowledgeContext;
+
       // 构建 FAQ 上下文
+      const faqContextLabel = finalIsApiQuestion || finalIsPricingQuestion ? "FAQ Knowledge Base (SUPPLEMENTARY)" : "FAQ Knowledge Base (sorted by relevance score)";
+      
       if (matchedFaq.length > 0) {
-        knowledgeContext += "## FAQ Knowledge Base (sorted by relevance score)\n";
+        knowledgeContext += `## ${faqContextLabel}\n`;
+        if (finalIsApiQuestion || finalIsPricingQuestion) {
+          knowledgeContext += "NOTE: This is SUPPLEMENTARY information. Priority data (API/Pricing) is provided above.\n";
+        }
         knowledgeContext += "IMPORTANT: You MUST start your reply with [FAQ_ID: xxx] where xxx is the FAQ ID you used.\n";
         knowledgeContext += "HINT: Higher score = more relevant. Prefer FAQs with score >= 10.\n\n";
         matchedFaq.slice(0, 20).forEach((m, index) => {
@@ -1018,118 +1158,7 @@ export async function POST(request: NextRequest) {
           knowledgeContext += "\n";
         });
       }
-
-      // 构建 API 端点上下文
-      if (apiSearchResult && apiSearchResult.found) {
-        knowledgeContext += "## API Endpoints (from API Table - HIGHEST PRIORITY)\n";
-        knowledgeContext += "IMPORTANT: API endpoints, methods, and parameters MUST come from this table. DO NOT fabricate.\n\n";
-        apiSearchResult.endpoints.forEach((ep: unknown, index: number) => {
-          const endpoint = ep as {
-            apiId?: string;
-            apiName?: string;
-            apiType?: string;
-            method?: string;
-            fullpathRule?: string;
-            authMethod?: string;
-            paramLocation?: string;
-            needsEnvId?: string;
-            endpoint?: string;
-            description?: string;
-            responseFields?: string;
-            remark?: string;
-            module?: string;
-            object?: string;
-            operation?: string;
-            isSupported?: boolean;
-          };
-          knowledgeContext += `[API ${index + 1}] ${endpoint.apiName || endpoint.apiId}\n`;
-          knowledgeContext += `  API ID: ${endpoint.apiId}\n`;
-          knowledgeContext += `  Type: ${endpoint.apiType || 'HTTP API'}\n`;
-          knowledgeContext += `  Method: ${endpoint.method}\n`;
-          knowledgeContext += `  Endpoint: ${endpoint.endpoint}\n`;
-          if (endpoint.fullpathRule) knowledgeContext += `  Full Path Rule: ${endpoint.fullpathRule}\n`;
-          if (endpoint.authMethod) knowledgeContext += `  Auth Method: ${endpoint.authMethod}\n`;
-          if (endpoint.paramLocation) knowledgeContext += `  Param Location: ${endpoint.paramLocation}\n`;
-          if (endpoint.needsEnvId) knowledgeContext += `  Needs env_id: ${endpoint.needsEnvId}\n`;
-          knowledgeContext += `  Description: ${endpoint.description}\n`;
-          if (endpoint.responseFields) knowledgeContext += `  Response Fields: ${endpoint.responseFields}\n`;
-          if (endpoint.remark) knowledgeContext += `  Remark: ${endpoint.remark}\n`;
-          knowledgeContext += `  Supported: ${endpoint.isSupported !== false ? 'Yes' : 'No'}\n`;
-          
-          // 添加关联参数
-          const relatedParams = apiSearchResult?.parameters.filter(
-            (p: unknown) => (p as { apiId?: string }).apiId === endpoint.apiId
-          ) || [];
-          if (relatedParams.length > 0) {
-            knowledgeContext += `  Parameters:\n`;
-            relatedParams.forEach((param: unknown) => {
-              const p = param as {
-                apiType?: string;
-                module?: string;
-                functionName?: string;
-                method?: string;
-                endpoint?: string;
-                paramLocation?: string;
-                paramName?: string;
-                paramType?: string;
-                isRequired?: boolean;
-                description?: string;
-                example?: string;
-                validationRule?: string;
-                remark?: string;
-              };
-              knowledgeContext += `    - ${p.paramName} (${p.paramType || 'string'})${p.isRequired ? ' [REQUIRED]' : ''}\n`;
-              if (p.apiType) knowledgeContext += `      API Type: ${p.apiType}\n`;
-              if (p.module) knowledgeContext += `      Module: ${p.module}\n`;
-              if (p.functionName) knowledgeContext += `      Function: ${p.functionName}\n`;
-              if (p.method) knowledgeContext += `      Method: ${p.method}\n`;
-              if (p.endpoint) knowledgeContext += `      Endpoint: ${p.endpoint}\n`;
-              if (p.paramLocation) knowledgeContext += `      Param Location: ${p.paramLocation}\n`;
-              if (p.description) knowledgeContext += `      Description: ${p.description}\n`;
-              if (p.example) knowledgeContext += `      Example/Options: ${p.example}\n`;
-              if (p.validationRule) knowledgeContext += `      Validation: ${p.validationRule}\n`;
-              if (p.remark) knowledgeContext += `      Remark: ${p.remark}\n`;
-            });
-          }
-          knowledgeContext += "\n";
-        });
-      }
-
-      // 构建价格功能表上下文
-      if (pricingSearchResult && pricingSearchResult.found) {
-        knowledgeContext += "## Pricing Plans (from Pricing Table)\n";
-        knowledgeContext += "IMPORTANT: Use this pricing information for subscription/plan questions.\n\n";
-        // 输出完整的横向表格
-        knowledgeContext += "## Pricing Feature Comparison Table\n";
-        knowledgeContext += "This table shows feature availability and limits for each plan.\n\n";
-        
-        // 获取原始表格数据
-        const rawTable = knowledge.pricingRawTable;
-        if (rawTable && rawTable.columns && rawTable.rows) {
-          // 输出表头
-          knowledgeContext += "| " + rawTable.columns.join(" | ") + " |\n";
-          knowledgeContext += "| " + rawTable.columns.map(() => "---").join(" | ") + " |\n";
-          
-          // 输出每行数据
-          rawTable.rows.forEach((row: Record<string, string>) => {
-            const values = rawTable.columns.map((col: string) => row[col] || "-");
-            knowledgeContext += "| " + values.join(" | ") + " |\n";
-          });
-        } else {
-          // 如果没有原始表格数据，使用套餐列表
-          knowledgeContext += "Plans found:\n";
-          pricingSearchResult.plans.forEach((plan: unknown, index: number) => {
-            const p = plan as {
-              planName?: string;
-              planNameCN?: string;
-              features?: string[];
-            };
-            knowledgeContext += `${index + 1}. ${p.planNameCN || p.planName}: ${p.features?.length || 0} features\n`;
-          });
-        }
-        knowledgeContext += "\n";
-      }
-    }
+    } // end of if (knowledge ...)
 
     // 构建对话历史上下文
     let historyContext = "";
