@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CLASSIFICATION_PROMPT } from "@/lib/classification-prompt";
+import { getSupabaseClient } from '@/storage/database/supabase-client';
 
 type IntentType =
   | "api_problem"
@@ -44,6 +45,32 @@ type ClassificationResult = {
   followUpQuestions: string[];
 };
 
+// ==================== 后端获取 API 配置 ====================
+async function getBackendApiConfig(): Promise<{
+  provider: string;
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+} | null> {
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from('system_configs')
+      .select('*')
+      .eq('config_key', 'default')
+      .maybeSingle();
+
+    if (error || !data?.config_value?.apiConfig) {
+      return null;
+    }
+
+    return data.config_value.apiConfig;
+  } catch (error) {
+    console.error('[CLASSIFY API Config] 获取后端配置失败:', error);
+    return null;
+  }
+}
+
 function coerceClassification(raw: unknown): ClassificationResult {
   const fallback: ClassificationResult = {
     primaryIntent: "feature_faq",
@@ -87,19 +114,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "缺少消息内容" }, { status: 400 });
     }
 
-    const apiKey = process.env.DEEPSEEK_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ error: "未配置 DEEPSEEK_API_KEY" }, { status: 500 });
+    // 从数据库获取 API 配置
+    const config = await getBackendApiConfig();
+    if (!config || !config.apiKey) {
+      return NextResponse.json({ error: "未配置 API Key，请在系统设置中配置" }, { status: 500 });
     }
 
-    const response = await fetch("https://api.deepseek.com/chat/completions", {
+    // 根据 provider 确定 baseUrl 和 model
+    const baseUrl = config.baseUrl || (
+      config.provider === 'deepseek' 
+        ? 'https://api.deepseek.com' 
+        : 'https://api.coze.cn/v1'
+    );
+    const model = config.model || 'deepseek-chat';
+
+    console.log('[CLASSIFY] 使用配置:', { provider: config.provider, model, baseUrl });
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model,
         messages: [
           { role: "system", content: CLASSIFICATION_PROMPT.replace("{userMessage}", message) },
           { role: "user", content: message },

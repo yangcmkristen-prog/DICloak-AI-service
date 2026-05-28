@@ -658,6 +658,8 @@ export async function POST(request: NextRequest) {
     if (knowledge) {
       console.log('[DEBUG] FAQ数量:', knowledge.faqItems?.length || 0);
       console.log('[DEBUG] 术语库数量:', knowledge.termItems?.length || 0);
+      console.log('[DEBUG] pricingPlans数量:', knowledge.pricingPlans?.length || 0);
+      console.log('[DEBUG] pricingRawTable数量:', knowledge.pricingRawTable?.length || 0);
     }
 
     // 语言规则映射
@@ -984,11 +986,12 @@ export async function POST(request: NextRequest) {
                           (problemTypeResult.subscriptionInfo !== undefined);
       if (isPricingQuestion) {
         // 套餐推荐类问题，不使用关键词过滤，直接返回所有套餐供 AI 参考
-        const subscriptionKeywords = ['推荐', '哪个', '适合', '选择', '比较', 'difference', 'compare', 'recommend', 'which', '支持', '能否', '可以', '功能'];
+        const subscriptionKeywords = ['推荐', '哪个', '适合', '选择', '比较', 'difference', 'compare', 'recommend', 'which', '支持', '能否', '可以', '功能', 'subscription', 'tier', 'plan', '套餐', '订阅'];
         const isRecommendQuestion = subscriptionKeywords.some(k => message.toLowerCase().includes(k));
         
-        // 如果是推荐类问题或套餐功能对比问题，不传递 query；如果是具体套餐查询（如 "Plus 套餐多少钱"），传递 query
-        const queryForPricing = isRecommendQuestion ? undefined : message;
+        // 当检测为价格/套餐问题时，始终返回所有套餐供 AI 判断（不做关键词过滤）
+        // 因为用户问题通常是自然语言句子，很难精确匹配 planName/features
+        const queryForPricing = undefined;
         
         pricingSearchResult = searchPricingPlans(knowledge.pricingPlans || [], queryForPricing);
         console.log("[PRICING DEBUG] 价格检索结果:", pricingSearchResult.found ? "找到" : "未找到");
