@@ -78,7 +78,7 @@ export function ConversationList({
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       {/* 新建按钮 */}
       <div className="p-4">
         <Button
@@ -93,7 +93,7 @@ export function ConversationList({
       <Separator />
 
       {/* 对话列表 */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         <div className="p-2 space-y-1">
           {conversations.length === 0 ? (
             <div className="text-center text-muted-foreground text-sm py-8">

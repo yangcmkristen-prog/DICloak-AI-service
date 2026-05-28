@@ -433,7 +433,7 @@ export default function Home() {
         </aside>
 
         {/* 右侧主区域 - 支持页面滚动 */}
-        <main className="flex-1 flex flex-col overflow-y-auto">
+        <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
           <Tabs defaultValue="chat" className="flex-1 flex flex-col min-h-0">
             <TabsList className="w-full justify-start rounded-none border-b px-4 bg-background h-12 shrink-0 sticky top-0 z-10">
               <TabsTrigger
