@@ -1326,6 +1326,7 @@ Please generate reply based on the knowledge base above.`;
 
     const stream = new ReadableStream({
       async start(controller) {
+        const encoder = new TextEncoder();
         try {
           // 首先发送元数据给前端
           controller.enqueue(new TextEncoder().encode(`[META]${metaData}[/META]\n`));
