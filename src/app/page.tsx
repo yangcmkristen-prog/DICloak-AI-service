@@ -301,7 +301,25 @@ export default function Home() {
         console.log('[DEBUG] 关键词提取失败，使用备用方案');
       }
 
-      // Step 2: 前端用关键词匹配 FAQ
+      // Step 2: DeepSeek 前置分类
+      let classification: Record<string, unknown> | null = null;
+      try {
+        const classifyRes = await fetch("/api/classify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: content }),
+        });
+        if (classifyRes.ok) {
+          classification = (await classifyRes.json()) as Record<string, unknown>;
+          console.log("[DEBUG] 分类结果:", classification);
+        } else {
+          console.log("[DEBUG] 分类接口失败，继续使用默认后端逻辑");
+        }
+      } catch (classificationError) {
+        console.log("[DEBUG] 分类请求异常，继续使用默认后端逻辑:", classificationError);
+      }
+
+      // Step 3: 前端用关键词匹配 FAQ
       const matchedFaqs = matchFaqsByKeywords(knowledgeData, aiKeywords, content);
       console.log('[DEBUG] 匹配到 FAQ 数量:', matchedFaqs.faqs.length);
       console.log('[DEBUG] 匹配到 TS 数量:', matchedFaqs.troubleshooting.length);
@@ -328,6 +346,7 @@ export default function Home() {
           apiConfig: currentApiConfig,
           detectedLanguage: detectedLang,
           aiKeywords: aiKeywords, // 传递 AI 提取的关键词给后端
+          classification,
         }),
       });
 

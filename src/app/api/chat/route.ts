@@ -66,6 +66,19 @@ type ProblemType =
   | 'feature_faq'           // 功能咨询
   | 'user_routing';         // 终端用户问题
 type UserRole = 'client' | 'end_user' | 'unknown';
+type TableId = 'faq' | 'troubleshooting' | 'out_of_scope' | 'function_knowledge' | 'api_endpoints' | 'pricing_table';
+type ClassificationResult = {
+  problemType?: ProblemType;
+  identityStatus?: UserRole;
+  tables?: Array<{ id?: TableId; action?: 'full' | 'filter' | 'match'; filter?: Record<string, unknown> | null }>;
+  entities?: {
+    planNames?: string[];
+    apiType?: string | null;
+    apiModule?: string | null;
+    apiMethod?: string | null;
+    action?: string | null;
+  };
+};
 
 // ==================== 信息不足检测 ====================
 
@@ -599,7 +612,17 @@ function generateAIOutputFormat(problemType: ProblemType, userRole: UserRole): s
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { message, history, knowledge, systemPrompt, apiConfig, detectedLanguage, aiKeywords } = body;
+    const { message, history, knowledge, systemPrompt, apiConfig, detectedLanguage, aiKeywords, classification } = body as {
+      message?: string;
+      history?: Array<{ role: string; content: string }>;
+      knowledge?: any;
+      systemPrompt?: string;
+      apiConfig?: unknown;
+      detectedLanguage?: string;
+      aiKeywords?: string[];
+      classification?: ClassificationResult;
+    };
+    
     
     // 调试：检查接收到的 knowledge
     console.log('[DEBUG] 后端接收到的请求体字段:', Object.keys(body));
@@ -638,7 +661,7 @@ export async function POST(request: NextRequest) {
       ko: "모든 답변은 한국어로 작성해야 합니다",
       mixed: "用户问题中包含多种语言，请使用中文回复",
     };
-    const languageRule = languageRules[detectedLanguage] || languageRules.zh;
+    const languageRule = languageRules[detectedLanguage || 'zh'] || languageRules.zh;
 
     // API 配置
     // 从后端获取 API 配置（安全：API Key 不暴露给前端）
@@ -867,10 +890,11 @@ export async function POST(request: NextRequest) {
       
       const problemTypeResult = identifyProblemType(message, topFaqScore, topTsScore, topOosScore);
       const userRoleResult = identifyUserRole(message, history);
+      const selectedTables = new Set((classification?.tables || []).map((t) => t.id).filter(Boolean));
       
       // 更新块外变量
-      problemType = problemTypeResult.type;
-      userRole = userRoleResult.role;
+      problemType = classification?.problemType || problemTypeResult.type;
+      userRole = classification?.identityStatus || userRoleResult.role;
       outputFormatType = getOutputFormatType(problemType, userRole);
       aiOutputFormat = generateAIOutputFormat(problemType, userRole);
       
@@ -883,11 +907,13 @@ export async function POST(request: NextRequest) {
       // 当检测到 API 相关问题时，始终检索 API 端点表
       // 不再仅依赖 problemType === 'api_problem'，因为 API 功能查询可能被归类为其他类型
       let apiSearchResult: { found: boolean; endpoints: unknown[]; parameters: unknown[]; summary: string } | null = null;
-      const isApiQuestion = problemType === 'api_problem' || (problemTypeResult.apiInfo !== undefined);
-      if (isApiQuestion && problemTypeResult.apiInfo) {
+      const isApiQuestion = problemType === 'api_problem' || selectedTables.has('api_endpoints') || (problemTypeResult.apiInfo !== undefined);
+      if (isApiQuestion) {
+        const apiAction = classification?.entities?.action || problemTypeResult.apiInfo?.apiAction;
+        const apiObject = classification?.entities?.apiModule || problemTypeResult.apiInfo?.apiObject;
         apiSearchResult = searchApiEndpoints(
-          problemTypeResult.apiInfo.apiAction,
-          problemTypeResult.apiInfo.apiObject,
+          apiAction || undefined,
+          apiObject || undefined,
           knowledge.apiEndpoints || [],
           knowledge.apiParameters || []
         );
@@ -901,8 +927,9 @@ export async function POST(request: NextRequest) {
       // 不再依赖 problemType === 'subscription_problem'，因为套餐功能对比问题可能被归类为其他类型
       let pricingSearchResult: { found: boolean; plans: unknown[]; summary: string } | null = null;
       const isPricingQuestion = problemType === 'subscription_problem' || 
-                                problemType === 'intent_unclear' || 
-                                (problemTypeResult.subscriptionInfo !== undefined);
+                          problemType === 'intent_unclear' || 
+                          selectedTables.has('pricing_table') ||
+                          (problemTypeResult.subscriptionInfo !== undefined);
       if (isPricingQuestion) {
         // 套餐推荐类问题，不使用关键词过滤，直接返回所有套餐供 AI 参考
         const subscriptionKeywords = ['推荐', '哪个', '适合', '选择', '比较', 'difference', 'compare', 'recommend', 'which', '支持', '能否', '可以', '功能'];
