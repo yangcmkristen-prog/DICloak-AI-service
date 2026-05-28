@@ -107,8 +107,10 @@ function coerceClassification(raw: unknown): ClassificationResult {
 }
 
 export async function POST(request: NextRequest) {
+  const t0 = Date.now();
   try {
     const { message } = await request.json();
+    console.log(`[PERF][CLASSIFY] request_parsed_ms=${Date.now() - t0}`);
 
     if (!message || typeof message !== "string") {
       return NextResponse.json({ error: "缺少消息内容" }, { status: 400 });
@@ -130,6 +132,7 @@ export async function POST(request: NextRequest) {
 
     console.log('[CLASSIFY] 使用配置:', { provider: config.provider, model, baseUrl });
 
+    const tModelStart = Date.now();
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -147,6 +150,7 @@ export async function POST(request: NextRequest) {
       }),
     });
 
+    console.log(`[PERF][CLASSIFY] model_http_ms=${Date.now() - tModelStart}`);
     const data = (await response.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
       error?: { message?: string };
@@ -159,12 +163,14 @@ export async function POST(request: NextRequest) {
     const content = data.choices?.[0]?.message?.content ?? "";
     try {
       const parsed = JSON.parse(content);
+      console.log(`[PERF][CLASSIFY] total_ms=${Date.now() - t0}`);
       return NextResponse.json(coerceClassification(parsed));
     } catch {
       return NextResponse.json({ error: "分类结果解析失败", raw: content }, { status: 500 });
     }
   } catch (error) {
     console.error("[CLASSIFY] 分类请求失败:", error);
+    console.log(`[PERF][CLASSIFY] failed_total_ms=${Date.now() - t0}`);
     return NextResponse.json({ error: "分类请求失败" }, { status: 500 });
   }
 }

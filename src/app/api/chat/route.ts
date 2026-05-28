@@ -624,8 +624,10 @@ function generateAIOutputFormat(problemType: ProblemType, userRole: UserRole): s
 }
 
 export async function POST(request: NextRequest) {
+  const t0 = Date.now();
   try {
     const body = await request.json();
+    console.log(`[PERF][CHAT] body_parsed_ms=${Date.now() - t0}`);
     const { message, history, knowledge, systemPrompt, apiConfig, detectedLanguage, aiKeywords, classification } = body as {
       message?: string;
       history?: Array<{ role: string; content: string }>;
@@ -678,6 +680,7 @@ export async function POST(request: NextRequest) {
       mixed: "用户问题中包含多种语言，请使用中文回复",
     };
     const languageRule = languageRules[detectedLanguage || "zh"] || languageRules.zh;
+    console.log(`[PERF][CHAT] pre_config_ms=${Date.now() - t0}`);
 
     // API 配置
     // 从后端获取 API 配置（安全：API Key 不暴露给前端）
@@ -848,6 +851,7 @@ export async function POST(request: NextRequest) {
     let outputFormatType: 'A' | 'B' | 'C' = 'A';
     let aiOutputFormat = generateAIOutputFormat(problemType, userRole);
 
+    const tKnowledgeStart = Date.now();
     if (knowledge && (knowledge.faqItems?.length > 0 || knowledge.troubleshootingItems?.length > 0 || knowledge.outOfScopeItems?.length > 0)) {
       // 计算匹配分数（增强标签匹配）
       const calculateMatchScore = (userMsg: string, item: { questionCN?: string; questionEN?: string; tags?: string[]; userPhrases?: string }, keywords: string[]) => {
@@ -1241,6 +1245,7 @@ export async function POST(request: NextRequest) {
         });
       }
     } // end of if (knowledge ...)
+    console.log(`[PERF][CHAT] knowledge_match_ms=${Date.now() - tKnowledgeStart}`);
 
     // 构建对话历史上下文
     let historyContext = "";
@@ -1305,6 +1310,8 @@ Please generate reply based on the knowledge base above.`;
       { role: "system" as const, content: finalPromptWithCoverage },
       { role: "user" as const, content: userMessage },
     ];
+    const tLlmStart = Date.now();
+    let firstTokenLogged = false;
 
     // 调试日志：追踪发送给 AI 的内容
     console.log("[AI DEBUG] System Prompt 长度:", finalSystemPrompt.length);
@@ -1354,6 +1361,10 @@ Please generate reply based on the knowledge base above.`;
               if (done) break;
 
               const chunk = decoder.decode(value, { stream: true });
+              if (!firstTokenLogged && chunk) {
+                console.log(`[PERF][CHAT] llm_first_token_ms=${Date.now() - tLlmStart}`);
+                firstTokenLogged = true;
+              }
               const lines = chunk.split('\n');
 
               for (const line of lines) {
@@ -1372,6 +1383,7 @@ Please generate reply based on the knowledge base above.`;
                 }
               }
             }
+            console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
           } else {
             // Coze/豆包 使用 SDK
             const llmConfig = new Config({
@@ -1386,13 +1398,15 @@ Please generate reply based on the knowledge base above.`;
             };
 
             for await (const chunk of client.stream(messages, llmConfigStream)) {
-              const content = Array.isArray(chunk.content) 
-                ? chunk.content.map(c => 'text' in c ? c.text : '').join('')
-                : chunk.content;
-              if (content) {
-                controller.enqueue(new TextEncoder().encode(content));
+              if (!firstTokenLogged) {
+                console.log(`[PERF][CHAT] llm_first_token_ms=${Date.now() - tLlmStart}`);
+                firstTokenLogged = true;
               }
+
+              const text = String(chunk ?? "");
+              controller.enqueue(encoder.encode(`data: ${text}\n\n`));
             }
+            console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
           }
           controller.close();
         } catch (error) {
@@ -1402,6 +1416,7 @@ Please generate reply based on the knowledge base above.`;
       },
     });
 
+    console.log(`[PERF][CHAT] total_ms=${Date.now() - t0}`);
     return new Response(stream, {
       headers: {
         "Content-Type": "text/event-stream",
@@ -1411,6 +1426,7 @@ Please generate reply based on the knowledge base above.`;
     });
   } catch (error) {
     console.error("[API Error]:", error);
+    console.log(`[PERF][CHAT] failed_total_ms=${Date.now() - t0}`);
     return NextResponse.json(
       { error: "处理请求失败" },
       { status: 500 }
