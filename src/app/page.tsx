@@ -312,8 +312,6 @@ export default function Home() {
         if (classifyRes.ok) {
           classification = (await classifyRes.json()) as Record<string, unknown>;
           console.log("[DEBUG] 分类结果:", classification);
-        } else {
-          console.log("[DEBUG] 分类接口失败，继续使用默认后端逻辑");
         }
       } catch (classificationError) {
         console.log("[DEBUG] 分类请求异常，继续使用默认后端逻辑:", classificationError);

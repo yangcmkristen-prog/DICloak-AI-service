@@ -66,18 +66,32 @@ type ProblemType =
   | 'feature_faq'           // 功能咨询
   | 'user_routing';         // 终端用户问题
 type UserRole = 'client' | 'end_user' | 'unknown';
-type TableId = 'faq' | 'troubleshooting' | 'out_of_scope' | 'function_knowledge' | 'api_endpoints' | 'pricing_table';
-type ClassificationResult = {
-  problemType?: ProblemType;
-  identityStatus?: UserRole;
-  tables?: Array<{ id?: TableId; action?: 'full' | 'filter' | 'match'; filter?: Record<string, unknown> | null }>;
+
+type TableId = "faq" | "troubleshooting" | "out_of_scope" | "function_knowledge" | "api_endpoints" | "pricing_table";
+
+type ClassificationIntent = {
+  type: ProblemType;
+  confidence: number;
+  tables: Array<{ id: TableId; action?: "full" | "filter" | "match"; filter?: Record<string, unknown> | null }>;
   entities?: {
     planNames?: string[];
     apiType?: string | null;
     apiModule?: string | null;
     apiMethod?: string | null;
     action?: string | null;
+    feature?: string | null;
+    errorMessage?: string | null;
   };
+};
+
+type ClassificationResult = {
+  primaryIntent?: ProblemType;
+  identityStatus?: UserRole;
+  confidence?: number;
+  reasoning?: string;
+  intents?: ClassificationIntent[];
+  needsFollowUp?: boolean;
+  followUpQuestions?: string[];
 };
 
 // ==================== 信息不足检测 ====================
@@ -661,7 +675,7 @@ export async function POST(request: NextRequest) {
       ko: "모든 답변은 한국어로 작성해야 합니다",
       mixed: "用户问题中包含多种语言，请使用中文回复",
     };
-    const languageRule = languageRules[detectedLanguage || 'zh'] || languageRules.zh;
+    const languageRule = languageRules[detectedLanguage || "zh"] || languageRules.zh;
 
     // API 配置
     // 从后端获取 API 配置（安全：API Key 不暴露给前端）
@@ -689,6 +703,22 @@ export async function POST(request: NextRequest) {
 
     // 优先使用前端传递的 System Prompt，否则使用精简版
     const finalSystemPrompt = systemPrompt || baseSystemPrompt;
+
+    const intentGuardrail = (classification?.intents && classification.intents.length > 0)
+      ? `
+    ## Intent Coverage Rules (MUST)
+    You MUST address ALL intents below in one response, each with a clear subsection:
+    ${classification.intents.map((it, idx) => `${idx + 1}. ${it.type}`).join("\n")}
+    For EACH intent include:
+    - conclusion
+    - evidence from knowledge context
+    - actionable next step
+    If evidence is insufficient for any intent, explicitly ask follow-up for that intent.
+    Do NOT skip any intent.
+    `
+      : "";
+
+    const finalPromptWithCoverage = `${finalSystemPrompt}\n${intentGuardrail}\n${languageRule}`;
 
     // 构建知识库上下文（只传递最相关的知识库项）
     let knowledgeContext = "";
@@ -890,10 +920,26 @@ export async function POST(request: NextRequest) {
       
       const problemTypeResult = identifyProblemType(message, topFaqScore, topTsScore, topOosScore);
       const userRoleResult = identifyUserRole(message, history);
-      const selectedTables = new Set((classification?.tables || []).map((t) => t.id).filter(Boolean));
+
+      const intents = classification?.intents || [];
+      const selectedTables = new Set<TableId>(
+        intents.flatMap((it) => (it.tables || []).map((t) => t.id)).filter(Boolean as any)
+      );
+
+      // API + 套餐共现强规则：强制双表
+      const lowerMessage = message.toLowerCase();
+      const apiSignals = ["api", "endpoint", "key", "create", "post", "member", "成员"];
+      const planSignals = ["plan", "tier", "subscription", "pricing", "upgrade", "套餐", "权限"];
+      const hasApiSignal = apiSignals.some((k) => lowerMessage.includes(k));
+      const hasPlanSignal = planSignals.some((k) => lowerMessage.includes(k));
+      if (hasApiSignal && hasPlanSignal) {
+        selectedTables.add("api_endpoints");
+        selectedTables.add("pricing_table");
+        selectedTables.add("faq");
+      }
       
       // 更新块外变量
-      problemType = classification?.problemType || problemTypeResult.type;
+      problemType = classification?.primaryIntent || problemTypeResult.type;
       userRole = classification?.identityStatus || userRoleResult.role;
       outputFormatType = getOutputFormatType(problemType, userRole);
       aiOutputFormat = generateAIOutputFormat(problemType, userRole);
@@ -907,10 +953,16 @@ export async function POST(request: NextRequest) {
       // 当检测到 API 相关问题时，始终检索 API 端点表
       // 不再仅依赖 problemType === 'api_problem'，因为 API 功能查询可能被归类为其他类型
       let apiSearchResult: { found: boolean; endpoints: unknown[]; parameters: unknown[]; summary: string } | null = null;
-      const isApiQuestion = problemType === 'api_problem' || selectedTables.has('api_endpoints') || (problemTypeResult.apiInfo !== undefined);
+      const apiIntent = intents.find((it) => it.type === "api_problem");
+      const isApiQuestion =
+        problemType === "api_problem" ||
+        selectedTables.has("api_endpoints") ||
+        (problemTypeResult.apiInfo !== undefined);
+
       if (isApiQuestion) {
-        const apiAction = classification?.entities?.action || problemTypeResult.apiInfo?.apiAction;
-        const apiObject = classification?.entities?.apiModule || problemTypeResult.apiInfo?.apiObject;
+        const apiAction = apiIntent?.entities?.action || problemTypeResult.apiInfo?.apiAction;
+        const apiObject = apiIntent?.entities?.apiModule || problemTypeResult.apiInfo?.apiObject;
+
         apiSearchResult = searchApiEndpoints(
           apiAction || undefined,
           apiObject || undefined,
@@ -928,7 +980,7 @@ export async function POST(request: NextRequest) {
       let pricingSearchResult: { found: boolean; plans: unknown[]; summary: string } | null = null;
       const isPricingQuestion = problemType === 'subscription_problem' || 
                           problemType === 'intent_unclear' || 
-                          selectedTables.has('pricing_table') ||
+                          selectedTables.has("pricing_table") ||
                           (problemTypeResult.subscriptionInfo !== undefined);
       if (isPricingQuestion) {
         // 套餐推荐类问题，不使用关键词过滤，直接返回所有套餐供 AI 参考
@@ -1247,7 +1299,7 @@ Please generate reply based on the knowledge base above.`;
 
     // 调用 AI API
     const messages = [
-      { role: "system" as const, content: finalSystemPrompt },
+      { role: "system" as const, content: finalPromptWithCoverage },
       { role: "user" as const, content: userMessage },
     ];
 

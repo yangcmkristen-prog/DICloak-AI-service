@@ -1,6 +1,84 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CLASSIFICATION_PROMPT } from "@/lib/classification-prompt";
 
+type IntentType =
+  | "api_problem"
+  | "subscription_problem"
+  | "troubleshooting"
+  | "feature_faq"
+  | "info_insufficient"
+  | "intent_unclear"
+  | "out_of_scope"
+  | "user_routing";
+
+type TableId =
+  | "faq"
+  | "troubleshooting"
+  | "out_of_scope"
+  | "function_knowledge"
+  | "api_endpoints"
+  | "pricing_table";
+
+type ClassificationIntent = {
+  type: IntentType;
+  confidence: number;
+  tables: Array<{ id: TableId; action: "full" | "filter" | "match"; filter: Record<string, unknown> | null }>;
+  entities?: {
+    planNames?: string[];
+    apiType?: string | null;
+    apiModule?: string | null;
+    apiMethod?: string | null;
+    action?: string | null;
+    feature?: string | null;
+    errorMessage?: string | null;
+  };
+};
+
+type ClassificationResult = {
+  primaryIntent: IntentType;
+  identityStatus: "client" | "end_user" | "unknown";
+  confidence: number;
+  reasoning: string;
+  intents: ClassificationIntent[];
+  needsFollowUp: boolean;
+  followUpQuestions: string[];
+};
+
+function coerceClassification(raw: unknown): ClassificationResult {
+  const fallback: ClassificationResult = {
+    primaryIntent: "feature_faq",
+    identityStatus: "unknown",
+    confidence: 0.75,
+    reasoning: "使用默认分类兜底",
+    intents: [
+      {
+        type: "feature_faq",
+        confidence: 0.75,
+        tables: [{ id: "faq", action: "match", filter: null }],
+        entities: {},
+      },
+    ],
+    needsFollowUp: false,
+    followUpQuestions: [],
+  };
+
+  if (!raw || typeof raw !== "object") return fallback;
+  const obj = raw as Record<string, unknown>;
+
+  const intents = Array.isArray(obj.intents) ? (obj.intents as ClassificationIntent[]) : fallback.intents;
+  if (intents.length === 0) return fallback;
+
+  return {
+    primaryIntent: (obj.primaryIntent as ClassificationResult["primaryIntent"]) || intents[0].type || "feature_faq",
+    identityStatus: (obj.identityStatus as ClassificationResult["identityStatus"]) || "unknown",
+    confidence: typeof obj.confidence === "number" ? obj.confidence : 0.8,
+    reasoning: typeof obj.reasoning === "string" ? obj.reasoning : "分类完成",
+    intents,
+    needsFollowUp: Boolean(obj.needsFollowUp),
+    followUpQuestions: Array.isArray(obj.followUpQuestions) ? (obj.followUpQuestions as string[]) : [],
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { message } = await request.json();
@@ -27,7 +105,7 @@ export async function POST(request: NextRequest) {
           { role: "user", content: message },
         ],
         temperature: 0.1,
-        max_tokens: 500,
+        max_tokens: 700,
       }),
     });
 
@@ -41,9 +119,9 @@ export async function POST(request: NextRequest) {
     }
 
     const content = data.choices?.[0]?.message?.content ?? "";
-
     try {
-      return NextResponse.json(JSON.parse(content));
+      const parsed = JSON.parse(content);
+      return NextResponse.json(coerceClassification(parsed));
     } catch {
       return NextResponse.json({ error: "分类结果解析失败", raw: content }, { status: 500 });
     }
