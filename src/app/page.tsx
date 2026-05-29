@@ -550,7 +550,7 @@ export default function Home() {
               </DialogContent>
             </Dialog>
 
-            <TabsContent value="knowledge" className="flex-1 m-0">
+            <TabsContent value="knowledge" className="flex-1 min-h-0 m-0 overflow-y-auto">
               <KnowledgeManager />
             </TabsContent>
           </Tabs>
