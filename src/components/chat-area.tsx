@@ -83,7 +83,11 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
     { pattern: /(?:📝\s*)?(?:【|\[)\s*回复3\s*(?:】|\])/i, type: "info" as const },
   ];
 
-  const lines = cleanContent.split("\n");
+  // 有些模型会把多个「【问题类型】/【主回复】」标题连续输出在同一行。
+  // 先在内联标题前补换行，避免整段内容被当成第一个「问题类型」卡片。
+  const inlineHeaderPattern = /([^\n])((?:📌|⚠️|✅|🟡|🔵|🟣|💡|📝)?\s*(?:【|\[)\s*(?:问题类型|身份状态|主回复[^】\]]*|回复1|通用回复[^】\]]*|客户回复[^】\]]*|终端用户回复[^】\]]*|补充建议[^】\]]*|需要补充的信息[^】\]]*|回复2|回复3)\s*(?:】|\]))/g;
+  const normalizedContent = cleanContent.replace(inlineHeaderPattern, "$1\n$2");
+  const lines = normalizedContent.split("\n");
   
   let currentSection: ParsedReply | null = null;
   let sectionContent: string[] = [];
@@ -93,7 +97,8 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
     let matchedSection = false;
     
     for (const { pattern, type } of sections) {
-      if (pattern.test(line)) {
+      const headerMatch = line.match(pattern);
+      if (headerMatch) {
         if (currentSection && sectionContent.length > 0) {
           result.push({
             ...currentSection,
@@ -105,6 +110,11 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
         if (type === "main" && foundMain) {
           currentSection = null;
           sectionContent = [];
+          const headerEndIndex = (headerMatch.index || 0) + headerMatch[0].length;
+          const inlineContent = line.slice(headerEndIndex).trim();
+          if (inlineContent) {
+            sectionContent.push(inlineContent);
+          }
           matchedSection = true;
           break;
         }
