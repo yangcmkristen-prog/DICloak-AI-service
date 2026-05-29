@@ -68,11 +68,8 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
   // 根据格式类型定义不同的解析模式
   const formatType = finalMeta?.outputFormatType || "A";
 
-  // 同时支持 、〖标题〗、[标题]，以及可选 emoji 前缀
-  const titleStart = "(?|〗|\\])";
-
-  // 支持多种格式变体：[问题类型]、📌【问题类型】、〖问题类型〗等
-  const titleStartPattern = "(?:【|〖|\\[)";
+  // 支持多种格式变体：、〖问题类型〗、[问题类型]，以及可选 emoji 前缀
+  const titleStartPattern = "(?|〗|\\])";
   const titleEndPattern = "(?:】|〗|\\])";
 
   const sections = [
@@ -90,19 +87,23 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
   ];
 
   // 有些模型会把多个标题连续输出在同一行，或者把标题图标单独输出成一行。
-  // 这里先规范化：
-  // 1. 把 “⚠️\n” 合并为 “⚠️”
-  // 2. 把 “故障排查...” 拆成多行
-  
-  // 有些模型会把多个标题连续输出在同一行，或者把标题图标单独输出成一行。
   // 先规范化这些变体，避免下一个标题的图标留在上一个卡片内容里。
-  const sectionHeaderSource = "问题类型|身份状态|主回复[^】〗\\]]*|回复1|通用回复[^】〗\\]]*|客户回复[^】〗\\]]*|终端用户回复[^】〗\\]]*|补充建议[^】〗\\]]*|需要补充的信息[^】〗\\]]*|回复2|回复3";
+  const sectionHeaderSource =
+    "问题类型|身份状态|主回复[^】〗\\]]*|回复1|通用回复[^】〗\\]]*|客户回复[^】〗\\]]*|终端用户回复[^】〗\\]]*|补充建议[^】〗\\]]*|需要补充的信息[^】〗\\]]*|回复2|回复3";
   const sectionHeaderPattern = `${titleStartPattern}\\s*(?:${sectionHeaderSource})\\s*${titleEndPattern}`;
-  const orphanIconHeaderPattern = new RegExp(`(^|\\n)\\s*(📌|⚠️|✅|🟡|🔵|🟣|💡|📝)\\s*\\n\\s*(${sectionHeaderPattern})`, "g");
-  const inlineHeaderPattern = new RegExp(`([^\\n])((?:📌|⚠️|✅|🟡|🔵|🟣|💡|📝)?\\s*${sectionHeaderPattern})`, "g");
+  const orphanIconHeaderPattern = new RegExp(
+    `(^|\\n)\\s*(📌|⚠️|✅|🟡|🔵|🟣|💡|📝)\\s*\\n\\s*(${sectionHeaderPattern})`,
+    "g"
+  );
+  const inlineHeaderPattern = new RegExp(
+    `([^\\n])((?:📌|⚠️|✅|🟡|🔵|🟣|💡|📝)?\\s*${sectionHeaderPattern})`,
+    "g"
+  );
+
   const normalizedContent = cleanContent
     .replace(orphanIconHeaderPattern, "$1$2$3")
     .replace(inlineHeaderPattern, "$1\n$2");
+
   const lines = normalizedContent.split("\n");
 
   let currentSection: ParsedReply | null = null;
