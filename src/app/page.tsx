@@ -307,7 +307,13 @@ export default function Home() {
         const classifyRes = await fetch("/api/classify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: content }),
+          body: JSON.stringify({
+            message: content,
+            history: currentConversation?.messages.map((m) => ({
+              role: m.role,
+              content: m.content,
+            })) || [],
+          }),
         });
         if (classifyRes.ok) {
           classification = (await classifyRes.json()) as Record<string, unknown>;

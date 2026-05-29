@@ -109,12 +109,21 @@ function coerceClassification(raw: unknown): ClassificationResult {
 export async function POST(request: NextRequest) {
   const t0 = Date.now();
   try {
-    const { message } = await request.json();
+    const { message, history } = await request.json() as {
+      message?: string;
+      history?: Array<{ role: string; content: string }>;
+    };
     console.log(`[PERF][CLASSIFY] request_parsed_ms=${Date.now() - t0}`);
 
     if (!message || typeof message !== "string") {
       return NextResponse.json({ error: "缺少消息内容" }, { status: 400 });
     }
+    const historyText = Array.isArray(history)
+      ? history
+          .slice(-10)
+          .map((item) => `${item.role === "assistant" ? "客服助手" : "用户"}：${item.content}`)
+          .join("\n")
+      : "";
 
     // 从数据库获取 API 配置
     const config = await getBackendApiConfig();
@@ -142,7 +151,12 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: CLASSIFICATION_PROMPT.replace("{userMessage}", message) },
+          {
+            role: "system",
+            content: CLASSIFICATION_PROMPT
+              .replace("{conversationHistory}", historyText || "无")
+              .replace("{userMessage}", message),
+          },
           { role: "user", content: message },
         ],
         temperature: 0.1,

@@ -83,5 +83,14 @@ action: list / get_detail / create / update / delete / open / close / unknown
 3. confidence 反映判断置信度（0.7-1.0）
 4. 只输出 JSON
 
+【对话历史】
+{conversationHistory}
+
+【历史继承规则】
+1. 如果历史中已明确用户身份（client/end_user），本轮必须继承，除非当前问题明确推翻。
+2. 如果历史中已有错误码、报错信息、设备、套餐、API 类型、成员/环境/代理等实体，本轮 entities 应继承相关信息。
+3. 如果当前问题是“还有其他办法吗”“那怎么办”“这个会影响套餐吗”等承接式问题，必须结合历史判断问题类型。
+4. 不要因为当前问题很短就直接判定 info_insufficient，先检查历史是否已提供足够上下文。
+
 【现在请分析以下客户问题】
 客户问题：{userMessage}`;

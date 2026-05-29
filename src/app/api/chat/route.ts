@@ -768,6 +768,13 @@ export async function POST(request: NextRequest) {
     // 优先使用前端传递的 System Prompt，否则使用精简版
     const finalSystemPrompt = systemPrompt || baseSystemPrompt;
 
+    const outputFormatGuardrail = `## 输出格式硬性要求
+    1. 每个板块标题必须独占一行，标题后必须换行再写内容。
+    2. 不要把下一个板块标题或标题图标接在上一段正文后面。
+    3. 禁止单独输出 📌、⚠️、✅、🟡、🔵、🟣、💡、📝 这类标题图标作为一行。
+    4. 板块标题只使用系统要求的 [主回复]、[补充建议]、[需要补充的信息]、[通用回复]、[客户回复]、[终端用户回复]。
+    5. 不要使用 〖标题〗 或  作为输出标题，统一使用 [标题]。`;
+
     const intentGuardrail = (classification?.intents && classification.intents.length > 0)
       ? `
     ## Intent Coverage Rules (MUST)
@@ -782,7 +789,7 @@ export async function POST(request: NextRequest) {
     `
       : "";
 
-    const finalPromptWithCoverage = `${finalSystemPrompt}\n${intentGuardrail}\n${languageRule}`;
+    const finalPromptWithCoverage = `${finalSystemPrompt}\n${intentGuardrail}\n${outputFormatGuardrail}\n${languageRule}`;
 
     // 构建知识库上下文（只传递最相关的知识库项）
     let knowledgeContext = "";
@@ -1005,7 +1012,10 @@ export async function POST(request: NextRequest) {
       
       // 更新块外变量
       problemType = classification?.primaryIntent || problemTypeResult.type;
-      userRole = classification?.identityStatus || userRoleResult.role;
+      userRole =
+        classification?.identityStatus && classification.identityStatus !== "unknown"
+          ? classification.identityStatus
+          : userRoleResult.role;
       outputFormatType = getOutputFormatType(problemType, userRole);
       aiOutputFormat = generateAIOutputFormat(problemType, userRole);
       
@@ -1309,32 +1319,45 @@ export async function POST(request: NextRequest) {
     // 构建对话历史上下文
     let historyContext = "";
     if (history && history.length > 0) {
-      historyContext = "## Conversation History\n";
-      history.forEach((msg: { role: string; content: string }) => {
-        if (msg.role === "user") {
-          historyContext += `User: ${msg.content}\n`;
-        } else if (msg.role === "assistant") {
-          // 提取主回复内容
-          const mainMatch = msg.content.match(/\[Main\][\s\S]*?[-–]?[\s]*?([\s\S]+?)(?=\[|$)/);
-          if (mainMatch) {
-            historyContext += `Assistant: ${mainMatch[1].trim()}\n`;
-          }
-        }
+      const cleanedHistory = history.slice(-12).map((msg: { role: string; content: string }) => {
+        const cleanContent = msg.content
+          .replace(/\[META\][\s\S]*?\[\/META\]/g, "")
+          .trim();
+
+        const clippedContent = cleanContent.length > 1200
+          ? `${cleanContent.slice(0, 1200)}...`
+          : cleanContent;
+
+        return `${msg.role === "assistant" ? "Assistant" : "User"}: ${clippedContent}`;
       });
-      historyContext += "\n";
+
+      historyContext = `## Conversation History and Memory
+    The following messages are from the SAME conversation. You MUST use them as context.
+    - Inherit known user identity, role, product plan, device, error message, API type, and previous troubleshooting steps.
+    - If the current question is short or ambiguous, resolve it using this history before asking follow-up.
+    - Do not ask again for information already present in the history.
+    - If history shows the user is a DICloak admin/client or end user/member, keep that role unless the current message clearly changes it.
+
+    ${cleanedHistory.join("\n")}
+
+    `;
     }
 
     // 构建用户消息
     const userMessage = `## Current User Question
-${message}
+    ${message}
 
-${languageRule}
+    ${languageRule}
 
-${aiOutputFormat}
+    ${aiOutputFormat}
 
-${knowledgeContext}
-${historyContext}
-Please generate reply based on the knowledge base above.`;
+    ${outputFormatGuardrail}
+
+    ${historyContext}
+
+    ${knowledgeContext}
+
+    Please generate reply based on the knowledge base and conversation history above.`;
 
     // 调试日志：检查知识库上下文是否为空
     console.log("[DEBUG] knowledgeContext 长度:", knowledgeContext.length);
