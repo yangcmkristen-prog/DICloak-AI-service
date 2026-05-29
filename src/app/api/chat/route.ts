@@ -94,6 +94,65 @@ type ClassificationResult = {
   followUpQuestions?: string[];
 };
 
+function readStringField(source: Record<string, unknown>, field: string): string {
+  const value = source[field];
+  return typeof value === "string" ? value : "";
+}
+
+function extractTextFromContentParts(parts: unknown[]): string {
+  return parts.map((part) => {
+    if (typeof part === "string") {
+      return part;
+    }
+
+    if (part && typeof part === "object") {
+      return readStringField(part as Record<string, unknown>, "text");
+    }
+
+    return "";
+  }).join("");
+}
+
+function extractTextFromLlmChunk(chunk: unknown): string {
+  if (typeof chunk === "string") {
+    return chunk;
+  }
+
+  if (!chunk || typeof chunk !== "object") {
+    return "";
+  }
+
+  const chunkRecord = chunk as Record<string, unknown>;
+
+  const content = chunkRecord.content;
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return extractTextFromContentParts(content);
+  }
+
+  const text = readStringField(chunkRecord, "text");
+  if (text) {
+    return text;
+  }
+
+  const delta = chunkRecord.delta;
+  if (delta && typeof delta === "object") {
+    const deltaContent = (delta as Record<string, unknown>).content;
+
+    if (typeof deltaContent === "string") {
+      return deltaContent;
+    }
+
+    if (Array.isArray(deltaContent)) {
+      return extractTextFromContentParts(deltaContent);
+    }
+  }
+
+  return "";
+}
+
 // ==================== 信息不足检测 ====================
 
 /**
@@ -1398,14 +1457,14 @@ Please generate reply based on the knowledge base above.`;
               temperature: 0.7,
             };
 
-            for await (const chunk of client.stream(messages, llmConfigStream)) {
-              if (!firstTokenLogged) {
-                console.log(`[PERF][CHAT] llm_first_token_ms=${Date.now() - tLlmStart}`);
-                firstTokenLogged = true;
-              }
+            const encoder = new TextEncoder();
 
-              const text = String(chunk ?? "");
-              controller.enqueue(encoder.encode(`data: ${text}\n\n`));
+            for await (const chunk of client.stream(messages, llmConfigStream)) {
+              const content = extractTextFromLlmChunk(chunk);
+
+              if (content) {
+                controller.enqueue(encoder.encode(content));
+              }
             }
             console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
           }
