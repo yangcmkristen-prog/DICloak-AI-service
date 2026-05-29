@@ -44,12 +44,25 @@ interface ParsedReply {
   content: string;
 }
 
+function getSectionType(header: string): ParsedReply["type"] | null {
+  if (/问题类型/i.test(header)) return "question";
+  if (/身份状态/i.test(header)) return "identity";
+  if (/主回复|回复1/i.test(header)) return "main";
+  if (/通用回复/i.test(header)) return "common";
+  if (/客户回复/i.test(header)) return "client";
+  if (/终端用户回复/i.test(header)) return "end_user";
+  if (/补充建议|回复2/i.test(header)) return "supplement";
+  if (/需要补充的信息|回复3/i.test(header)) return "info";
+  return null;
+}
+
 function parseReplies(content: string, metaData: MetaData | null): ParsedReply[] {
   const result: ParsedReply[] = [];
 
   // 首先解析 META 数据
   const { metaData: parsedMeta, cleanContent } = parseMetaData(content);
   const finalMeta = parsedMeta || metaData;
+  void finalMeta;
 
   // 提取并记录 FAQ ID
   const faqIdMatch = cleanContent.match(/\[FAQ_ID:\s*([^\]]+)\]/i);
@@ -65,100 +78,50 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
     console.log(`[FUNCTION Used] ${functionId}`);
   }
 
-  // 根据格式类型定义不同的解析模式
-  const formatType = finalMeta?.outputFormatType || "A";
+  /**
+   * 直接扫描整段文本中的板块标题，而不是按行判断。
+   *
+   * 支持：
+   * - [主回复]
+   * - 【主回复】
+   * - 〖主回复〗
+   * - ✅【主回复 | 优先发送】
+   * - 🛠️【问题类型】
+   *
+   * 注意：不能使用 (?|...)，JS 正则不支持，会导致 Runtime SyntaxError。
+   */
+  const sectionHeaderRegex =
+    /(?:📌|⚠️|✅|🟡|🔵|🟣|💡|📝|🛠️|👤|☑️|📎)?\s*(?:【|〖|\[)\s*(问题类型|身份状态|主回复[^】〗\]]*|回复1|通用回复[^】〗\]]*|客户回复[^】〗\]]*|终端用户回复[^】〗\]]*|补充建议[^】〗\]]*|需要补充的信息[^】〗\]]*|回复2|回复3)\s*(?:】|〗|\])/gi;
 
-  // 支持多种格式变体：、〖问题类型〗、[问题类型]，以及可选 emoji 前缀
-  const titleStartPattern = "(?|〗|\\])";
-  const titleEndPattern = "(?:】|〗|\\])";
+  const matches = [...cleanContent.matchAll(sectionHeaderRegex)];
 
-  const sections = [
-    { pattern: new RegExp(`(?:📌\\s*)?${titleStartPattern}\\s*问题类型\\s*${titleEndPattern}`, "i"), type: "question" as const },
-    { pattern: new RegExp(`(?:⚠️\\s*)?${titleStartPattern}\\s*身份状态\\s*${titleEndPattern}`, "i"), type: "identity" as const },
-    { pattern: new RegExp(`(?:✅\\s*)?${titleStartPattern}\\s*主回复[^】〗\\]]*${titleEndPattern}`, "i"), type: "main" as const },
-    { pattern: new RegExp(`(?:✅\\s*)?${titleStartPattern}\\s*回复1\\s*${titleEndPattern}`, "i"), type: "main" as const },
-    { pattern: new RegExp(`(?:🟡\\s*)?${titleStartPattern}\\s*通用回复[^】〗\\]]*${titleEndPattern}`, "i"), type: "common" as const },
-    { pattern: new RegExp(`(?:🔵\\s*)?${titleStartPattern}\\s*客户回复[^】〗\\]]*${titleEndPattern}`, "i"), type: "client" as const },
-    { pattern: new RegExp(`(?:🟣\\s*)?${titleStartPattern}\\s*终端用户回复[^】〗\\]]*${titleEndPattern}`, "i"), type: "end_user" as const },
-    { pattern: new RegExp(`(?:💡\\s*)?${titleStartPattern}\\s*补充建议[^】〗\\]]*${titleEndPattern}`, "i"), type: "supplement" as const },
-    { pattern: new RegExp(`(?:📝\\s*)?${titleStartPattern}\\s*需要补充的信息[^】〗\\]]*${titleEndPattern}`, "i"), type: "info" as const },
-    { pattern: new RegExp(`(?:💡\\s*)?${titleStartPattern}\\s*回复2\\s*${titleEndPattern}`, "i"), type: "supplement" as const },
-    { pattern: new RegExp(`(?:📝\\s*)?${titleStartPattern}\\s*回复3\\s*${titleEndPattern}`, "i"), type: "info" as const },
-  ];
-
-  // 有些模型会把多个标题连续输出在同一行，或者把标题图标单独输出成一行。
-  // 先规范化这些变体，避免下一个标题的图标留在上一个卡片内容里。
-  const sectionHeaderSource =
-    "问题类型|身份状态|主回复[^】〗\\]]*|回复1|通用回复[^】〗\\]]*|客户回复[^】〗\\]]*|终端用户回复[^】〗\\]]*|补充建议[^】〗\\]]*|需要补充的信息[^】〗\\]]*|回复2|回复3";
-  const sectionHeaderPattern = `${titleStartPattern}\\s*(?:${sectionHeaderSource})\\s*${titleEndPattern}`;
-  const orphanIconHeaderPattern = new RegExp(
-    `(^|\\n)\\s*(📌|⚠️|✅|🟡|🔵|🟣|💡|📝)\\s*\\n\\s*(${sectionHeaderPattern})`,
-    "g"
-  );
-  const inlineHeaderPattern = new RegExp(
-    `([^\\n])((?:📌|⚠️|✅|🟡|🔵|🟣|💡|📝)?\\s*${sectionHeaderPattern})`,
-    "g"
-  );
-
-  const normalizedContent = cleanContent
-    .replace(orphanIconHeaderPattern, "$1$2$3")
-    .replace(inlineHeaderPattern, "$1\n$2");
-
-  const lines = normalizedContent.split("\n");
-
-  let currentSection: ParsedReply | null = null;
-  let sectionContent: string[] = [];
-  let foundMain = false;
-
-  for (const line of lines) {
-    let matchedSection = false;
-
-    for (const { pattern, type } of sections) {
-      const headerMatch = line.match(pattern);
-
-      if (headerMatch) {
-        if (currentSection && sectionContent.length > 0) {
-          result.push({
-            ...currentSection,
-            content: sectionContent.join("\n").trim(),
-          });
-        }
-
-        // 只保留第一个主回复，忽略后续的
-        if (type === "main" && foundMain) {
-          currentSection = null;
-          sectionContent = [];
-          matchedSection = true;
-          break;
-        }
-
-        currentSection = { type, content: "" };
-        sectionContent = [];
-
-        // 保留标题同一行后面的正文，例如：您好...
-        const headerEndIndex = (headerMatch.index || 0) + headerMatch[0].length;
-        const inlineContent = line.slice(headerEndIndex).trim();
-        if (inlineContent) {
-          sectionContent.push(inlineContent);
-        }
-
-        if (type === "main") foundMain = true;
-
-        matchedSection = true;
-        break;
-      }
-    }
-
-    if (!matchedSection && currentSection) {
-      sectionContent.push(line);
-    }
+  if (matches.length === 0) {
+    return [{ type: "question", content: cleanContent.trim() }];
   }
 
-  if (currentSection && sectionContent.length > 0) {
-    result.push({
-      ...currentSection,
-      content: sectionContent.join("\n").trim(),
-    });
+  let foundMain = false;
+
+  for (let index = 0; index < matches.length; index++) {
+    const match = matches[index];
+    const rawHeader = match[1] || "";
+    const type = getSectionType(rawHeader);
+
+    if (!type) continue;
+
+    // 只保留第一个主回复，避免模型重复输出多个主回复卡片
+    if (type === "main") {
+      if (foundMain) continue;
+      foundMain = true;
+    }
+
+    const contentStart = (match.index || 0) + match[0].length;
+    const nextMatch = matches[index + 1];
+    const contentEnd = nextMatch?.index ?? cleanContent.length;
+    const sectionText = cleanContent.slice(contentStart, contentEnd).trim();
+
+    if (sectionText) {
+      result.push({ type, content: sectionText });
+    }
   }
 
   if (result.length === 0) {
@@ -178,7 +141,7 @@ function extractPureContent(text: string): string {
     /^回复\s*\d+\s*[:：]?\s*/i,
     /^\d+\s*[:：.、]\s*/,
     /^\[.*?\]\s*/,
-    /^\s*/,
+    /^【.*?】\s*/,
     /^〖.*?〗\s*/,
   ];
 
