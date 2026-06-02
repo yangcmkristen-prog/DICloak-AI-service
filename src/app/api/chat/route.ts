@@ -85,8 +85,10 @@ type ClassificationIntent = {
 };
 
 type ClassificationResult = {
+  problemType?: ProblemType;
   primaryIntent?: ProblemType;
   identityStatus?: UserRole;
+  tables?: Array<{ id?: TableId; action?: 'full' | 'filter' | 'match'; filter?: Record<string, unknown> | null }>;
   confidence?: number;
   reasoning?: string;
   intents?: ClassificationIntent[];
@@ -438,8 +440,8 @@ function searchPricingPlans(
 
 const SUBSCRIPTION_KEYWORDS = [
   '订阅', '套餐', '价格', '购买', 'plan', 'price', 
-  'billing', 'upgrade', '付费', '订阅', '续费',
-  'subscription', 'pricing', '多少钱', '收费'
+  'billing', 'upgrade', '付费', '订阅', '续费', '续订',
+  'subscription', 'pricing', '多少钱', '收费', 'renew', 'renewal', 'renovar', 'renovación'
 ];
 
 // 套餐名称关键词（用于识别套餐功能对比问题）
@@ -495,8 +497,25 @@ function checkSubscriptionProblem(message: string): {
     return { isSubscriptionProblem: true, isDicloak: true };
   }
   
-  // 意图不明确
+   // 意图不明确
   return { isSubscriptionProblem: true, isDicloak: null };
+}
+
+function hasAmbiguousExternalToolTrouble(message: string): boolean {
+  const msgLower = message.toLowerCase();
+  const hasExternalToolName = NON_DICLOAK_KEYWORDS.some((kw) => msgLower.includes(kw));
+  if (!hasExternalToolName) {
+    return false;
+  }
+
+  const troubleKeywords = [
+    '打不开', '无法打开', '开不了', '不能打开', '进不去', '无法访问', '访问不了',
+    '登录不了', '登不上', '不能登录', '无法登录', '报错', '错误', '异常', '失败',
+    'cannot open', 'can not open', "can't open", 'cannot access', 'can not access',
+    "can't access", 'not opening', 'not working', 'login failed', 'error', 'failed',
+  ];
+
+  return troubleKeywords.some((kw) => msgLower.includes(kw));
 }
 
 /**
@@ -557,7 +576,15 @@ function identifyProblemType(
     };
   }
   
-  // 4. 检查是否超出支持范围（非 API/订阅场景）
+  // 4. 第三方工具名称 + 打不开/访问异常是歧义故障：可能是 DICloak 环境/profile 名称，不直接判为 user_routing 或超范围
+  if (hasAmbiguousExternalToolTrouble(message)) {
+    return {
+      type: 'info_insufficient',
+      reason: '第三方工具名称伴随打不开/访问异常，需澄清是 DICloak 环境/profile 还是外部平台本身'
+    };
+  }
+
+  // 5. 检查是否超出支持范围（非 API/订阅场景）
   const outOfScopeKeywords = [
     'chatgpt', 'gpt-4', 'claude', 'midjourney', 'runway', 
     'freepik', 'canva', 'ai写作', 'ai生成', '编程工具',
@@ -567,7 +594,7 @@ function identifyProblemType(
     return { type: 'out_of_scope', reason: '超出 DICloak 支持范围' };
   }
   
-  // 5. 根据匹配分数判断类型
+  // 6. 根据匹配分数判断类型
   if (matchedTsScore >= matchedFaqScore && matchedTsScore >= matchedOosScore && matchedTsScore > 0) {
     return { type: 'troubleshooting', reason: '匹配到故障排查知识库' };
   }
@@ -580,7 +607,7 @@ function identifyProblemType(
     return { type: 'feature_faq', reason: '匹配到功能FAQ知识库' };
   }
   
-  // 6. 默认返回信息不足
+  // 7. 默认返回信息不足
   return { type: 'info_insufficient', reason: '未匹配到相关知识库' };
 }
 
@@ -1079,12 +1106,15 @@ export async function POST(request: NextRequest) {
         selectedTables.add("faq");
       }
       
-      // 更新块外变量
-      problemType = classification?.primaryIntent || problemTypeResult.type;
-      userRole =
-        classification?.identityStatus && classification.identityStatus !== "unknown"
-          ? classification.identityStatus
-          : userRoleResult.role;
+      const classifiedProblemType = classification?.problemType || classification?.primaryIntent;
+      const backendRequiresClarification = problemTypeResult.type === 'intent_unclear' || problemTypeResult.type === 'info_insufficient';
+      const classificationLooksLikeMisroutedEndUser = classifiedProblemType === 'user_routing' && userRoleResult.role !== 'end_user';
+
+      // 更新块外变量：后端的澄清/信息不足规则优先，避免分类器把模糊续订、ChatGPT profile 打不开误判为功能咨询或终端用户问题
+      problemType = backendRequiresClarification || classificationLooksLikeMisroutedEndUser
+        ? problemTypeResult.type
+        : classifiedProblemType || problemTypeResult.type;
+      userRole = classification?.identityStatus || userRoleResult.role;
       outputFormatType = getOutputFormatType(problemType, userRole);
       aiOutputFormat = generateAIOutputFormat(problemType, userRole);
       

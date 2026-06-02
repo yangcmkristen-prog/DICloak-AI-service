@@ -13,11 +13,11 @@ DICloak 中以下术语等价：
 api_problem: 涉及 API、接口、endpoint、参数、request、response
 subscription_problem: 套餐对比、功能支持、价格咨询，或包含套餐名称
 troubleshooting: 具体故障、报错、异常
-feature_faq: 功能使用咨询
+feature_faq: DICloak 功能使用咨询；续订账户但未说明平台不属于功能咨询
 info_insufficient: 信息不足无法判断
-intent_unclear: 订阅意图不明确
+intent_unclear: 订阅/续订意图不明确，例如只说想续订账户但未说明是否为 DICloak
 out_of_scope: 超出支持范围
-user_routing: 终端用户问题
+user_routing: 终端用户问题（仅当明确表示账号由他人/第三方/管理员提供，或工具登录和使用问题；不要因为出现 ChatGPT/Claude 等工具名就判断为 user_routing）
 
 【identityStatus 只能选一个】
 client: DICloak 客户
@@ -31,6 +31,11 @@ out_of_scope: 超出范围库
 function_knowledge: 功能知识库
 api_endpoints: API端点与参数表
 pricing_table: 价格功能表
+
+【强制判定规则】
+- “我想续订我的账户 / renew my account / renovar mi cuenta” 这类没有说明是 DICloak 还是其他平台账户的问题，必须判为 intent_unclear，needsFollowUp = true，并追问是否续订 DICloak 账户。
+- “ChatGPT打不开 / Claude打不开 / 某工具打不开” 这类第三方工具名 + 打不开/访问异常，不能直接判为 user_routing；应判为 info_insufficient 或 troubleshooting，并追问是 DICloak 环境/profile 打不开，还是外部网站/工具本身打不开。
+- 只有明确出现“账号是别人给的/第三方提供/不是管理员/服务商提供”等身份来源时，才判为 user_routing。
 
 【表选择规则】
 api_problem: 必须 api_endpoints，可加 faq
