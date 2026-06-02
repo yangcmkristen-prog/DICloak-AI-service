@@ -758,7 +758,7 @@ export async function POST(request: NextRequest) {
 ## FAQ Selection
 - Choose the FAQ with HIGHEST Score
 - Prefer FAQs with Score >= 10
-- Start your reply with [FAQ_ID: xxx] or [TS_ID: xxx]
+- Start your reply with [FAQ_ID: xxx], [TS_ID: xxx], or [FUNCTION_ID: xxx] when you used the corresponding knowledge source
 
 ## Term Translation
 - Replace {{UI terms}} with translated terms
@@ -812,10 +812,11 @@ export async function POST(request: NextRequest) {
       return [...new Set([...words, ...subs])];
     };
     
-    // 使用 AI 提取的英语关键词（已在 /api/keywords 中提取并翻译）
-    const userKeywords: string[] = aiKeywords && aiKeywords.length > 0 
-      ? aiKeywords.map((k: string) => k.toLowerCase())
-      : extractKeywords(message);
+    // 同时使用 AI 提取关键词和原始问题关键词，避免中文功能知识库被英文关键词覆盖而无法命中
+    const messageKeywords = extractKeywords(message);
+    const userKeywords: string[] = aiKeywords && aiKeywords.length > 0
+      ? [...new Set([...aiKeywords.map((k: string) => k.toLowerCase()), ...messageKeywords])]
+      : messageKeywords;
     
     console.log('[DEBUG] 使用的关键词（英语）:', userKeywords);
 
@@ -918,7 +919,7 @@ export async function POST(request: NextRequest) {
     let aiOutputFormat = generateAIOutputFormat(problemType, userRole);
 
     const tKnowledgeStart = Date.now();
-    if (knowledge && (knowledge.faqItems?.length > 0 || knowledge.troubleshootingItems?.length > 0 || knowledge.outOfScopeItems?.length > 0)) {
+    if (knowledge && (knowledge.faqItems?.length > 0 || knowledge.troubleshootingItems?.length > 0 || knowledge.outOfScopeItems?.length > 0 || knowledge.functionKnowledge?.length > 0)) {
       // 计算匹配分数（增强标签匹配）
       const calculateMatchScore = (userMsg: string, item: { questionCN?: string; questionEN?: string; tags?: string[]; userPhrases?: string }, keywords: string[]) => {
         let score = 0;
@@ -964,12 +965,79 @@ export async function POST(request: NextRequest) {
         return score;
       };
 
+      type FunctionKnowledgeItem = {
+        id?: string;
+        functionId?: string;
+        module1?: string;
+        pageName?: string;
+        functionType?: string;
+        functionName?: string;
+        description?: string;
+        entryPath?: string;
+        uiPosition?: string;
+        prerequisites?: string;
+        steps?: string;
+        faqIds?: string;
+        keywordsCN?: string;
+        keywordsEN?: string;
+      };
+
+      const normalizeFunctionText = (value?: string) => (value || '').toLowerCase();
+      const calculateFunctionKnowledgeScore = (userMsg: string, item: FunctionKnowledgeItem, keywords: string[]) => {
+        let score = 0;
+        const msgLower = userMsg.toLowerCase();
+        const searchableFields = [
+          item.functionName,
+          item.description,
+          item.keywordsCN,
+          item.keywordsEN,
+          item.module1,
+          item.pageName,
+          item.functionType,
+          item.entryPath,
+          item.uiPosition,
+          item.prerequisites,
+          item.steps,
+        ];
+        const searchableText = searchableFields.map(normalizeFunctionText).filter(Boolean).join(' ');
+        const compactMessage = msgLower.replace(/[\s,，。！？?；;、]/g, '');
+        const compactSearchableText = searchableText.replace(/[\s,，。！？?；;、]/g, '');
+
+        if (searchableText.includes(msgLower) || msgLower.includes(searchableText) || compactSearchableText.includes(compactMessage)) {
+          score += 12;
+        }
+
+        keywords.forEach((kw) => {
+          const keyword = kw.toLowerCase();
+          if (!keyword) return;
+          if (normalizeFunctionText(item.functionName).includes(keyword)) score += 5;
+          if (normalizeFunctionText(item.description).includes(keyword)) score += 4;
+          if (normalizeFunctionText(item.keywordsCN).includes(keyword) || normalizeFunctionText(item.keywordsEN).includes(keyword)) score += 5;
+          if (normalizeFunctionText(item.steps).includes(keyword) || normalizeFunctionText(item.prerequisites).includes(keyword)) score += 3;
+          if (normalizeFunctionText(item.module1).includes(keyword) || normalizeFunctionText(item.pageName).includes(keyword)) score += 2;
+        });
+
+        const userQuestionTokens = msgLower.split(/[\s,，。！？?；;、]+/).filter((token) => token.length >= 2);
+        userQuestionTokens.forEach((token) => {
+          if (searchableText.includes(token)) score += 2;
+        });
+
+        return score;
+      };
+
       // FAQ 匹配过滤（只过滤，不排序，由 AI 判断相关度）
       type FaqItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; functionId?: string; termIds?: string[]; faqId?: string };
       const faqItems = (knowledge.faqItems || []) as FaqItem[];
       const matchedFaq = faqItems
         .map((item: FaqItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
         .filter(m => m.score > 0); // 只过滤匹配到的，不排序不限制数量，由 AI 判断相关度
+
+      // 功能知识库匹配过滤
+      const functionKnowledgeItems = (knowledge.functionKnowledge || []) as FunctionKnowledgeItem[];
+      const matchedFunctionKnowledge = functionKnowledgeItems
+        .map((item: FunctionKnowledgeItem) => ({ item, score: calculateFunctionKnowledgeScore(message, item, userKeywords) }))
+        .filter((m) => m.score > 0)
+        .sort((a, b) => b.score - a.score);
 
       // Troubleshooting 匹配过滤
       type TsItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; answerClient?: string; answerEndUser?: string; functionId?: string; termIds?: string[]; faqId?: string };
@@ -989,8 +1057,9 @@ export async function POST(request: NextRequest) {
       const topFaqScore = matchedFaq.length > 0 ? Math.max(...matchedFaq.map(m => m.score)) : 0;
       const topTsScore = matchedTs.length > 0 ? Math.max(...matchedTs.map(m => m.score)) : 0;
       const topOosScore = matchedOos.length > 0 ? Math.max(...matchedOos.map(m => m.score)) : 0;
+      const topFunctionKnowledgeScore = matchedFunctionKnowledge.length > 0 ? Math.max(...matchedFunctionKnowledge.map(m => m.score)) : 0;
       
-      const problemTypeResult = identifyProblemType(message, topFaqScore, topTsScore, topOosScore);
+      const problemTypeResult = identifyProblemType(message, Math.max(topFaqScore, topFunctionKnowledgeScore), topTsScore, topOosScore);
       const userRoleResult = identifyUserRole(message, history);
 
       const intents = classification?.intents || [];
@@ -1022,7 +1091,7 @@ export async function POST(request: NextRequest) {
       console.log("[TYPE DEBUG] 问题类型:", problemType, "-", problemTypeResult.reason);
       console.log("[TYPE DEBUG] 用户身份:", userRole, "-", userRoleResult.reason);
       console.log("[TYPE DEBUG] 输出格式:", outputFormatType);
-      console.log("[TYPE DEBUG] 匹配分数 - FAQ:", topFaqScore, "TS:", topTsScore, "OOS:", topOosScore);
+      console.log("[TYPE DEBUG] 匹配分数 - FAQ:", topFaqScore, "Function:", topFunctionKnowledgeScore, "TS:", topTsScore, "OOS:", topOosScore);
 
       // ==================== API 端点表检索 ====================
       // 当检测到 API 相关问题时，始终检索 API 端点表
@@ -1083,6 +1152,10 @@ export async function POST(request: NextRequest) {
         console.log(`[MATCH DEBUG] ... and ${matchedFaq.length - 10} more FAQs`);
       }
       console.log("[MATCH DEBUG] Matched TS count:", matchedTs.length);
+      console.log("[MATCH DEBUG] Matched Function Knowledge count:", matchedFunctionKnowledge.length);
+      matchedFunctionKnowledge.slice(0, 10).forEach((m, i) => {
+        console.log(`[MATCH DEBUG] Function ${i+1}: ${m.item.functionId || m.item.id || 'unknown'}, score: ${m.score}, name: ${m.item.functionName || ''}, module: ${m.item.module1 || ''}`);
+      });
       console.log("[MATCH DEBUG] Matched OOS count:", matchedOos.length);
 
       // ==========================================
@@ -1200,6 +1273,33 @@ export async function POST(request: NextRequest) {
 
       // 将优先上下文添加到最前面
       knowledgeContext = priorityContext + knowledgeContext;
+
+      // 构建功能知识库上下文
+      const shouldUseFunctionKnowledge = problemType === 'feature_faq' || selectedTables.has('function_knowledge') || matchedFunctionKnowledge.length > 0;
+      if (shouldUseFunctionKnowledge && matchedFunctionKnowledge.length > 0) {
+        knowledgeContext += "## Function Knowledge Base (sorted by relevance score)\n";
+        knowledgeContext += "IMPORTANT: For feature capability / function usage questions, you MUST use this function knowledge before saying no related knowledge was found.\n";
+        knowledgeContext += "Use EntryPath, UIPosition, Prerequisites and Steps to answer how the feature works.\n";
+        knowledgeContext += "If you use this section, start your reply with [FUNCTION_ID: xxx].\n\n";
+
+        matchedFunctionKnowledge.slice(0, 12).forEach((m, index) => {
+          const item = m.item;
+          knowledgeContext += `[FUNCTION ${index + 1}] ID: ${item.functionId || item.id || 'unknown'} | Score: ${m.score}\n`;
+          if (item.module1) knowledgeContext += `Module: ${item.module1}\n`;
+          if (item.pageName) knowledgeContext += `Page: ${item.pageName}\n`;
+          if (item.functionType) knowledgeContext += `FunctionType: ${item.functionType}\n`;
+          if (item.functionName) knowledgeContext += `FunctionName: ${item.functionName}\n`;
+          if (item.description) knowledgeContext += `Description: ${item.description}\n`;
+          if (item.entryPath) knowledgeContext += `EntryPath: ${item.entryPath}\n`;
+          if (item.uiPosition) knowledgeContext += `UIPosition: ${item.uiPosition}\n`;
+          if (item.prerequisites) knowledgeContext += `Prerequisites: ${item.prerequisites}\n`;
+          if (item.steps) knowledgeContext += `Steps: ${item.steps}\n`;
+          if (item.keywordsCN) knowledgeContext += `KeywordsCN: ${item.keywordsCN}\n`;
+          if (item.keywordsEN) knowledgeContext += `KeywordsEN: ${item.keywordsEN}\n`;
+          if (item.faqIds) knowledgeContext += `RelatedFAQ: ${item.faqIds}\n`;
+          knowledgeContext += "\n";
+        });
+      }
 
       // 构建 FAQ 上下文
       const faqContextLabel = finalIsApiQuestion || finalIsPricingQuestion ? "FAQ Knowledge Base (SUPPLEMENTARY)" : "FAQ Knowledge Base (sorted by relevance score)";
