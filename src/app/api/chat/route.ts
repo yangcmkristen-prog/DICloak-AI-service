@@ -800,7 +800,8 @@ export async function POST(request: NextRequest) {
     2. 不要把下一个板块标题或标题图标接在上一段正文后面。
     3. 禁止单独输出 📌、⚠️、✅、🟡、🔵、🟣、💡、📝 这类标题图标作为一行。
     4. 板块标题只使用系统要求的 [主回复]、[补充建议]、[需要补充的信息]、[通用回复]、[客户回复]、[终端用户回复]。
-    5. 不要使用 〖标题〗 或  作为输出标题，统一使用 [标题]。`;
+    5. 正文必须是纯文本，不要使用 Markdown 加粗/斜体/标题符号，例如不要输出 **文本**、__文本__、# 标题。
+    6. 正文不得保留术语占位符花括号；如果知识库出现 {{Equipo}}、{{Members}}，输出时必须变成 Equipo、Members 或目标语言译文。`;
 
     const intentGuardrail = (classification?.intents && classification.intents.length > 0)
       ? `
@@ -933,10 +934,17 @@ export async function POST(request: NextRequest) {
       return result;
     };
 
-    // 处理术语定位符：提取 [已翻译:原文->译文] 中的译文
+    // 处理术语定位符和残留占位符，确保传给模型的知识库上下文不包含 {{}}
     const processTermMarkers = (text: string): string => {
-      // 匹配 [已翻译:原文->译文] 格式，只保留译文
-      return text.replace(/\[已翻译:[^>]*->([^\]]+)\]/g, '$1');
+      return text
+        // 匹配 [已翻译:原文->译文] 格式，只保留译文
+        .replace(/\[已翻译:[^>]*->([^\]]+)\]/g, '$1')
+        // 兜底移除术语占位符花括号：{{Team}} -> Team
+        .replace(/\{\{\s*([^{}]+?)\s*\}\}/g, '$1')
+        .replace(/[{}]/g, '')
+        // 避免知识库 Markdown 加粗符号诱导模型原样输出
+        .replace(/\*\*(.*?)\*\*/g, '$1')
+        .replace(/__(.*?)__/g, '$1');
     };
 
     // 初始化问题类型和格式（默认值）

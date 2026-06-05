@@ -56,6 +56,20 @@ function getSectionType(header: string): ParsedReply["type"] | null {
   return null;
 }
 
+function sanitizeAssistantText(text: string): string {
+  return text
+    // Remove common markdown emphasis markers while preserving plain text.
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,，。]|$)/g, '$1$2')
+    // Unwrap complete DICloak term placeholders: {{Team}} -> Team.
+    .replace(/\{\{\s*([^{}]+?)\s*\}\}/g, '$1')
+    // Unwrap malformed placeholders occasionally produced by the model: {{Members -> Members.
+    .replace(/\{\{\s*([^{}\n]+?)(?=(?:[。！？；;,.，、]|\s|$))/g, '$1')
+    .replace(/[{}]/g, '')
+    .trim();
+}
+
 function parseReplies(content: string, metaData: MetaData | null): ParsedReply[] {
   const result: ParsedReply[] = [];
 
@@ -139,17 +153,14 @@ function extractPureContent(text: string): string {
     /^\[回复\s*\d+\]\s*/i,
     /^\[回复\d+\]\s*/i,
     /^回复\s*\d+\s*[:：]?\s*/i,
-    /^\d+\s*[:：.、]\s*/,
     /^\[.*?\]\s*/,
-    /^【.*?】\s*/,
-    /^〖.*?〗\s*/,
   ];
 
   for (const pattern of patterns) {
     content = content.replace(pattern, "");
   }
 
-  return content.trim();
+  return sanitizeAssistantText(content);
 }
 
 // 渲染回复卡片的组件
