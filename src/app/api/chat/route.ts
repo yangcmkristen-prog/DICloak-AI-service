@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { LLMClient, Config, HeaderUtils } from "coze-coding-dev-sdk";
+import { LLMClient, Config } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from '@/storage/database/supabase-client';
-import type { ConversationContext } from '@/lib/types';
+import type { KnowledgeBase } from '@/lib/types';
 
 // ==================== 后端获取 API 配置 ====================
 
@@ -525,9 +525,8 @@ function identifyProblemType(
   message: string,
   matchedFaqScore: number,
   matchedTsScore: number,
-  matchedOosScore: number,
-  conversationContext?: ConversationContext
-): { type: ProblemType; reason: string; apiInfo?: any; subscriptionInfo?: any } {
+  matchedOosScore: number
+): { type: ProblemType; reason: string; apiInfo?: ReturnType<typeof checkApiProblem>; subscriptionInfo?: ReturnType<typeof checkSubscriptionProblem> } {
   const msgLower = message.toLowerCase().trim();
   
   // 1. 信息不足检测（优先级最高）
@@ -714,12 +713,11 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     console.log(`[PERF][CHAT] body_parsed_ms=${Date.now() - t0}`);
-    const { message, history, knowledge, systemPrompt, apiConfig, detectedLanguage, aiKeywords, classification } = body as {
+    const { message, history, knowledge, systemPrompt, detectedLanguage, aiKeywords, classification } = body as {
       message?: string;
       history?: Array<{ role: string; content: string }>;
-      knowledge?: any;
+      knowledge?: Partial<KnowledgeBase>;
       systemPrompt?: string;
-      apiConfig?: unknown;
       detectedLanguage?: string;
       aiKeywords?: string[];
       classification?: ClassificationResult;
@@ -747,7 +745,7 @@ export async function POST(request: NextRequest) {
       console.log('[DEBUG] FAQ数量:', knowledge.faqItems?.length || 0);
       console.log('[DEBUG] 术语库数量:', knowledge.termItems?.length || 0);
       console.log('[DEBUG] pricingPlans数量:', knowledge.pricingPlans?.length || 0);
-      console.log('[DEBUG] pricingRawTable数量:', knowledge.pricingRawTable?.length || 0);
+      console.log('[DEBUG] pricingRawTable行数:', knowledge.pricingRawTable?.rows.length || 0);
     }
 
     // 语言规则映射
@@ -799,9 +797,10 @@ export async function POST(request: NextRequest) {
     1. 每个板块标题必须独占一行，标题后必须换行再写内容。
     2. 不要把下一个板块标题或标题图标接在上一段正文后面。
     3. 禁止单独输出 📌、⚠️、✅、🟡、🔵、🟣、💡、📝 这类标题图标作为一行。
-    4. 板块标题只使用系统要求的 [主回复]、[补充建议]、[需要补充的信息]、[通用回复]、[客户回复]、[终端用户回复]。
-    5. 正文必须是纯文本，不要使用 Markdown 加粗/斜体/标题符号，例如不要输出 **文本**、__文本__、# 标题。
-    6. 正文不得保留术语占位符花括号；如果知识库出现 {{Equipo}}、{{Members}}，输出时必须变成 Equipo、Members 或目标语言译文。`;
+    4. 板块标题是 UI 解析锚点，必须原样使用中文方括号标题，不允许翻译、改写、加粗或替换括号/符号。只能从以下标题中选择：[问题类型]、[身份状态]、[主回复]、[补充建议]、[需要补充的信息]、[通用回复]、[客户回复]、[终端用户回复]。
+    5. 只能翻译正文内容，禁止翻译板块标题；例如西班牙语回复也必须保留 [主回复]，不能输出 [Respuesta general] 或 【Respuesta general】。
+    6. 正文必须是纯文本，不要使用 Markdown 加粗/斜体/标题符号，例如不要输出 **文本**、__文本__、# 标题。
+    7. 正文不得保留术语占位符花括号；如果知识库出现 {{Equipo}}、{{Members}}，输出时必须变成 Equipo、Members 或目标语言译文。`;
 
     const intentGuardrail = (classification?.intents && classification.intents.length > 0)
       ? `
@@ -954,8 +953,7 @@ export async function POST(request: NextRequest) {
     let aiOutputFormat = generateAIOutputFormat(problemType, userRole);
 
     const tKnowledgeStart = Date.now();
-    if (knowledge && (knowledge.faqItems?.length > 0 || knowledge.troubleshootingItems?.length > 0 || knowledge.outOfScopeItems?.length > 0 || knowledge.functionKnowledge?.length > 0)) {
-      // 计算匹配分数（增强标签匹配）
+    if (knowledge && ((knowledge.faqItems?.length ?? 0) > 0 || (knowledge.troubleshootingItems?.length ?? 0) > 0 || (knowledge.outOfScopeItems?.length ?? 0) > 0 || (knowledge.functionKnowledge?.length ?? 0) > 0)) {
       const calculateMatchScore = (userMsg: string, item: { questionCN?: string; questionEN?: string; tags?: string[]; userPhrases?: string }, keywords: string[]) => {
         let score = 0;
         const msgLower = userMsg.toLowerCase();
@@ -1099,7 +1097,7 @@ export async function POST(request: NextRequest) {
 
       const intents = classification?.intents || [];
       const selectedTables = new Set<TableId>(
-        intents.flatMap((it) => (it.tables || []).map((t) => t.id)).filter(Boolean as any)
+        intents.flatMap((it) => (it.tables || []).map((t) => t.id)).filter((id): id is TableId => Boolean(id))
       );
 
       // API + 套餐共现强规则：强制双表
@@ -1546,7 +1544,6 @@ export async function POST(request: NextRequest) {
 
     const stream = new ReadableStream({
       async start(controller) {
-        const encoder = new TextEncoder();
         try {
           // 首先发送元数据给前端
           controller.enqueue(new TextEncoder().encode(`[META]${metaData}[/META]\n`));

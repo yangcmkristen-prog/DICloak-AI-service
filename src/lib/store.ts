@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import type { ConversationContext, ApiConfig, Conversation } from './types';
+import type { ConversationContext, ApiConfig, Conversation, KnowledgeBase } from './types';
 import { generateId } from './types';
 
 // Supabase 配置
@@ -98,7 +98,7 @@ export interface Message {
 
 const KNOWLEDGE_CONFIG_KEY = 'default';
 
-export async function getKnowledgeBase(): Promise<Record<string, any>> {
+export async function getKnowledgeBase(): Promise<Partial<KnowledgeBase>> {
   try {
     if (supabase) {
       const { data, error } = await supabase
@@ -120,7 +120,7 @@ export async function getKnowledgeBase(): Promise<Record<string, any>> {
   return local ? JSON.parse(local) : {};
 }
 
-export async function saveKnowledgeBase(data: Record<string, any>): Promise<void> {
+export async function saveKnowledgeBase(data: Partial<KnowledgeBase>): Promise<void> {
   try {
     const items = Object.values(data);
     
@@ -138,7 +138,7 @@ export async function saveKnowledgeBase(data: Record<string, any>): Promise<void
   localStorage.setItem('diclok_knowledge', JSON.stringify(data));
 }
 
-export function getKnowledgeStats(data?: Record<string, any>): {
+export function getKnowledgeStats(data?: Partial<KnowledgeBase>): {
   faqCount: number;
   troubleshootingCount: number;
   outOfScopeCount: number;
@@ -172,7 +172,7 @@ export function getKnowledgeStats(data?: Record<string, any>): {
   };
   
   // 如果没有传入数据，从 localStorage 读取
-  let kbData: Record<string, any> | undefined = data;
+  let kbData: Partial<KnowledgeBase> | undefined = data;
   if (!kbData) {
     try {
       const local = localStorage.getItem('diclok_knowledge');
@@ -231,7 +231,7 @@ export function getKnowledgeStats(data?: Record<string, any>): {
   return result;
 }
 
-export function replaceKnowledgeData(existing: Record<string, any>, newData?: Record<string, any>): Record<string, any> {
+export function replaceKnowledgeData(existing: Record<string, unknown>, newData?: Record<string, unknown>): Record<string, unknown> {
   const result = { ...existing };
   
   if (!newData) return result;
@@ -240,8 +240,8 @@ export function replaceKnowledgeData(existing: Record<string, any>, newData?: Re
   for (const [key, value] of Object.entries(newData)) {
     // 如果值是数组，展开到扁平格式
     if (Array.isArray(value)) {
-      for (const item of value as Record<string, any>[]) {
-        if (item && item.id) {
+        for (const item of value as Array<Record<string, unknown>>) {
+        if (typeof item.id === "string") {
           result[item.id] = item;
         }
       }

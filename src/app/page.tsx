@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { MessageSquare, BookOpen, Plus, Pencil, Trash2, Edit } from "lucide-react";
+import { MessageSquare, BookOpen, Plus, Trash2, Edit } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConversationList } from "@/components/conversation-list";
 import { ChatArea } from "@/components/chat-area";
@@ -9,8 +9,7 @@ import { KnowledgeManager } from "@/components/knowledge-manager";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Conversation, Message, generateId } from "@/lib/types";
+import { Conversation, FAQItem, KnowledgeBase, Message, TroubleshootingItem, generateId } from "@/lib/types";
 import {
   getConversations,
   saveConversations,
@@ -36,7 +35,7 @@ async function syncConfigFromDatabase() {
     const knowledgeRes = await fetch("/api/config/knowledge");
     const knowledgeData = await knowledgeRes.json();
     if (knowledgeData.success && knowledgeData.data && !knowledgeData.isEmpty) {
-      const localKnowledge = getKnowledgeBase();
+      const localKnowledge = await getKnowledgeBase();
       // 如果数据库有数据且 localStorage 为空，则同步
       if (isKnowledgeBaseEmpty(localKnowledge)) {
         saveKnowledgeBase(knowledgeData.data);
@@ -61,7 +60,7 @@ async function syncConfigFromDatabase() {
 }
 
 // 检查知识库是否为空
-function isKnowledgeBaseEmpty(kb: any): boolean {
+function isKnowledgeBaseEmpty(kb: Partial<KnowledgeBase> | null | undefined): boolean {
   return !kb || (
     (!kb.faqItems || kb.faqItems.length === 0) &&
     (!kb.troubleshootingItems || kb.troubleshootingItems.length === 0) &&
@@ -73,7 +72,7 @@ function isKnowledgeBaseEmpty(kb: any): boolean {
 }
 
 // 前端用 AI 关键词匹配 FAQ
-function matchFaqsByKeywords(knowledge: any, keywords: string[], userMessage: string): { faqs: any[], troubleshooting: any[] } {
+function matchFaqsByKeywords(knowledge: Partial<KnowledgeBase> | null | undefined, keywords: string[], userMessage: string): { faqs: FAQItem[]; troubleshooting: TroubleshootingItem[] } {
   if (!knowledge || keywords.length === 0) {
     return { faqs: knowledge?.faqItems || [], troubleshooting: knowledge?.troubleshootingItems || [] };
   }
@@ -82,7 +81,7 @@ function matchFaqsByKeywords(knowledge: any, keywords: string[], userMessage: st
   const keywordsLower = keywords.map(k => k.toLowerCase());
 
   // 计算匹配分数
-  const calculateScore = (item: any): number => {
+  const calculateScore = (item: FAQItem | TroubleshootingItem): number => {
     let score = 0;
 
     // 1. 关键词匹配标签
@@ -127,20 +126,20 @@ function matchFaqsByKeywords(knowledge: any, keywords: string[], userMessage: st
 
   // 匹配 FAQ
   const faqScores = (knowledge.faqItems || [])
-    .map((item: any) => ({ item, score: calculateScore(item) }))
-    .filter((m: any) => m.score > 0)
-    .sort((a: any, b: any) => b.score - a.score);
+    .map((item) => ({ item, score: calculateScore(item) }))
+    .filter((m) => m.score > 0)
+    .sort((a, b) => b.score - a.score);
 
   // 匹配 Troubleshooting
   const tsScores = (knowledge.troubleshootingItems || [])
-    .map((item: any) => ({ item, score: calculateScore(item) }))
-    .filter((m: any) => m.score > 0)
-    .sort((a: any, b: any) => b.score - a.score);
+    .map((item) => ({ item, score: calculateScore(item) }))
+    .filter((m) => m.score > 0)
+    .sort((a, b) => b.score - a.score);
 
   // 取前 20 个
   return {
-    faqs: faqScores.slice(0, 20).map((m: any) => m.item),
-    troubleshooting: tsScores.slice(0, 20).map((m: any) => m.item),
+    faqs: faqScores.slice(0, 20).map((m) => m.item),
+    troubleshooting: tsScores.slice(0, 20).map((m) => m.item),
   };
 }
 

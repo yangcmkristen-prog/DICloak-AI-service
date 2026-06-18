@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Copy, Check, ChevronDown, ChevronUp } from "lucide-react";
+import { Send, Loader2, Copy, Check, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -44,16 +44,45 @@ interface ParsedReply {
   content: string;
 }
 
+function normalizeHeaderText(header: string): string {
+  return header
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[【】〖〗\[\]{}()（）:：|｜\-_]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function getSectionType(header: string): ParsedReply["type"] | null {
-  if (/问题类型/i.test(header)) return "question";
-  if (/身份状态/i.test(header)) return "identity";
-  if (/主回复|回复1/i.test(header)) return "main";
-  if (/通用回复/i.test(header)) return "common";
-  if (/客户回复/i.test(header)) return "client";
-  if (/终端用户回复/i.test(header)) return "end_user";
-  if (/补充建议|回复2/i.test(header)) return "supplement";
-  if (/需要补充的信息|回复3/i.test(header)) return "info";
+    const normalizedHeader = normalizeHeaderText(header);
+
+  if (/问题类型|回复类型|tipo de problema|problem type|loai van de|jenis masalah|ประเภทปัญหา|نوع المشكلة|問題タイプ|문제 유형/i.test(normalizedHeader)) return "question";
+  if (/身份状态|身份识别|estado de identidad|identity status|trang thai danh tinh|status identitas|สถานะตัวตน|حالة الهوية|本人確認|신원 상태/i.test(normalizedHeader)) return "identity";
+  if (/主回复|主要回复|优先发送|回复\s*1|respuesta general|main reply|primary reply|cau tra loi chinh|balasan utama|คำตอบหลัก|الرد الرئيسي|主な返信|주요 답변/i.test(normalizedHeader)) return "main";
+  if (/通用回复|respuesta general|general reply|cau tra loi chung|balasan umum|คำตอบทั่วไป|رد عام|一般的な返信|일반 답변/i.test(normalizedHeader)) return "common";
+  if (/客户回复|respuesta para cliente|client reply|customer reply|cau tra loi cho khach hang|balasan klien|คำตอบสำหรับลูกค้า|رد العميل|顧客向け返信|고객 답변/i.test(normalizedHeader)) return "client";
+  if (/终端用户回复|最终用户回复|respuesta para usuario final|end user reply|final user reply|cau tra loi cho nguoi dung cuoi|balasan pengguna akhir|คำตอบสำหรับผู้ใช้ปลายทาง|رد المستخدم النهائي|エンドユーザー向け返信|최종 사용자 답변/i.test(normalizedHeader)) return "end_user";
+  if (/补充建议|补充说明|回复\s*2|sugerencia complementaria|suggestion|supplement|additional advice|goi y bo sung|saran tambahan|ข้อเสนอแนะเพิ่มเติม|اقتراحات اضافية|補足提案|추가 제안/i.test(normalizedHeader)) return "supplement";
+  if (/需要补充的信息|需补充信息|回复\s*3|informacion que necesitamos|informacion necesaria|need.*information|additional information|thong tin can bo sung|informasi yang diperlukan|ข้อมูลที่ต้องการเพิ่มเติม|معلومات مطلوبة|必要な追加情報|필요한 추가 정보/i.test(normalizedHeader)) return "info";
   return null;
+}
+
+function getSectionTypeFromIcon(icon: string): ParsedReply["type"] | null {
+  const iconMap: Record<string, ParsedReply["type"]> = {
+    "📌": "question",
+    "🛠️": "question",
+    "⚠️": "identity",
+    "✅": "main",
+    "🟡": "common",
+    "🔵": "client",
+    "🟣": "end_user",
+    "💡": "supplement",
+    "📝": "info",
+    "📎": "info",
+  };
+
+  return iconMap[icon] || null;
 }
 
 function sanitizeAssistantText(text: string): string {
@@ -105,9 +134,16 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
    * 注意：不能使用 (?|...)，JS 正则不支持，会导致 Runtime SyntaxError。
    */
   const sectionHeaderRegex =
-    /(?:📌|⚠️|✅|🟡|🔵|🟣|💡|📝|🛠️|👤|☑️|📎)?\s*(?:【|〖|\[)\s*(问题类型|身份状态|主回复[^】〗\]]*|回复1|通用回复[^】〗\]]*|客户回复[^】〗\]]*|终端用户回复[^】〗\]]*|补充建议[^】〗\]]*|需要补充的信息[^】〗\]]*|回复2|回复3)\s*(?:】|〗|\])/gi;
+    /(?:^|\n)\s*(📌|⚠️|✅|🟡|🔵|🟣|💡|📝|🛠️|👤|☑️|📎)?\s*(?:【|〖|\[)?\s*([^\n【】〖〗\[\]]{1,120}?)\s*(?:】|〗|\])\s*(?=\n|$)/gu;
 
-  const matches = [...cleanContent.matchAll(sectionHeaderRegex)];
+  const matches = [...cleanContent.matchAll(sectionHeaderRegex)]
+    .map((match) => ({
+      fullText: match[0],
+      index: match.index ?? 0,
+      icon: match[1] || "",
+      header: match[2] || "",
+    }))
+    .filter((match) => getSectionType(match.header) || getSectionTypeFromIcon(match.icon));
 
   if (matches.length === 0) {
     return [{ type: "question", content: cleanContent.trim() }];
@@ -117,8 +153,7 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
 
   for (let index = 0; index < matches.length; index++) {
     const match = matches[index];
-    const rawHeader = match[1] || "";
-    const type = getSectionType(rawHeader);
+    const type = getSectionType(match.header) || getSectionTypeFromIcon(match.icon);
 
     if (!type) continue;
 
@@ -128,7 +163,7 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
       foundMain = true;
     }
 
-    const contentStart = (match.index || 0) + match[0].length;
+    const contentStart = match.index + match.fullText.length;
     const nextMatch = matches[index + 1];
     const contentEnd = nextMatch?.index ?? cleanContent.length;
     const sectionText = cleanContent.slice(contentStart, contentEnd).trim();
@@ -174,7 +209,6 @@ function ReplyCard({
   expandedTranslations,
   translations,
   translatingIds,
-  metaData
 }: { 
   reply: ParsedReply; 
   index: number;
@@ -185,7 +219,6 @@ function ReplyCard({
   expandedTranslations: Record<string, boolean>;
   translations: Record<string, string>;
   translatingIds: Record<string, boolean>;
-  metaData?: MetaData | null;
 }) {
   const pureContent = extractPureContent(reply.content);
   
@@ -204,7 +237,6 @@ function ReplyCard({
   };
   
   const config = titleConfig[reply.type] || { icon: "💬", label: `回复${index + 1}` };
-  const title = config.hint ? `${config.label} | ${config.hint}` : config.label;
   const isQuestion = reply.type === "question" || reply.type === "identity";
   const translationId = `${messageId}-${reply.type}-${index}`;
   const isExpanded = expandedTranslations[translationId];
@@ -343,7 +375,6 @@ function AIReplies({
           expandedTranslations={expandedTranslations}
           translations={translations}
           translatingIds={translatingIds}
-          metaData={metaData}
         />
       ))}
     </div>
@@ -385,7 +416,7 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
       setCopiedId(id);
       toast.success("已复制到剪贴板", { duration: 1500 });
       setTimeout(() => setCopiedId(null), 1500);
-    } catch (error) {
+    } catch {
       toast.error("复制失败，请手动复制");
     }
   };
@@ -427,7 +458,7 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
       } else if (data.error) {
         toast.error(data.error);
       }
-    } catch (error) {
+    } catch {
       toast.error("翻译失败，请重试");
     } finally {
       setTranslatingIds(prev => ({ ...prev, [id]: false }));

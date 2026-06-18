@@ -122,13 +122,6 @@ function parseTroubleshootingSheet(sheet: XLSX.WorkSheet): TroubleshootingItem[]
     });
 }
 
-// 调试函数：打印 sheet 的所有列名
-function debugSheetColumns(data: Record<string, CellValue>[], sheetName: string) {
-  if (data.length > 0) {
-    console.log(`[EXCEL DEBUG] ${sheetName} 的列名:`, Object.keys(data[0]));
-  }
-}
-
 // 解析 out_of_scope
 function parseOutOfScopeSheet(sheet: XLSX.WorkSheet): OutOfScopeItem[] {
   const data = XLSX.utils.sheet_to_json<Record<string, CellValue>>(sheet, { defval: '' });
@@ -475,7 +468,6 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
       result.pricingPlans!.length;
 
     // 判断文件类型
-    const faqSheets = ['feature_faq', 'troubleshooting', 'user_routing', 'out_of_scope', 'mapping'];
     const functionSheets = ['功能知识库'];
     const apiSheets = ['api端点', 'api_endpoint', 'api参数', 'api_parameter'];
     const pricingSheets = ['价格', 'pricing', '套餐'];

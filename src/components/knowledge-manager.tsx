@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Upload, FileSpreadsheet, Trash2, RefreshCw, CheckCircle, XCircle, Settings, AlertCircle, Loader2, Cloud } from "lucide-react";
+import { Upload, FileSpreadsheet, Trash2, CheckCircle, XCircle, Settings, AlertCircle, Loader2, Cloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -18,8 +18,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
-import { DEFAULT_SYSTEM_PROMPT, getKnowledgeStats, replaceKnowledgeData, getKnowledgeBase, getApiConfig, saveApiConfig, DEFAULT_API_CONFIG, MODEL_OPTIONS, PROVIDER_INFO, saveKnowledgeBase } from "@/lib/store";
-import { importExcelFile, importMultipleExcelFiles, ImportResult } from "@/lib/excel-parser";
+import { DEFAULT_SYSTEM_PROMPT, getKnowledgeStats, replaceKnowledgeData, getApiConfig, saveApiConfig, MODEL_OPTIONS, PROVIDER_INFO, saveKnowledgeBase } from "@/lib/store";
+import { importExcelFile, ImportResult } from "@/lib/excel-parser";
 import { KnowledgeBase, ApiConfig } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -89,6 +89,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
       // 从数据库加载配置
       loadFromDatabase();
     }
+    // 仅在组件挂载时从数据库同步一次，避免 updateStats 状态更新触发重复请求
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadFromDatabase = async () => {
@@ -331,7 +333,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
           }
         }
 
-        replaceKnowledgeData(combinedData as KnowledgeBase);
+        replaceKnowledgeData(combinedData as unknown as Record<string, unknown>);
         // 同步到数据库，等待完成后再切换标签页
         const syncSuccess = await syncKnowledgeToDatabase(combinedData as KnowledgeBase);
         updateStats(combinedData.fileNames);

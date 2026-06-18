@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSystemPrompt, saveSystemPrompt, DEFAULT_SYSTEM_PROMPT } from "@/lib/store";
+import { getSystemPrompt, saveSystemPrompt } from "@/lib/store";
 
 export async function GET() {
   try {
