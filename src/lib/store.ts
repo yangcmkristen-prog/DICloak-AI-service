@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import type { ConversationContext, ApiConfig, Conversation, KnowledgeBase } from './types';
+import type { ApiConfig, Conversation, ConversationContext, KnowledgeBase } from './types';
 import { generateId } from './types';
 
 // Supabase 配置
@@ -155,6 +155,7 @@ export function getKnowledgeStats(data?: Partial<KnowledgeBase>): {
     functionFile?: string;
     apiFile?: string;
     pricingFile?: string;
+    allFiles?: string[];
   };
 } {
   const result = {
@@ -168,7 +169,7 @@ export function getKnowledgeStats(data?: Partial<KnowledgeBase>): {
     apiParameterCount: 0,
     pricingPlanCount: 0,
     lastUpdated: 0,
-    fileNames: {} as { faqFile?: string; termFile?: string; functionFile?: string; apiFile?: string; pricingFile?: string },
+    fileNames: {} as { faqFile?: string; termFile?: string; functionFile?: string; apiFile?: string; pricingFile?: string; allFiles?: string[] },
   };
   
   // 如果没有传入数据，从 localStorage 读取

@@ -467,24 +467,18 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
       result.apiParameters!.length +
       result.pricingPlans!.length;
 
-    // 判断文件类型
-    const functionSheets = ['功能知识库'];
-    const apiSheets = ['api端点', 'api_endpoint', 'api参数', 'api_parameter'];
-    const pricingSheets = ['价格', 'pricing', '套餐'];
+    // 判断文件类型：优先根据实际解析出的内容判断，避免 FAQ 文件因 Sheet1/术语页被误归类
     let fileType: 'faq' | 'term' | 'function' | 'api' | 'pricing' = 'faq';
-    if (sheetNames.some(s => apiSheets.some(api => s.toLowerCase().includes(api)))) {
+    if (result.faqItems!.length > 0 || result.troubleshootingItems!.length > 0 || result.outOfScopeItems!.length > 0 || result.mappingItems!.length > 0) {
+      fileType = 'faq';
+    } else if (result.apiEndpoints!.length > 0 || result.apiParameters!.length > 0) {
       fileType = 'api';
-    } else if (sheetNames.some(s => pricingSheets.some(p => s.toLowerCase().includes(p)))) {
+    } else if (result.pricingPlans!.length > 0) {
       fileType = 'pricing';
-    } else if (sheetNames.some(s => functionSheets.includes(s))) {
+    } else if (result.functionKnowledge!.length > 0) {
       fileType = 'function';
-    } else if (sheetNames.some(s => s === 'Sheet1' || s.toLowerCase().includes('term'))) {
-      // Sheet1 可能是价格表或术语库，根据实际解析结果判断
-      if (result.pricingPlans && result.pricingPlans.length > 0) {
-        fileType = 'pricing';
-      } else if (result.termItems && result.termItems.length > 0 && result.faqItems!.length === 0) {
-        fileType = 'term';
-      }
+    } else if (result.termItems!.length > 0) {
+      fileType = 'term';
     }
 
     return {

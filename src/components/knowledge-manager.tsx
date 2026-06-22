@@ -27,6 +27,36 @@ interface KnowledgeManagerProps {
   onPromptChange?: (prompt: string) => void;
 }
 
+type KnowledgeFileNames = NonNullable<KnowledgeBase["fileNames"]>;
+
+function mergeFileNames(existing: KnowledgeFileNames | undefined, next: KnowledgeFileNames | undefined): KnowledgeFileNames {
+  const allFiles = Array.from(new Set([
+    ...(existing?.allFiles || []),
+    ...(next?.allFiles || []),
+    ...[
+      existing?.faqFile,
+      existing?.termFile,
+      existing?.functionFile,
+      existing?.apiFile,
+      existing?.pricingFile,
+      next?.faqFile,
+      next?.termFile,
+      next?.functionFile,
+      next?.apiFile,
+      next?.pricingFile,
+    ].filter((fileName): fileName is string => Boolean(fileName)),
+  ]));
+
+  return {
+    faqFile: next?.faqFile || existing?.faqFile,
+    termFile: next?.termFile || existing?.termFile,
+    functionFile: next?.functionFile || existing?.functionFile,
+    apiFile: next?.apiFile || existing?.apiFile,
+    pricingFile: next?.pricingFile || existing?.pricingFile,
+    allFiles,
+  };
+}
+
 export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
   const [tempPrompt, setTempPrompt] = useState("");
@@ -46,13 +76,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     apiParameterCount: number;
     pricingPlanCount: number;
     lastUpdated: number;
-    fileNames: {
-      faqFile?: string;
-      termFile?: string;
-      functionFile?: string;
-      apiFile?: string;
-      pricingFile?: string;
-    };
+    fileNames: KnowledgeFileNames;
   }>({
     faqCount: 0,
     troubleshootingCount: 0,
@@ -68,6 +92,9 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
       faqFile: undefined,
       termFile: undefined,
       functionFile: undefined,
+      apiFile: undefined,
+      pricingFile: undefined,
+      allFiles: [],
     },
   });
 
@@ -225,11 +252,9 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     }
   };
 
-  const updateStats = useCallback((fileNames?: { faqFile?: string; termFile?: string; functionFile?: string; apiFile?: string; pricingFile?: string }) => {
+  const updateStats = useCallback((fileNames?: KnowledgeFileNames) => {
     const currentStats = getKnowledgeStats();
-    if (fileNames) {
-      currentStats.fileNames = fileNames;
-    }
+    currentStats.fileNames = mergeFileNames(currentStats.fileNames, fileNames);
     setStats(currentStats);
   }, []);
 
@@ -298,6 +323,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
             functionFile: '',
             apiFile: '',
             pricingFile: '',
+            allFiles: [],
           },
         };
 
@@ -319,6 +345,10 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
           }
           // 记录文件名
           if (result.fileName) {
+            combinedData.fileNames!.allFiles = Array.from(new Set([
+              ...(combinedData.fileNames!.allFiles || []),
+              result.fileName,
+            ]));
             if (result.fileType === 'faq') {
               combinedData.fileNames!.faqFile = result.fileName;
             } else if (result.fileType === 'term') {
@@ -581,40 +611,16 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                 <StatCard label="价格套餐" count={stats.pricingPlanCount} color="amber" />
               </div>
               {/* 生效的表格文件 */}
-              {(stats.fileNames.faqFile || stats.fileNames.termFile || stats.fileNames.functionFile || stats.fileNames.apiFile || stats.fileNames.pricingFile) && (
+              {(mergeFileNames(stats.fileNames, undefined).allFiles || []).length > 0 && (
                 <div className="p-3 bg-muted/50 rounded-lg text-sm">
                   <div className="font-medium mb-2">当前生效的表格:</div>
                   <div className="space-y-1 text-muted-foreground">
-                    {stats.fileNames.faqFile && (
-                      <div className="flex items-center gap-2">
+                    {(mergeFileNames(stats.fileNames, undefined).allFiles || []).map((fileName) => (
+                      <div key={fileName} className="flex items-center gap-2">
                         <FileSpreadsheet className="w-4 h-4 text-blue-500" />
-                        <span className="truncate" title={stats.fileNames.faqFile}>{stats.fileNames.faqFile}</span>
+                        <span className="truncate" title={fileName}>{fileName}</span>
                       </div>
-                    )}
-                    {stats.fileNames.termFile && (
-                      <div className="flex items-center gap-2">
-                        <FileSpreadsheet className="w-4 h-4 text-pink-500" />
-                        <span className="truncate" title={stats.fileNames.termFile}>{stats.fileNames.termFile}</span>
-                      </div>
-                    )}
-                    {stats.fileNames.functionFile && (
-                      <div className="flex items-center gap-2">
-                        <FileSpreadsheet className="w-4 h-4 text-green-500" />
-                        <span className="truncate" title={stats.fileNames.functionFile}>{stats.fileNames.functionFile}</span>
-                      </div>
-                    )}
-                    {stats.fileNames.apiFile && (
-                      <div className="flex items-center gap-2">
-                        <FileSpreadsheet className="w-4 h-4 text-cyan-500" />
-                        <span className="truncate" title={stats.fileNames.apiFile}>{stats.fileNames.apiFile}</span>
-                      </div>
-                    )}
-                    {stats.fileNames.pricingFile && (
-                      <div className="flex items-center gap-2">
-                        <FileSpreadsheet className="w-4 h-4 text-amber-500" />
-                        <span className="truncate" title={stats.fileNames.pricingFile}>{stats.fileNames.pricingFile}</span>
-                      </div>
-                    )}
+                    ))}
                   </div>
                 </div>
               )}

@@ -8,6 +8,7 @@ DICloak 中以下术语等价：
 - 环境组 = env_group = environment group
 - 成员 = member = 团队成员
 - 代理 = proxy
+- 窗口同步 = Window Synchronizer = window_synchronizer = 多环境同步操作 = 多窗口同步操作
 
 【problemType 只能选一个】
 api_problem: 涉及 API、接口、endpoint、参数、request、response
@@ -36,6 +37,7 @@ pricing_table: 价格功能表
 - “我想续订我的账户 / renew my account / renovar mi cuenta” 这类没有说明是 DICloak 还是其他平台账户的问题，必须判为 intent_unclear，needsFollowUp = true，并追问是否续订 DICloak 账户。
 - “ChatGPT打不开 / Claude打不开 / 某工具打不开” 这类第三方工具名 + 打不开/访问异常，不能直接判为 user_routing；应判为 info_insufficient 或 troubleshooting，并追问是 DICloak 环境/profile 打不开，还是外部网站/工具本身打不开。
 - 只有明确出现“账号是别人给的/第三方提供/不是管理员/服务商提供”等身份来源时，才判为 user_routing。
+- 用户描述“多个 profile/环境同时打开同一链接、在多个账号执行同一动作、点赞/点击/输入同步、一个点击控制多个窗口”，这是窗口同步 Window Synchronizer 功能咨询，必须判为 feature_faq，tables 至少包含 faq，可加 function_knowledge；不要判为 RPA。
 
 【表选择规则】
 api_problem: 必须 api_endpoints，可加 faq

@@ -239,6 +239,7 @@ export interface KnowledgeBase {
     functionFile?: string;
     apiFile?: string;
     pricingFile?: string;
+    allFiles?: string[];
   };
 }
 

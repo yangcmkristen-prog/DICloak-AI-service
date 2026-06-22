@@ -71,14 +71,64 @@ function isKnowledgeBaseEmpty(kb: Partial<KnowledgeBase> | null | undefined): bo
   );
 }
 
+function expandDomainKeywords(keywords: string[], userMessage: string): string[] {
+  const text = userMessage.toLowerCase();
+  const expanded = new Set(keywords.map((keyword) => keyword.toLowerCase()).filter(Boolean));
+  const windowSyncSignals = [
+    "дублирование экранов",
+    "несколько профилей",
+    "разных профилях",
+    "одним щелчком",
+    "одну и ту же ссылку",
+    "одно и тоже действие",
+    "одно и то же действие",
+    "лайк",
+    "multi profile",
+    "multiple profiles",
+    "same link",
+    "same action",
+    "simultaneously",
+    "同步",
+    "多个环境",
+    "多个窗口",
+    "同一链接",
+    "相同操作",
+  ];
+
+  if (windowSyncSignals.some((signal) => text.includes(signal))) {
+    [
+      "window synchronizer",
+      "window synchronization",
+      "window_synchronizer",
+      "multi_profile_control",
+      "sync_operations",
+      "multiple profiles",
+      "same link",
+      "same action",
+      "simultaneous operation",
+      "窗口同步",
+      "多环境同步",
+      "多窗口同步",
+    ].forEach((keyword) => expanded.add(keyword));
+  }
+
+  return [...expanded];
+}
+
+function normalizeForMatch(value: string): string {
+  return value.toLowerCase().replace(/[\s_\-]+/g, " ").trim();
+}
+
 // 前端用 AI 关键词匹配 FAQ
 function matchFaqsByKeywords(knowledge: Partial<KnowledgeBase> | null | undefined, keywords: string[], userMessage: string): { faqs: FAQItem[]; troubleshooting: TroubleshootingItem[] } {
-  if (!knowledge || keywords.length === 0) {
-    return { faqs: knowledge?.faqItems || [], troubleshooting: knowledge?.troubleshootingItems || [] };
+  if (!knowledge) {
+    return { faqs: [], troubleshooting: [] };
   }
 
   const msgLower = userMessage.toLowerCase();
-  const keywordsLower = keywords.map(k => k.toLowerCase());
+  const normalizedMsg = normalizeForMatch(userMessage);
+  const keywordsLower = expandDomainKeywords(keywords, userMessage);
+  const normalizedKeywords = keywordsLower.map(normalizeForMatch);
 
   // 计算匹配分数
   const calculateScore = (item: FAQItem | TroubleshootingItem): number => {
@@ -88,25 +138,26 @@ function matchFaqsByKeywords(knowledge: Partial<KnowledgeBase> | null | undefine
     if (item.tags && Array.isArray(item.tags)) {
       item.tags.forEach((tag: string) => {
         const tagLower = tag.toLowerCase();
-        keywordsLower.forEach(kw => {
-          if (tagLower.includes(kw) || kw.includes(tagLower)) score += 5;
+        const normalizedTag = normalizeForMatch(tag);
+        normalizedKeywords.forEach(kw => {
+          if (normalizedTag.includes(kw) || kw.includes(normalizedTag)) score += 5;
         });
         // 用户消息直接包含标签
-        if (msgLower.includes(tagLower)) score += 3;
+        if (msgLower.includes(tagLower) || normalizedMsg.includes(normalizedTag)) score += 3;
       });
     }
 
     // 2. 关键词匹配标准问题
     if (item.questionCN) {
       const qLower = item.questionCN.toLowerCase();
-      keywordsLower.forEach(kw => {
-        if (qLower.includes(kw)) score += 4;
+      normalizedKeywords.forEach(kw => {
+        if (normalizeForMatch(qLower).includes(kw)) score += 4;
       });
     }
     if (item.questionEN) {
       const qLower = item.questionEN.toLowerCase();
-      keywordsLower.forEach(kw => {
-        if (qLower.includes(kw)) score += 4;
+      normalizedKeywords.forEach(kw => {
+        if (normalizeForMatch(qLower).includes(kw)) score += 4;
       });
     }
 
@@ -115,11 +166,22 @@ function matchFaqsByKeywords(knowledge: Partial<KnowledgeBase> | null | undefine
       const phrases = item.userPhrases.split(/[,，;；\n]+/).map((p: string) => p.trim().toLowerCase());
       phrases.forEach((phrase: string) => {
         if (phrase && msgLower.includes(phrase)) score += 3;
-        keywordsLower.forEach(kw => {
-          if (phrase.includes(kw)) score += 2;
+        normalizedKeywords.forEach(kw => {
+          if (normalizeForMatch(phrase).includes(kw)) score += 2;
         });
       });
     }
+
+    const searchableText = normalizeForMatch([
+      item.questionCN,
+      item.questionEN,
+      item.userPhrases,
+      ...(item.tags || []),
+    ].filter(Boolean).join(" "));
+    if (normalizedKeywords.includes("window synchronizer") && searchableText.includes("window synchronizer")) score += 12;
+    if (normalizedKeywords.includes("window synchronization") && searchableText.includes("window synchronization")) score += 12;
+    if (normalizedKeywords.includes("multi profile control") && searchableText.includes("multi profile control")) score += 8;
+    if (normalizedKeywords.includes("sync operations") && searchableText.includes("sync operations")) score += 8;
 
     return score;
   };

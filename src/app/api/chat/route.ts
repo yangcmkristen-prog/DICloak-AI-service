@@ -838,12 +838,59 @@ export async function POST(request: NextRequest) {
       }
       return [...new Set([...words, ...subs])];
     };
+
+    const expandDomainKeywords = (keywords: string[], userMessage: string): string[] => {
+      const text = userMessage.toLowerCase();
+      const expanded = new Set(keywords.map((keyword) => keyword.toLowerCase()).filter(Boolean));
+      const windowSyncSignals = [
+        "дублирование экранов",
+        "несколько профилей",
+        "разных профилях",
+        "одним щелчком",
+        "одну и ту же ссылку",
+        "одно и тоже действие",
+        "одно и то же действие",
+        "лайк",
+        "multi profile",
+        "multiple profiles",
+        "same link",
+        "same action",
+        "simultaneously",
+        "同步",
+        "多个环境",
+        "多个窗口",
+        "同一链接",
+        "相同操作",
+      ];
+
+      if (windowSyncSignals.some((signal) => text.includes(signal))) {
+        [
+          "window synchronizer",
+          "window synchronization",
+          "window_synchronizer",
+          "multi_profile_control",
+          "sync_operations",
+          "multiple profiles",
+          "same link",
+          "same action",
+          "simultaneous operation",
+          "窗口同步",
+          "多环境同步",
+          "多窗口同步",
+        ].forEach((keyword) => expanded.add(keyword));
+      }
+
+      return [...expanded];
+    };
+
+    const normalizeForMatch = (value: string): string => value.toLowerCase().replace(/[\s_\-]+/g, " ").trim();
     
     // 同时使用 AI 提取关键词和原始问题关键词，避免中文功能知识库被英文关键词覆盖而无法命中
     const messageKeywords = extractKeywords(message);
-    const userKeywords: string[] = aiKeywords && aiKeywords.length > 0
+    const baseKeywords: string[] = aiKeywords && aiKeywords.length > 0
       ? [...new Set([...aiKeywords.map((k: string) => k.toLowerCase()), ...messageKeywords])]
       : messageKeywords;
+    const userKeywords = expandDomainKeywords(baseKeywords, message);
     
     console.log('[DEBUG] 使用的关键词（英语）:', userKeywords);
 
@@ -954,23 +1001,26 @@ export async function POST(request: NextRequest) {
 
     const tKnowledgeStart = Date.now();
     if (knowledge && ((knowledge.faqItems?.length ?? 0) > 0 || (knowledge.troubleshootingItems?.length ?? 0) > 0 || (knowledge.outOfScopeItems?.length ?? 0) > 0 || (knowledge.functionKnowledge?.length ?? 0) > 0)) {
+      // 计算匹配分数（增强标签匹配）
       const calculateMatchScore = (userMsg: string, item: { questionCN?: string; questionEN?: string; tags?: string[]; userPhrases?: string }, keywords: string[]) => {
         let score = 0;
         const msgLower = userMsg.toLowerCase();
+        const normalizedMsg = normalizeForMatch(userMsg);
+        const normalizedKeywords = keywords.map(normalizeForMatch);
 
         // 1. 问题文本匹配
         if (item.questionCN) {
           const cnLower = item.questionCN.toLowerCase();
           if (cnLower.includes(msgLower) || msgLower.includes(cnLower)) score += 10;
-          keywords.forEach(kw => {
-            if (cnLower.includes(kw)) score += 2;
+          normalizedKeywords.forEach(kw => {
+            if (normalizeForMatch(cnLower).includes(kw)) score += 2;
           });
         }
         if (item.questionEN) {
           const enLower = item.questionEN.toLowerCase();
           if (enLower.includes(msgLower) || msgLower.includes(enLower)) score += 10;
-          keywords.forEach(kw => {
-            if (enLower.includes(kw)) score += 2;
+          normalizedKeywords.forEach(kw => {
+            if (normalizeForMatch(enLower).includes(kw)) score += 2;
           });
         }
 
@@ -978,11 +1028,12 @@ export async function POST(request: NextRequest) {
         if (item.tags && item.tags.length > 0) {
           item.tags.forEach(tag => {
             const tagLower = tag.toLowerCase();
+            const normalizedTag = normalizeForMatch(tag);
             // 用户消息直接包含标签
-            if (msgLower.includes(tagLower)) score += 5;
+            if (msgLower.includes(tagLower) || normalizedMsg.includes(normalizedTag)) score += 5;
             // 关键词匹配标签
-            keywords.forEach(kw => {
-              if (tagLower.includes(kw) || kw.includes(tagLower)) score += 3;
+            normalizedKeywords.forEach(kw => {
+              if (normalizedTag.includes(kw) || kw.includes(normalizedTag)) score += 3;
             });
           });
         }
@@ -991,9 +1042,20 @@ export async function POST(request: NextRequest) {
         if (item.userPhrases) {
           const phrases = item.userPhrases.split(/[,，;；\n]+/).map(p => p.trim().toLowerCase());
           phrases.forEach(phrase => {
-            if (phrase && msgLower.includes(phrase)) score += 4;
+            if (phrase && (msgLower.includes(phrase) || normalizedMsg.includes(normalizeForMatch(phrase)))) score += 4;
           });
         }
+
+        const searchableText = normalizeForMatch([
+          item.questionCN,
+          item.questionEN,
+          item.userPhrases,
+          ...(item.tags || []),
+        ].filter(Boolean).join(" "));
+        if (normalizedKeywords.includes("window synchronizer") && searchableText.includes("window synchronizer")) score += 12;
+        if (normalizedKeywords.includes("window synchronization") && searchableText.includes("window synchronization")) score += 12;
+        if (normalizedKeywords.includes("multi profile control") && searchableText.includes("multi profile control")) score += 8;
+        if (normalizedKeywords.includes("sync operations") && searchableText.includes("sync operations")) score += 8;
 
         return score;
       };
