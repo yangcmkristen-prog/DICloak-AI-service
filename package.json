@@ -9,7 +9,7 @@
     "lint": "eslint",
     "start": "bash ./scripts/start.sh",
     "ts-check": "tsc -p tsconfig.json",
-    "extension:build": "tsup extension/src/content/whatsapp-content.ts --format iife --global-name DICloakCopilot --platform browser --target es2019 --out-dir extension/dist --clean",
+    "extension:build": "tsup extension/src/content/whatsapp-content.ts --format iife --global-name DICloakCopilot --platform browser --target es2019 --out-dir extension/dist --clean && tsup extension/src/background.ts --format iife --global-name DICloakCopilotBackground --platform browser --target es2019 --out-dir extension/dist",
     "extension:dev": "pnpm extension:build -- --watch"
   },
   "dependencies": {

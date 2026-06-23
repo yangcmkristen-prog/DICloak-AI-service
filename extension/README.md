@@ -11,11 +11,13 @@
 5. 选择本仓库的 `extension/` 目录
 6. 打开 `https://web.whatsapp.com/` 并登录
 7. 点击任意聊天，右侧会出现 DICloak AI Copilot Sidebar
+8. 如 Sidebar 已收起，点击浏览器工具栏里的 DICloak AI Copilot 扩展图标可重新显示
 
 ## 注意事项
 
 - 扩展默认调用 `https://5wygm4zx4m.coze.site`，不再使用本地开发 API。
 - 扩展不保存任何 API Key，也不单独配置知识库、Prompt 或模型；翻译和推荐回复统一实时调用线上网页端配置。
 - 扩展不会自动发送消息，只提供复制 AI 结果。
+- “收起”会完全隐藏 Sidebar；需要再次显示时，点击浏览器工具栏中的扩展图标。
 - WhatsApp Web DOM 不是公开稳定 API，如果 WhatsApp 更新页面结构，抓取选择器可能需要维护。
 - 当前版本只抓取当前页面已加载的聊天消息，不会后台批量抓取所有联系人历史。

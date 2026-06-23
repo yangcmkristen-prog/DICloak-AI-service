@@ -4,12 +4,19 @@
   "description": "在 WhatsApp Web 侧边栏中抓取当前聊天并生成 DICloak 客服回复建议。",
   "version": "0.1.0",
   "permissions": [
-    "storage"
+    "storage",
+    "activeTab"
   ],
   "host_permissions": [
     "https://web.whatsapp.com/*",
     "https://5wygm4zx4m.coze.site/*"
   ],
+  "action": {
+    "default_title": "DICloak AI Copilot"
+  },
+  "background": {
+    "service_worker": "dist/background.global.js"
+  },
   "content_scripts": [
     {
       "matches": [

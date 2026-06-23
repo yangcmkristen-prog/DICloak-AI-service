@@ -4,6 +4,16 @@ import type { ChatSnapshot, CopilotResult, ExternalChatInfo, ExternalChatMessage
 type ChromeStorageItems = Record<string, unknown>;
 
 declare const chrome: {
+  runtime: {
+    onMessage: {
+      addListener(callback: (message: { type?: string }) => void): void;
+    };
+    sendMessage(
+      message: { type: string; endpoint: string; action: "translate-clean" | "reply"; payload: ChatSnapshot },
+      callback: (response?: { content?: string; error?: string }) => void,
+    ): void;
+    lastError?: { message?: string };
+  };
   storage: {
     local: {
       get(key: string, callback: (items: ChromeStorageItems) => void): void;
@@ -19,7 +29,6 @@ type CacheRecord = {
   results: CopilotResult[];
 };
 
-const API_BASE = "https://5wygm4zx4m.coze.site";
 const SIDEBAR_ID = "dicloak-ai-copilot-sidebar";
 const CONTENT_ROOT_ID = "dicloak-ai-copilot-root";
 const STORAGE_PREFIX = "dicloak_copilot_cache:";
@@ -31,6 +40,7 @@ const state: {
   loadingAction: "translate-clean" | "reply" | null;
   error: string | null;
   collapsed: boolean;
+  hidden: boolean;
 } = {
   snapshot: null,
   cache: null,
@@ -38,6 +48,7 @@ const state: {
   loadingAction: null,
   error: null,
   collapsed: false,
+  hidden: false,
 };
 
 function textOf(element: Element | null): string {
@@ -186,6 +197,7 @@ function render(): void {
   const results = state.cache?.results ?? [];
   const activeResult = getActiveResult();
   const messageCount = snapshot?.messages.length ?? 0;
+  document.getElementById(SIDEBAR_ID)?.classList.toggle("dc-hidden", state.hidden);
 
   root.innerHTML = `
     <div class="dc-shell ${state.collapsed ? "dc-collapsed" : ""}">
@@ -275,6 +287,19 @@ async function refreshSnapshot(): Promise<void> {
   render();
 }
 
+
+function sendCopilotRequest(endpoint: string, action: "translate-clean" | "reply", payload: ChatSnapshot): Promise<{ content?: string; error?: string }> {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: "dicloak:copilot-request", endpoint, action, payload }, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve({ error: chrome.runtime.lastError.message || "AI 请求失败" });
+        return;
+      }
+      resolve(response ?? { error: "AI 请求失败" });
+    });
+  });
+}
+
 async function callCopilot(action: "translate-clean" | "reply"): Promise<void> {
   if (!state.snapshot) return;
 
@@ -284,14 +309,8 @@ async function callCopilot(action: "translate-clean" | "reply"): Promise<void> {
 
   try {
     const endpoint = action === "reply" ? "/api/copilot/reply" : "/api/copilot/translate-clean";
-    const response = await fetch(`${API_BASE}${endpoint}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state.snapshot),
-    });
-
-    const payload = await response.json() as { content?: string; error?: string };
-    if (!response.ok || !payload.content) {
+    const payload = await sendCopilotRequest(endpoint, action, state.snapshot);
+    if (!payload.content) {
       throw new Error(payload.error || "AI 请求失败");
     }
 
@@ -324,6 +343,7 @@ async function callCopilot(action: "translate-clean" | "reply"): Promise<void> {
 function injectStyles(): void {
   const style = document.createElement("style");
   style.textContent = `
+    #${SIDEBAR_ID}.dc-hidden { display: none; }
     #${SIDEBAR_ID} { position: fixed; z-index: 2147483647; top: 0; right: 0; width: 380px; height: 100vh; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #e5eefb; box-shadow: -16px 0 40px rgba(0,0,0,.3); }
     .dc-shell { height: 100%; display: flex; flex-direction: column; background: radial-gradient(circle at top left, #17243a, #07111d 42%, #020817); border-left: 1px solid rgba(148,163,184,.22); }
     .dc-collapsed { width: 72px; overflow: hidden; }
@@ -382,7 +402,7 @@ function injectSidebar(): void {
 
     const action = actionElement?.dataset.action;
     if (action === "toggle") {
-      state.collapsed = !state.collapsed;
+      state.hidden = true;
       render();
     } else if (action === "translate") {
       void callCopilot("translate-clean");
@@ -400,6 +420,17 @@ function injectSidebar(): void {
 function scheduleRefresh(): void {
   window.setTimeout(() => void refreshSnapshot(), 350);
 }
+
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type !== "dicloak:toggle-sidebar") return;
+  state.hidden = !state.hidden;
+  if (!state.hidden) {
+    state.collapsed = false;
+    void refreshSnapshot();
+  }
+  render();
+});
 
 injectSidebar();
 void refreshSnapshot();
