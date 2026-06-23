@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "DICloak AI Copilot",
+  "description": "在 WhatsApp Web 侧边栏中抓取当前聊天并生成 DICloak 客服回复建议。",
+  "version": "0.1.0",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://web.whatsapp.com/*",
+    "https://5wygm4zx4m.coze.site/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://web.whatsapp.com/*"
+      ],
+      "js": [
+        "dist/whatsapp-content.global.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
