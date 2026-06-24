@@ -57,7 +57,7 @@ export const PROVIDER_INFO: Record<string, {
     baseUrl: '',
     keyPlaceholder: '输入你的 Coze API Token',
   },
-  alibab: {
+  aliyun: {
     label: '阿里百炼',
     name: '阿里百炼',
     defaultModel: 'qwen-mt-flash',
