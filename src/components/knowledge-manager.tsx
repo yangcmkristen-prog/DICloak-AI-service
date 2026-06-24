@@ -28,6 +28,18 @@ interface KnowledgeManagerProps {
 }
 
 type KnowledgeFileNames = NonNullable<KnowledgeBase["fileNames"]>;
+type ModelOption = (typeof MODEL_OPTIONS)[number];
+
+function getModelOptionsForProvider(provider: string): ModelOption[] {
+  const options = MODEL_OPTIONS.filter((option) => option.provider === provider);
+  if (options.length > 0) return options;
+
+  if (provider === 'aliyun' || provider === 'bailian' || provider === '阿里百炼') {
+    return [{ value: 'qwen-mt-flash', label: 'Qwen MT Flash（翻译）', provider: 'aliyun' }];
+  }
+
+  return [];
+}
 
 function mergeFileNames(existing: KnowledgeFileNames | undefined, next: KnowledgeFileNames | undefined): KnowledgeFileNames {
   const allFiles = Array.from(new Set([
@@ -895,7 +907,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                           onChange={(e) => setApiConfig(prev => prev ? { ...prev, model: e.target.value } : prev)}
                           className="w-full p-2 rounded-md border border-input bg-background text-sm"
                         >
-                          {MODEL_OPTIONS.filter(opt => opt.provider === apiConfig.provider).map(opt => (
+                          {getModelOptionsForProvider(apiConfig.provider).map(opt => (
                             <option key={opt.value} value={opt.value}>{opt.label}</option>
                           ))}
                         </select>
@@ -1009,7 +1021,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                       onChange={(e) => setExtensionTranslateApiConfig(prev => prev ? { ...prev, model: e.target.value } : prev)}
                       className="w-full p-2 rounded-md border border-input bg-background text-sm"
                     >
-                      {MODEL_OPTIONS.filter(opt => opt.provider === extensionTranslateApiConfig.provider).map(opt => (
+                      {getModelOptionsForProvider(extensionTranslateApiConfig.provider).map(opt => (
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
                       ))}
                     </select>
