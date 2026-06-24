@@ -41,6 +41,19 @@ function getModelOptionsForProvider(provider: string): ModelOption[] {
   return [];
 }
 
+function getSelectableModelValue(provider: string, model: string): string {
+  const options = getModelOptionsForProvider(provider);
+  if (options.length === 0) return model;
+  return options.some((option) => option.value === model) ? model : options[0].value;
+}
+
+function withSelectableModel(config: ApiConfig): ApiConfig {
+  return {
+    ...config,
+    model: getSelectableModelValue(config.provider, config.model),
+  };
+}
+
 function mergeFileNames(existing: KnowledgeFileNames | undefined, next: KnowledgeFileNames | undefined): KnowledgeFileNames {
   const allFiles = Array.from(new Set([
     ...(existing?.allFiles || []),
@@ -506,7 +519,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
             },
           },
         }
-      : extensionTranslateApiConfig;
+      : withSelectableModel(extensionTranslateApiConfig);
 
     setExtensionTranslateApiConfig(configToSave);
     localStorage.setItem("diclok_extension_translate_api_config", JSON.stringify(configToSave));
@@ -903,7 +916,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                         <Label htmlFor="model">模型</Label>
                         <select
                           id="model"
-                          value={apiConfig.model}
+                          value={getSelectableModelValue(apiConfig.provider, apiConfig.model)}
                           onChange={(e) => setApiConfig(prev => prev ? { ...prev, model: e.target.value } : prev)}
                           className="w-full p-2 rounded-md border border-input bg-background text-sm"
                         >
@@ -1017,7 +1030,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                     <Label htmlFor="extensionTranslateModel">模型</Label>
                     <select
                       id="extensionTranslateModel"
-                      value={extensionTranslateApiConfig.model}
+                      value={getSelectableModelValue(extensionTranslateApiConfig.provider, extensionTranslateApiConfig.model)}
                       onChange={(e) => setExtensionTranslateApiConfig(prev => prev ? { ...prev, model: e.target.value } : prev)}
                       className="w-full p-2 rounded-md border border-input bg-background text-sm"
                     >
