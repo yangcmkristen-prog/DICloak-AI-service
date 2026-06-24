@@ -36,6 +36,8 @@ export const MODEL_OPTIONS = [
   { value: 'minimax-m2-5-260212', label: 'MiniMax M2.5', provider: 'coze' },
   { value: 'minimax-m2-7-260318', label: 'MiniMax M2.7', provider: 'coze' },
   { value: 'qwen-3-5-plus-260215', label: 'Qwen 3.5', provider: 'coze' },
+  //阿里百炼模型
+  { value: 'qwen-mt-flash', label: 'Qwen MT Flash（翻译）', provider: 'coze' },
   // DeepSeek 直连模型 (v4 版本)
   { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash (快速)', provider: 'deepseek' },
   { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro (增强)', provider: 'deepseek' },
@@ -54,6 +56,13 @@ export const PROVIDER_INFO: Record<string, {
     defaultModel: 'doubao-seed-2-0-lite-260215',
     baseUrl: '',
     keyPlaceholder: '输入你的 Coze API Token',
+  },
+  alibab: {
+    label: '阿里百炼',
+    name: '阿里百炼',
+    defaultModel: 'qwen-mt-flash',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    keyPlaceholder: '输入你的 百炼 API Token',
   },
   deepseek: {
     label: 'DeepSeek',
