@@ -102,6 +102,36 @@ function getCurrentChatInfo(): ExternalChatInfo | null {
   };
 }
 
+
+function getCopyableElement(container: Element): Element | null {
+  if (container.matches("div.copyable-text, [data-pre-plain-text]")) return container;
+  return container.querySelector("div.copyable-text, [data-pre-plain-text]");
+}
+
+function uniqueElements(elements: Element[]): Element[] {
+  return elements.filter((element, index) => elements.indexOf(element) === index);
+}
+
+function getMessageRole(container: Element, main: Element): ExternalChatMessage["role"] {
+  const bubble = container.closest("div.message-in, div.message-out");
+  if (bubble?.classList.contains("message-out")) return "agent";
+  if (bubble?.classList.contains("message-in")) return "customer";
+
+  const dataId = container.closest("[data-id]")?.getAttribute("data-id") || "";
+  if (dataId.startsWith("true_") || dataId.includes("_true_")) return "agent";
+  if (dataId.startsWith("false_") || dataId.includes("_false_")) return "customer";
+
+  const rect = container.getBoundingClientRect();
+  const mainRect = main.getBoundingClientRect();
+  if (rect.width > 0 && mainRect.width > 0) {
+    const messageCenter = rect.left + rect.width / 2;
+    const mainCenter = mainRect.left + mainRect.width / 2;
+    return messageCenter > mainCenter ? "agent" : "customer";
+  }
+
+  return "unknown";
+}
+
 function getMessageText(container: Element): string {
   const copyable = Array.from(container.querySelectorAll("span.selectable-text, div.copyable-text span.selectable-text"))
     .map((node) => textOf(node))
@@ -116,7 +146,7 @@ function getMessageText(container: Element): string {
 }
 
 function getMessageTime(container: Element): string | undefined {
-  const copyable = container.querySelector("div.copyable-text");
+  const copyable = getCopyableElement(container);
   const prePlainText = copyable?.getAttribute("data-pre-plain-text");
   if (prePlainText) {
     const timeMatch = prePlainText.match(/\[(.*?)]/);
@@ -131,13 +161,29 @@ function extractMessages(): ExternalChatMessage[] {
   const main = document.querySelector("#main");
   if (!main) return [];
 
-  const messageNodes = Array.from(main.querySelectorAll("div.message-in, div.message-out"));
+  const messageBubbleNodes = Array.from(main.querySelectorAll("div.message-in, div.message-out"));
+  const prePlainTextNodes = Array.from(main.querySelectorAll("[data-pre-plain-text]"));
+  const copyableTextNodes = Array.from(main.querySelectorAll("div.copyable-text"));
+  const messageNodes = messageBubbleNodes.length > 0
+    ? messageBubbleNodes
+    : uniqueElements([
+        ...prePlainTextNodes,
+        ...copyableTextNodes,
+      ]);
+
+  console.debug("[DICloak Copilot] WhatsApp message candidates", {
+    messageBubbleCount: messageBubbleNodes.length,
+    prePlainTextCount: prePlainTextNodes.length,
+    copyableTextCount: copyableTextNodes.length,
+    candidateCount: messageNodes.length,
+  });
+
   return messageNodes
     .map((node, index): ExternalChatMessage | null => {
       const text = getMessageText(node);
       if (!text) return null;
 
-      const role = node.classList.contains("message-out") ? "agent" : "customer";
+      const role = getMessageRole(node, main);
       const rawTimeText = getMessageTime(node);
       const id = createHash(`${role}|${rawTimeText ?? ""}|${text}|${index}`);
       return { id, role, text, rawTimeText };
@@ -185,7 +231,8 @@ function getCacheStatus(): { label: string; className: string; detail: string } 
 
 function getActiveResult(): CopilotResult | null {
   const results = state.cache?.results ?? [];
-  return results.find((result) => result.id === state.activeResultId) ?? results[0] ?? null;
+  if (!state.activeResultId) return null;
+  return results.find((result) => result.id === state.activeResultId) ?? null;
 }
 
 function render(): void {
@@ -197,6 +244,9 @@ function render(): void {
   const results = state.cache?.results ?? [];
   const activeResult = getActiveResult();
   const messageCount = snapshot?.messages.length ?? 0;
+  const previousBodyScrollTop = root.querySelector<HTMLElement>(".dc-body")?.scrollTop ?? 0;
+  const previousResultScrollTop = root.querySelector<HTMLElement>(".dc-result-detail pre")?.scrollTop ?? 0;
+  const previousActiveResultId = root.querySelector<HTMLElement>("[data-active-result-id]")?.dataset.activeResultId ?? null;
   document.getElementById(SIDEBAR_ID)?.classList.toggle("dc-hidden", state.hidden);
 
   root.innerHTML = `
@@ -244,14 +294,14 @@ function render(): void {
           <div class="dc-section-title">最近结果</div>
           ${results.length === 0 ? `<div class="dc-muted">暂无结果。点击上方按钮后会缓存到当前聊天。</div>` : results.map((result) => `
             <button class="dc-result-item ${activeResult?.id === result.id ? "active" : ""}" data-result-id="${escapeHtml(result.id)}">
-              <span>${result.type === "reply" ? "推荐回复" : "翻译结果"}</span>
+              <span>${result.type === "reply" ? "生成推荐回复" : "翻译结果"}</span>
               <small>${formatTime(result.createdAt)}</small>
             </button>
           `).join("")}
         </section>
 
         ${activeResult ? `
-          <section class="dc-card dc-result-detail">
+          <section class="dc-card dc-result-detail" data-active-result-id="${escapeHtml(activeResult.id)}">
             <div class="dc-result-head">
               <div class="dc-section-title">${escapeHtml(activeResult.title)}</div>
               <button class="dc-copy" data-action="copy">复制</button>
@@ -266,25 +316,45 @@ function render(): void {
       </div>
     </div>
   `;
+
+  const nextBody = root.querySelector<HTMLElement>(".dc-body");
+  if (nextBody) nextBody.scrollTop = previousBodyScrollTop;
+
+  const nextResult = root.querySelector<HTMLElement>(".dc-result-detail pre");
+  if (nextResult && previousActiveResultId === activeResult?.id) {
+    nextResult.scrollTop = previousResultScrollTop;
+  }
 }
 
 async function refreshSnapshot(): Promise<void> {
   const snapshot = createSnapshot();
-  const previousChatId = state.snapshot?.chat.externalChatId;
-  state.snapshot = snapshot;
+  const previousSnapshot = state.snapshot;
+  const previousChatId = previousSnapshot?.chat.externalChatId;
+  const previousHash = previousSnapshot?.sourceMessageHash;
 
   if (!snapshot) {
+    const shouldRender = state.snapshot !== null || state.cache !== null || state.activeResultId !== null;
+    state.snapshot = null;
     state.cache = null;
+    state.activeResultId = null;
+    if (shouldRender) render();
+    return;
+  }
+
+  const isSameChat = previousChatId === snapshot.chat.externalChatId;
+  const isSameSnapshot = isSameChat && previousHash === snapshot.sourceMessageHash;
+  state.snapshot = snapshot;
+
+  if (!isSameChat || !state.cache) {
+    state.cache = await readCache(snapshot.chat.externalChatId);
     state.activeResultId = null;
     render();
     return;
   }
 
-  if (previousChatId !== snapshot.chat.externalChatId || !state.cache) {
-    state.cache = await readCache(snapshot.chat.externalChatId);
-    state.activeResultId = state.cache?.results[0]?.id ?? null;
+  if (!isSameSnapshot) {
+    render();
   }
-  render();
 }
 
 
@@ -317,7 +387,7 @@ async function callCopilot(action: "translate-clean" | "reply"): Promise<void> {
     const result: CopilotResult = {
       id: `${Date.now()}-${action}`,
       type: action,
-      title: action === "reply" ? "推荐回复" : "翻译并清洗结果",
+      title: action === "reply" ? "生成推荐回复" : "翻译结果",
       content: payload.content,
       createdAt: Date.now(),
       sourceMessageHash: state.snapshot.sourceMessageHash,
@@ -345,6 +415,7 @@ function injectStyles(): void {
   style.textContent = `
     #${SIDEBAR_ID}.dc-hidden { display: none; }
     #${SIDEBAR_ID} { position: fixed; z-index: 2147483647; top: 0; right: 0; width: 380px; height: 100vh; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #e5eefb; box-shadow: -16px 0 40px rgba(0,0,0,.3); }
+    #${CONTENT_ROOT_ID} { height: 100%; }
     .dc-shell { height: 100%; display: flex; flex-direction: column; background: radial-gradient(circle at top left, #17243a, #07111d 42%, #020817); border-left: 1px solid rgba(148,163,184,.22); }
     .dc-collapsed { width: 72px; overflow: hidden; }
     .dc-collapsed .dc-body, .dc-collapsed .dc-footer { display: none; }
@@ -395,7 +466,8 @@ function injectSidebar(): void {
     const resultElement = target?.closest<HTMLElement>("[data-result-id]");
 
     if (resultElement) {
-      state.activeResultId = resultElement.dataset.resultId ?? null;
+      const nextResultId = resultElement.dataset.resultId ?? null;
+      state.activeResultId = state.activeResultId === nextResultId ? null : nextResultId;
       render();
       return;
     }

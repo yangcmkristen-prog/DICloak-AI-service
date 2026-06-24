@@ -18,7 +18,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
-import { DEFAULT_SYSTEM_PROMPT, getKnowledgeStats, replaceKnowledgeData, getApiConfig, saveApiConfig, MODEL_OPTIONS, PROVIDER_INFO, saveKnowledgeBase } from "@/lib/store";
+import { DEFAULT_API_CONFIG, DEFAULT_SYSTEM_PROMPT, getKnowledgeStats, replaceKnowledgeData, getApiConfig, saveApiConfig, MODEL_OPTIONS, PROVIDER_INFO, saveKnowledgeBase } from "@/lib/store";
 import { importExcelFile, ImportResult } from "@/lib/excel-parser";
 import { KnowledgeBase, ApiConfig } from "@/lib/types";
 import { toast } from "sonner";
@@ -101,9 +101,13 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   // API 配置状态 - 初始为 null，避免 SSR/CSR mismatch
   const [apiConfig, setApiConfig] = useState<ApiConfig | null>(null);
   const [showApiConfig, setShowApiConfig] = useState(false);
+  const [extensionTranslateApiConfig, setExtensionTranslateApiConfig] = useState<ApiConfig | null>(null);
+  const [showExtensionTranslateConfig, setShowExtensionTranslateConfig] = useState(false);
   // 自定义 HTTP 配置
   const [customEndpoint, setCustomEndpoint] = useState("");
   const [customModelName, setCustomModelName] = useState("");
+  const [extensionCustomEndpoint, setExtensionCustomEndpoint] = useState("");
+  const [extensionCustomModelName, setExtensionCustomModelName] = useState("");
   // 同步状态
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
   // Prompt 版本信息
@@ -179,6 +183,17 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
             setCustomModelName(config.apiConfig.customConfig.modelName || "");
           }
         }
+        if (config.extensionTranslateApiConfig) {
+          setExtensionTranslateApiConfig(config.extensionTranslateApiConfig);
+          localStorage.setItem("diclok_extension_translate_api_config", JSON.stringify(config.extensionTranslateApiConfig));
+          if (config.extensionTranslateApiConfig.customConfig) {
+            setExtensionCustomEndpoint(config.extensionTranslateApiConfig.customConfig.endpoint || "");
+            setExtensionCustomModelName(config.extensionTranslateApiConfig.customConfig.modelName || "");
+          }
+        } else {
+          const savedExtensionConfig = localStorage.getItem("diclok_extension_translate_api_config");
+          setExtensionTranslateApiConfig(savedExtensionConfig ? JSON.parse(savedExtensionConfig) : { ...DEFAULT_API_CONFIG });
+        }
       } else {
         // 使用 localStorage
         const savedPrompt = localStorage.getItem("diclok_system_prompt");
@@ -191,6 +206,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
           setCustomEndpoint(savedApiConfig.customConfig.endpoint || "");
           setCustomModelName(savedApiConfig.customConfig.modelName || "");
         }
+        const savedExtensionConfig = localStorage.getItem("diclok_extension_translate_api_config");
+        setExtensionTranslateApiConfig(savedExtensionConfig ? JSON.parse(savedExtensionConfig) : { ...DEFAULT_API_CONFIG });
       }
     } catch (error) {
       console.error('从数据库加载配置失败:', error);
@@ -201,6 +218,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
       }
       const savedApiConfig = getApiConfig();
       setApiConfig(savedApiConfig);
+      const savedExtensionConfig = localStorage.getItem("diclok_extension_translate_api_config");
+      setExtensionTranslateApiConfig(savedExtensionConfig ? JSON.parse(savedExtensionConfig) : { ...DEFAULT_API_CONFIG });
       updateStats();
     }
   };
@@ -229,12 +248,20 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   };
 
   // 同步系统配置到数据库
-  const syncSystemConfigToDatabase = async (prompt: string, apiCfg: ApiConfig | null) => {
+  const syncSystemConfigToDatabase = async (
+    prompt: string,
+    apiCfg: ApiConfig | null,
+    extensionTranslateCfg: ApiConfig | null = extensionTranslateApiConfig,
+  ) => {
     try {
       const response = await fetch('/api/config/system', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ systemPrompt: prompt, apiConfig: apiCfg }),
+        body: JSON.stringify({
+          systemPrompt: prompt,
+          apiConfig: apiCfg,
+          extensionTranslateApiConfig: extensionTranslateCfg,
+        }),
       });
       if (!response.ok) {
         console.error('同步系统配置到数据库失败');
@@ -452,11 +479,46 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     setShowApiConfig(false);
   };
 
+  const handleSaveExtensionTranslateApiConfig = async () => {
+    if (!extensionTranslateApiConfig) return;
+
+    const configToSave: ApiConfig = extensionTranslateApiConfig.provider === 'custom'
+      ? {
+          ...extensionTranslateApiConfig,
+          customConfig: {
+            endpoint: extensionCustomEndpoint,
+            modelName: extensionCustomModelName,
+            headers: {
+              "Content-Type": "application/json",
+              ...(extensionTranslateApiConfig.apiKey ? { "Authorization": `Bearer ${extensionTranslateApiConfig.apiKey}` } : {}),
+            },
+          },
+        }
+      : extensionTranslateApiConfig;
+
+    setExtensionTranslateApiConfig(configToSave);
+    localStorage.setItem("diclok_extension_translate_api_config", JSON.stringify(configToSave));
+    await syncSystemConfigToDatabase(systemPrompt, apiConfig, configToSave);
+    toast.success("扩展翻译模型配置已保存");
+    setShowExtensionTranslateConfig(false);
+  };
+
   // 处理 provider 切换
   const handleProviderChange = (provider: ApiConfig['provider']) => {
     if (!apiConfig) return;
     const providerInfo = PROVIDER_INFO[provider];
     setApiConfig(prev => prev ? {
+      ...prev,
+      provider,
+      model: providerInfo.defaultModel,
+      baseUrl: providerInfo.baseUrl,
+    } : null);
+  };
+
+  const handleExtensionTranslateProviderChange = (provider: ApiConfig['provider']) => {
+    if (!extensionTranslateApiConfig) return;
+    const providerInfo = PROVIDER_INFO[provider];
+    setExtensionTranslateApiConfig(prev => prev ? {
       ...prev,
       provider,
       model: providerInfo.defaultModel,
@@ -877,6 +939,113 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
 
                   <Button onClick={handleSaveApiConfig} className="w-full bg-blue-600 hover:bg-blue-700">
                     保存配置
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 扩展翻译并清洗模型配置 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="w-5 h-5" />
+            扩展翻译模型配置
+          </CardTitle>
+          <CardDescription>
+            仅用于 WhatsApp 扩展的“翻译并清洗”功能，不影响网页端回复生成，也不影响扩展“生成推荐回复”。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!extensionTranslateApiConfig ? (
+            <div className="text-center py-4 text-muted-foreground">加载中...</div>
+          ) : (
+            <>
+              <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm text-emerald-800 dark:text-emerald-200 font-medium mb-1">
+                      当前扩展翻译配置
+                    </p>
+                    <p className="text-sm text-emerald-700 dark:text-emerald-300">
+                      {PROVIDER_INFO[extensionTranslateApiConfig.provider]?.name || extensionTranslateApiConfig.provider} - {extensionTranslateApiConfig.model}
+                      {!extensionTranslateApiConfig.apiKey && ' (未填写 API Key)'}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowExtensionTranslateConfig(!showExtensionTranslateConfig)}
+                    className="shrink-0"
+                  >
+                    {showExtensionTranslateConfig ? "收起" : "配置"}
+                  </Button>
+                </div>
+              </div>
+
+              {showExtensionTranslateConfig && (
+                <div className="space-y-4 border-t pt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="extensionTranslateProvider">AI 提供商</Label>
+                    <select
+                      id="extensionTranslateProvider"
+                      value={extensionTranslateApiConfig.provider}
+                      onChange={(e) => handleExtensionTranslateProviderChange(e.target.value as ApiConfig['provider'])}
+                      className="w-full p-2 rounded-md border border-input bg-background text-sm"
+                    >
+                      {Object.entries(PROVIDER_INFO).map(([key, info]) => (
+                        <option key={key} value={key}>{info.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="extensionTranslateModel">模型</Label>
+                    <select
+                      id="extensionTranslateModel"
+                      value={extensionTranslateApiConfig.model}
+                      onChange={(e) => setExtensionTranslateApiConfig(prev => prev ? { ...prev, model: e.target.value } : prev)}
+                      className="w-full p-2 rounded-md border border-input bg-background text-sm"
+                    >
+                      {MODEL_OPTIONS.filter(opt => opt.provider === extensionTranslateApiConfig.provider).map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="extensionTranslateApiKey">API Key</Label>
+                    <Input
+                      id="extensionTranslateApiKey"
+                      type="password"
+                      value={extensionTranslateApiConfig.apiKey}
+                      onChange={(e) => setExtensionTranslateApiConfig(prev => prev ? { ...prev, apiKey: e.target.value } : prev)}
+                      placeholder={PROVIDER_INFO[extensionTranslateApiConfig.provider]?.keyPlaceholder}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      该 Key 只会用于扩展“翻译并清洗”接口的服务端调用，不会写入扩展程序包。
+                    </p>
+                  </div>
+
+                  {extensionTranslateApiConfig.provider !== 'coze' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="extensionTranslateBaseUrl">API 地址（可选）</Label>
+                      <Input
+                        id="extensionTranslateBaseUrl"
+                        value={extensionTranslateApiConfig.baseUrl || ''}
+                        onChange={(e) => setExtensionTranslateApiConfig(prev => prev ? { ...prev, baseUrl: e.target.value } : prev)}
+                        placeholder={PROVIDER_INFO[extensionTranslateApiConfig.provider]?.baseUrl}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        使用默认地址可不填，如需代理请填写代理地址。
+                      </p>
+                    </div>
+                  )}
+
+                  <Button onClick={handleSaveExtensionTranslateApiConfig} className="w-full bg-emerald-600 hover:bg-emerald-700">
+                    保存扩展翻译配置
                   </Button>
                 </div>
               )}

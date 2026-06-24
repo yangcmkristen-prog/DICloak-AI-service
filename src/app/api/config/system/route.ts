@@ -46,18 +46,22 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { systemPrompt, apiConfig } = body;
+    const { systemPrompt, apiConfig, extensionTranslateApiConfig } = body;
 
     const client = getSupabaseClient();
 
     // 先获取当前版本号
     const { data: existingConfig } = await client
       .from('system_configs')
-      .select('version')
+      .select('version, config_value')
       .eq('config_key', CONFIG_KEY)
       .maybeSingle();
     
     const newVersion = (existingConfig?.version || 0) + 1;
+    const currentValue =
+      existingConfig?.config_value && typeof existingConfig.config_value === 'object' && !Array.isArray(existingConfig.config_value)
+        ? existingConfig.config_value as Record<string, unknown>
+        : {};
 
     // 使用 upsert 插入或更新
     const { data, error } = await client
@@ -66,8 +70,13 @@ export async function POST(request: NextRequest) {
         {
           config_key: CONFIG_KEY,
           config_value: {
+            ...currentValue,
             systemPrompt: systemPrompt || '',
             apiConfig: apiConfig || null,
+            extensionTranslateApiConfig:
+              extensionTranslateApiConfig === undefined
+                ? currentValue.extensionTranslateApiConfig || null
+                : extensionTranslateApiConfig || null,
           },
           version: newVersion,
           updated_at: new Date().toISOString(),

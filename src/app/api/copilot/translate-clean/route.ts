@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { callTextModel, snapshotToTranscript, validateSnapshot } from '../shared';
+import { callExtensionTranslateModel, snapshotToTranscript, validateSnapshot } from '../shared';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -23,9 +23,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '当前聊天没有可处理的消息' }, { status: 400, headers: CORS_HEADERS });
     }
 
-    const content = await callTextModel(
-      '你是 DICloak 客服助手的语义清洗专家。请把 WhatsApp 聊天记录翻译成中文，并清洗为客服可快速理解的结构化语义。只输出结果，不输出分析过程。',
-      `当前联系人：${snapshot.chat.displayName}\n平台：WhatsApp\n\n聊天记录：\n${transcript}\n\n请输出：\n1. 客户原始诉求\n2. 中文翻译\n3. 清洗后语义\n4. 关键信息/缺失信息\n5. 建议下一步客服动作`,
+    const content = await callExtensionTranslateModel(
+      '你是 DICloak 客服助手的语义清洗专家。请把 WhatsApp 聊天记录翻译成中文，并清洗为客服可快速理解的结构化语义。只输出指定三部分内容，不输出分析过程，不输出额外字段。',
+      `当前联系人：${snapshot.chat.displayName}\n平台：WhatsApp\n\n聊天记录：\n${transcript}\n\n请严格只输出以下三部分：\n1. 中文翻译\n2. 清洗后语义\n3. 建议下一步客服动作`,
       0.2,
     );
 

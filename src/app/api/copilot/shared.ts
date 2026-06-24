@@ -110,8 +110,27 @@ export async function getBackendApiConfig(): Promise<ApiConfig | null> {
   }
 }
 
-export async function callTextModel(systemPrompt: string, userPrompt: string, temperature: number): Promise<string> {
-  const config = await getBackendApiConfig();
+export async function getExtensionTranslateApiConfig(): Promise<ApiConfig | null> {
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from('system_configs')
+      .select('*')
+      .eq('config_key', 'default')
+      .maybeSingle();
+
+    if (error || !data?.config_value?.extensionTranslateApiConfig) {
+      return null;
+    }
+
+    return data.config_value.extensionTranslateApiConfig as ApiConfig;
+  } catch (error) {
+    console.error('[Copilot] 获取扩展翻译配置失败:', error);
+    return null;
+  }
+}
+
+async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: string, userPrompt: string, temperature: number): Promise<string> {
   if (!config?.apiKey) {
     throw new Error('未配置 API Key，请先在网页端设置中配置');
   }
@@ -139,4 +158,12 @@ export async function callTextModel(systemPrompt: string, userPrompt: string, te
   }
 
   return data.choices?.[0]?.message?.content?.trim() || '';
+}
+
+export async function callTextModel(systemPrompt: string, userPrompt: string, temperature: number): Promise<string> {
+  return callTextModelWithConfig(await getBackendApiConfig(), systemPrompt, userPrompt, temperature);
+}
+
+export async function callExtensionTranslateModel(systemPrompt: string, userPrompt: string, temperature: number): Promise<string> {
+  return callTextModelWithConfig(await getExtensionTranslateApiConfig(), systemPrompt, userPrompt, temperature);
 }
