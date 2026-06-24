@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     }
 
     const latestCustomerMessage = getLatestCustomerMessage(snapshot);
-    const transcript = snapshotToTranscript(snapshot);
+    const transcript = snapshotToTranscript(snapshot, { maxMessages: 40 });
     if (!latestCustomerMessage) {
       return NextResponse.json({ error: '未找到客户消息，无法生成推荐回复' }, { status: 400, headers: CORS_HEADERS });
     }

@@ -74,9 +74,12 @@ export function validateSnapshot(value: unknown): CopilotSnapshot | null {
   };
 }
 
-export function snapshotToTranscript(snapshot: CopilotSnapshot): string {
-  return snapshot.messages
-    .slice(-40)
+export function snapshotToTranscript(snapshot: CopilotSnapshot, options?: { maxMessages?: number }): string {
+  const messages = typeof options?.maxMessages === 'number'
+    ? snapshot.messages.slice(-options.maxMessages)
+    : snapshot.messages;
+
+  return messages
     .map((message) => {
       const speaker = message.role === 'agent' ? '客服' : message.role === 'customer' ? '客户' : '系统';
       const time = message.rawTimeText ? ` ${message.rawTimeText}` : '';
