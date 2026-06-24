@@ -1600,99 +1600,104 @@ export async function POST(request: NextRequest) {
     console.log("[AI DEBUG] knowledgeContext 长度:", knowledgeContext.length);
 
     // 检查 API Key
-    if (config.provider === 'deepseek' && !config.apiKey) {
-      return NextResponse.json({ error: "请先配置 DeepSeek API Key" }, { status: 400 });
+    const isOpenAICompatibleProvider = config.provider === 'deepseek' || config.provider === 'aliyun';
+
+    if (isOpenAICompatibleProvider && !config.apiKey) {
+      return NextResponse.json({ error: `请先配置 ${config.provider === 'aliyun' ? '阿里百炼' : 'DeepSeek'} API Key` }, { status: 400 });
     }
 
-    const stream = new ReadableStream({
-      async start(controller) {
-        try {
-          // 首先发送元数据给前端
-          controller.enqueue(new TextEncoder().encode(`[META]${metaData}[/META]\n`));
-          
-          if (config.provider === 'deepseek') {
-            // DeepSeek 使用 OpenAI 兼容 API (不需要 /v1 后缀)
-            const baseUrl = config.baseUrl || 'https://api.deepseek.com';
-            const response = await fetch(`${baseUrl}/chat/completions`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.apiKey}`,
-              },
-              body: JSON.stringify({
-                model: config.model || 'deepseek-chat',
-                messages: messages.map(m => ({ role: m.role, content: m.content })),
-                temperature: 0.7,
-                stream: true,
-              }),
-            });
-
-            if (!response.ok) {
-              throw new Error(`DeepSeek API error: ${response.status} ${response.statusText}`);
-            }
-
-            const reader = response.body?.getReader();
-            if (!reader) throw new Error('No response body');
-
-            const decoder = new TextDecoder();
-
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-
-              const chunk = decoder.decode(value, { stream: true });
-              if (!firstTokenLogged && chunk) {
-                console.log(`[PERF][CHAT] llm_first_token_ms=${Date.now() - tLlmStart}`);
-                firstTokenLogged = true;
-              }
-              const lines = chunk.split('\n');
-
-              for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                  const data = line.slice(6);
-                  if (data === '[DONE]') continue;
-                  try {
-                    const parsed = JSON.parse(data);
-                    const content = parsed.choices?.[0]?.delta?.content || '';
-                    if (content) {
-                      controller.enqueue(new TextEncoder().encode(content));
-                    }
-                  } catch {
-                    // Ignore parse errors
-                  }
-                }
-              }
-            }
-            console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
-          } else {
-            // Coze/豆包 使用 SDK
-            const llmConfig = new Config({
-              apiKey: config.apiKey,
-              baseUrl: config.baseUrl || "https://api.coze.cn/v1",
-            });
-
-            const client = new LLMClient(llmConfig);
-            const llmConfigStream = {
-              model: config.model || "doubao-seed-2-0-lite-260215",
-              temperature: 0.7,
-            };
-
-            const encoder = new TextEncoder();
-
-            for await (const chunk of client.stream(messages, llmConfigStream)) {
-              const content = extractTextFromLlmChunk(chunk);
-
-              if (content) {
-                controller.enqueue(encoder.encode(content));
-              }
-            }
-            console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
+    const streamChatResponse = async (controller: ReadableStreamDefaultController<Uint8Array>): Promise<void> => {
+      // 首先发送元数据给前端
+      controller.enqueue(new TextEncoder().encode(`[META]${metaData}[/META]\n`));
+      
+      if (isOpenAICompatibleProvider) {
+        // DeepSeek / 阿里百炼使用 OpenAI 兼容 API
+        const baseUrl = config.baseUrl || (config.provider === 'aliyun' ? 'https://dashscope.aliyuncs.com/compatible-mode/v1' : 'https://api.deepseek.com');
+        const response = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${config.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: config.model || (config.provider === 'aliyun' ? 'qwen-mt-flash' : 'deepseek-chat'),
+            messages: messages.map(m => ({ role: m.role, content: m.content })),
+            temperature: 0.7,
+            stream: true,
+          }),
+        });
+  
+        if (!response.ok) {
+          throw new Error(`${config.provider === 'aliyun' ? 'Aliyun Bailian' : 'DeepSeek'} API error: ${response.status} ${response.statusText}`);
+        }
+  
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('No response body');
+  
+        const decoder = new TextDecoder();
+  
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+  
+          const chunk = decoder.decode(value, { stream: true });
+          if (!firstTokenLogged && chunk) {
+            console.log(`[PERF][CHAT] llm_first_token_ms=${Date.now() - tLlmStart}`);
+            firstTokenLogged = true;
           }
-          controller.close();
-        } catch (error) {
+          const lines = chunk.split('\n');
+  
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') continue;
+              try {
+                const parsed = JSON.parse(data);
+                const content = parsed.choices?.[0]?.delta?.content || '';
+                if (content) {
+                  controller.enqueue(new TextEncoder().encode(content));
+                }
+              } catch (parseError) {
+                void parseError;
+                // Ignore parse errors
+              }
+            }
+          }
+        }
+        console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
+      } else {
+        // Coze/豆包 使用 SDK
+        const llmConfig = new Config({
+          apiKey: config.apiKey,
+          baseUrl: config.baseUrl || "https://api.coze.cn/v1",
+        });
+  
+        const client = new LLMClient(llmConfig);
+        const llmConfigStream = {
+          model: config.model || "doubao-seed-2-0-lite-260215",
+          temperature: 0.7,
+        };
+  
+        const encoder = new TextEncoder();
+  
+        for await (const chunk of client.stream(messages, llmConfigStream)) {
+          const content = extractTextFromLlmChunk(chunk);
+  
+          if (content) {
+            controller.enqueue(encoder.encode(content));
+          }
+        }
+        console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
+      }
+      controller.close();
+    };
+
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        await streamChatResponse(controller).catch((error: unknown) => {
           console.error("[Stream Error]:", error);
           controller.error(error);
-        }
+        });
       },
     });
 

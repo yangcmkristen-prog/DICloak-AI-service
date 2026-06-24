@@ -135,7 +135,12 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
     throw new Error('未配置 API Key，请先在网页端设置中配置');
   }
 
-  const baseUrl = config.baseUrl || (config.provider === 'deepseek' ? 'https://api.deepseek.com' : 'https://api.coze.cn/v1');
+  const baseUrl = config.baseUrl
+    || (config.provider === 'deepseek'
+      ? 'https://api.deepseek.com'
+      : config.provider === 'aliyun'
+        ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+        : 'https://api.coze.cn/v1');
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {

@@ -256,7 +256,7 @@ export function generateId(): string {
 
 // API 配置类型
 export interface ApiConfig {
-  provider: 'coze' | 'deepseek' | 'custom';
+  provider: 'coze' | 'deepseek' | 'aliyun' | 'custom';
   apiKey: string;
   model: string;
   baseUrl: string;

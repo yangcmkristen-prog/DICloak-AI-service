@@ -36,8 +36,8 @@ export const MODEL_OPTIONS = [
   { value: 'minimax-m2-5-260212', label: 'MiniMax M2.5', provider: 'coze' },
   { value: 'minimax-m2-7-260318', label: 'MiniMax M2.7', provider: 'coze' },
   { value: 'qwen-3-5-plus-260215', label: 'Qwen 3.5', provider: 'coze' },
-  //阿里百炼模型
-  { value: 'qwen-mt-flash', label: 'Qwen MT Flash（翻译）', provider: 'coze' },
+  // 阿里百炼模型
+  { value: 'qwen-mt-flash', label: 'Qwen MT Flash（翻译）', provider: 'aliyun' },
   // DeepSeek 直连模型 (v4 版本)
   { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash (快速)', provider: 'deepseek' },
   { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro (增强)', provider: 'deepseek' },
