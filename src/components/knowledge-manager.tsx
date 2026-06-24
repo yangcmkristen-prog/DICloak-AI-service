@@ -31,10 +31,11 @@ type KnowledgeFileNames = NonNullable<KnowledgeBase["fileNames"]>;
 type ModelOption = (typeof MODEL_OPTIONS)[number];
 
 function getModelOptionsForProvider(provider: string): ModelOption[] {
-  const options = MODEL_OPTIONS.filter((option) => option.provider === provider);
+  const normalizedProvider = provider.trim().toLowerCase();
+  const options = MODEL_OPTIONS.filter((option) => option.provider === provider || option.provider === normalizedProvider);
   if (options.length > 0) return options;
 
-  if (provider === 'aliyun' || provider === 'bailian' || provider === '阿里百炼') {
+  if (normalizedProvider === 'aliyun' || normalizedProvider === 'bailian' || provider.includes('百炼')) {
     return [{ value: 'qwen-mt-flash', label: 'Qwen MT Flash（翻译）', provider: 'aliyun' }];
   }
 
@@ -532,10 +533,11 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   const handleProviderChange = (provider: ApiConfig['provider']) => {
     if (!apiConfig) return;
     const providerInfo = PROVIDER_INFO[provider];
+    const nextModel = getSelectableModelValue(provider, providerInfo.defaultModel);
     setApiConfig(prev => prev ? {
       ...prev,
       provider,
-      model: providerInfo.defaultModel,
+      model: nextModel,
       baseUrl: providerInfo.baseUrl,
     } : null);
   };
@@ -543,10 +545,11 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   const handleExtensionTranslateProviderChange = (provider: ApiConfig['provider']) => {
     if (!extensionTranslateApiConfig) return;
     const providerInfo = PROVIDER_INFO[provider];
+    const nextModel = getSelectableModelValue(provider, providerInfo.defaultModel);
     setExtensionTranslateApiConfig(prev => prev ? {
       ...prev,
       provider,
-      model: providerInfo.defaultModel,
+      model: nextModel,
       baseUrl: providerInfo.baseUrl,
     } : null);
   };

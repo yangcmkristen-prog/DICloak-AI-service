@@ -1613,6 +1613,10 @@ export async function POST(request: NextRequest) {
       if (isOpenAICompatibleProvider) {
         // DeepSeek / 阿里百炼使用 OpenAI 兼容 API
         const baseUrl = config.baseUrl || (config.provider === 'aliyun' ? 'https://dashscope.aliyuncs.com/compatible-mode/v1' : 'https://api.deepseek.com');
+        const requestMessages = config.provider === 'aliyun'
+          ? messages.map(m => ({ role: m.role === 'system' ? 'user' : m.role, content: m.content }))
+          : messages.map(m => ({ role: m.role, content: m.content }));
+
         const response = await fetch(`${baseUrl}/chat/completions`, {
           method: 'POST',
           headers: {
@@ -1621,7 +1625,7 @@ export async function POST(request: NextRequest) {
           },
           body: JSON.stringify({
             model: config.model || (config.provider === 'aliyun' ? 'qwen-mt-flash' : 'deepseek-chat'),
-            messages: messages.map(m => ({ role: m.role, content: m.content })),
+            messages: requestMessages,
             temperature: 0.7,
             stream: true,
           }),

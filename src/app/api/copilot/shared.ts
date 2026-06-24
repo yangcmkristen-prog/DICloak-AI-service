@@ -141,6 +141,13 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
       : config.provider === 'aliyun'
         ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
         : 'https://api.coze.cn/v1');
+  const messages = config.provider === 'aliyun'
+    ? [{ role: 'user', content: `${systemPrompt}\n\n${userPrompt}` }]
+    : [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ];
+
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -149,10 +156,7 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
     },
     body: JSON.stringify({
       model: config.model || 'doubao-seed-2-0-lite-260215',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
+      messages,
       temperature,
     }),
   });
