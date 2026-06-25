@@ -525,7 +525,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     setExtensionTranslateApiConfig(configToSave);
     localStorage.setItem("diclok_extension_translate_api_config", JSON.stringify(configToSave));
     await syncSystemConfigToDatabase(systemPrompt, apiConfig, configToSave);
-    toast.success("扩展翻译模型配置已保存");
+    toast.success("翻译模型配置已保存");
     setShowExtensionTranslateConfig(false);
   };
 
@@ -975,15 +975,15 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
         </CardContent>
       </Card>
 
-      {/* 扩展翻译并清洗模型配置 */}
+      {/* 网页与扩展翻译模型配置 */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Settings className="w-5 h-5" />
-            扩展翻译模型配置
+            翻译模型配置
           </CardTitle>
           <CardDescription>
-            仅用于 WhatsApp 扩展的“翻译并清洗”功能，不影响网页端回复生成，也不影响扩展“生成推荐回复”。
+            用于网页端“翻译”页面和 WhatsApp 扩展的“翻译并清洗”功能，不影响网页端回复生成，也不影响扩展“生成推荐回复”。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -995,7 +995,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm text-emerald-800 dark:text-emerald-200 font-medium mb-1">
-                      当前扩展翻译配置
+                      当前翻译模型配置
                     </p>
                     <p className="text-sm text-emerald-700 dark:text-emerald-300">
                       {PROVIDER_INFO[extensionTranslateApiConfig.provider]?.name || extensionTranslateApiConfig.provider} - {extensionTranslateApiConfig.model}
@@ -1053,7 +1053,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                       placeholder={PROVIDER_INFO[extensionTranslateApiConfig.provider]?.keyPlaceholder}
                     />
                     <p className="text-xs text-muted-foreground">
-                      该 Key 只会用于扩展“翻译并清洗”接口的服务端调用，不会写入扩展程序包。
+                      该 Key 只会用于网页端“翻译”页面和扩展“翻译并清洗”接口的服务端调用，不会写入扩展程序包。
                     </p>
                   </div>
 
@@ -1073,7 +1073,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                   )}
 
                   <Button onClick={handleSaveExtensionTranslateApiConfig} className="w-full bg-emerald-600 hover:bg-emerald-700">
-                    保存扩展翻译配置
+                    保存翻译模型配置
                   </Button>
                 </div>
               )}

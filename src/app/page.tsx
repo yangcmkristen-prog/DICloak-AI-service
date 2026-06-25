@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { MessageSquare, BookOpen, Plus, Trash2, Edit } from "lucide-react";
+import { ArrowRightLeft, Check, Copy, Edit, Languages, Loader2, MessageSquare, Plus, Settings, Trash2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConversationList } from "@/components/conversation-list";
 import { ChatArea } from "@/components/chat-area";
@@ -9,6 +9,8 @@ import { KnowledgeManager } from "@/components/knowledge-manager";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { Conversation, FAQItem, KnowledgeBase, Message, TroubleshootingItem, generateId } from "@/lib/types";
 import {
   getConversations,
@@ -27,6 +29,23 @@ import {
   detectLanguage,
 } from "@/lib/store";
 import { toast } from "sonner";
+
+const TRANSLATION_LANGUAGES = [
+  { value: "auto", label: "自动检测" },
+  { value: "zh", label: "简体中文" },
+  { value: "en", label: "英语" },
+  { value: "es", label: "西班牙语" },
+  { value: "pt", label: "葡萄牙语" },
+  { value: "ru", label: "俄语" },
+  { value: "vi", label: "越南语" },
+  { value: "id", label: "印尼语" },
+  { value: "th", label: "泰语" },
+  { value: "ar", label: "阿拉伯语" },
+  { value: "ja", label: "日语" },
+  { value: "ko", label: "韩语" },
+];
+
+const TARGET_TRANSLATION_LANGUAGES = TRANSLATION_LANGUAGES.filter((language) => language.value !== "auto");
 
 // 从数据库同步配置到 localStorage
 async function syncConfigFromDatabase() {
@@ -209,6 +228,14 @@ export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationIdState] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [activeTab, setActiveTab] = useState("chat");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [sourceLanguage, setSourceLanguage] = useState("auto");
+  const [targetLanguage, setTargetLanguage] = useState("zh");
+  const [translationInput, setTranslationInput] = useState("");
+  const [translationResult, setTranslationResult] = useState("");
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [isTranslationCopied, setIsTranslationCopied] = useState(false);
 
   // 移动端编辑对话框状态
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -470,6 +497,65 @@ export default function Home() {
     }
   };
 
+  const handleTranslate = async () => {
+    const text = translationInput.trim();
+    if (!text) {
+      toast.error("请输入需要翻译的内容");
+      return;
+    }
+
+    setIsTranslating(true);
+    setIsTranslationCopied(false);
+
+    try {
+      const response = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          sourceLanguage,
+          targetLanguage,
+        }),
+      });
+
+      const data = await response.json() as { translation?: string; message?: string; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "翻译失败");
+      }
+
+      setTranslationResult(data.translation || text);
+      toast.success(data.message || "翻译成功");
+    } catch (error) {
+      console.error("翻译失败:", error);
+      toast.error(error instanceof Error ? error.message : "翻译失败，请稍后重试");
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  const handleCopyTranslation = async () => {
+    if (!translationResult) {
+      toast.error("暂无可复制的翻译结果");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(translationResult);
+      setIsTranslationCopied(true);
+      toast.success("翻译结果已复制");
+      window.setTimeout(() => setIsTranslationCopied(false), 1500);
+    } catch (error) {
+      console.error("复制失败:", error);
+      toast.error("复制失败，请手动复制");
+    }
+  };
+
+  const handleClearTranslation = () => {
+    setTranslationInput("");
+    setTranslationResult("");
+    setIsTranslationCopied(false);
+  };
+
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* 顶部标题栏 */}
@@ -486,143 +572,265 @@ export default function Home() {
       </header>
 
       {/* 主内容区 */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* 左侧边栏 */}
-        <aside className="w-72 border-r bg-gray-50/50 dark:bg-gray-900/50 hidden md:flex md:flex-col">
-          <ConversationList
-            conversations={conversations}
-            currentConversationId={currentConversationId}
-            onSelectConversation={handleSelectConversation}
-            onCreateConversation={handleCreateConversation}
-            onDeleteConversation={handleDeleteConversation}
-            onRenameConversation={handleRenameConversation}
-          />
-        </aside>
+      <main className="flex-1 min-h-0 overflow-hidden">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col min-h-0">
+          <TabsList className="grid w-full grid-cols-2 rounded-none border-b bg-background h-12 shrink-0 p-0">
+            <TabsTrigger
+              value="chat"
+              className="h-full rounded-none data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600 data-[state=active]:border-b-2 data-[state=active]:border-blue-600"
+            >
+              <MessageSquare className="w-4 h-4 mr-2" />
+              对话助手
+            </TabsTrigger>
+            <TabsTrigger
+              value="translate"
+              className="h-full rounded-none data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600 data-[state=active]:border-b-2 data-[state=active]:border-blue-600"
+            >
+              <Languages className="w-4 h-4 mr-2" />
+              翻译
+            </TabsTrigger>
+          </TabsList>
 
-        {/* 右侧主区域 - 支持页面滚动 */}
-        <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          <Tabs defaultValue="chat" className="flex-1 flex flex-col min-h-0">
-            <TabsList className="w-full justify-start rounded-none border-b px-4 bg-background h-12 shrink-0 sticky top-0 z-10">
-              <TabsTrigger
-                value="chat"
-                className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600 data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none"
-              >
-                <MessageSquare className="w-4 h-4 mr-2" />
-                对话助手
-              </TabsTrigger>
-              <TabsTrigger
-                value="knowledge"
-                className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600 data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none"
-              >
-                <BookOpen className="w-4 h-4 mr-2" />
-                知识库
-              </TabsTrigger>
-            </TabsList>
+          <TabsContent value="chat" className="flex-1 min-h-0 m-0">
+            <div className="h-full flex min-h-0">
+              <aside className="w-72 border-r bg-gray-50/50 dark:bg-gray-900/50 hidden md:flex md:flex-col">
+                <div className="flex-1 min-h-0">
+                  <ConversationList
+                    conversations={conversations}
+                    currentConversationId={currentConversationId}
+                    onSelectConversation={handleSelectConversation}
+                    onCreateConversation={handleCreateConversation}
+                    onDeleteConversation={handleDeleteConversation}
+                    onRenameConversation={handleRenameConversation}
+                  />
+                </div>
+                <div className="border-t p-3">
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start text-muted-foreground hover:text-foreground"
+                    onClick={() => setIsSettingsOpen(true)}
+                  >
+                    <Settings className="w-4 h-4 mr-2" />
+                    设置
+                  </Button>
+                </div>
+              </aside>
 
-            <TabsContent value="chat" className="flex-1 flex flex-col m-0 min-h-0">
-              {/* 移动端对话选择区域 */}
-              <div className="md:hidden p-4 border-b shrink-0 space-y-3">
-                <p className="text-red-500 text-sm">mobile-actions-v2</p>
-                {/* 第一行：对话选择 */}
-                <select
-                  value={currentConversationId || ""}
-                  onChange={(e) => handleSelectConversation(e.target.value)}
-                  className="w-full p-2 border rounded-md bg-background"
-                >
-                  <option value="" disabled>
-                    选择对话
-                  </option>
-                  {conversations.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.title}
+              <section className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                {/* 移动端对话选择区域 */}
+                <div className="md:hidden p-4 border-b shrink-0 space-y-3">
+                  <select
+                    value={currentConversationId || ""}
+                    onChange={(e) => handleSelectConversation(e.target.value)}
+                    className="w-full p-2 border rounded-md bg-background"
+                  >
+                    <option value="" disabled>
+                      选择对话
                     </option>
-                  ))}
-                </select>
-                {/* 第二行：操作按钮 */}
-                <div className="flex items-center gap-2">
-                  {/* 新建对话 */}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleCreateConversation}
-                    className="flex-1"
-                  >
-                    <Plus className="w-4 h-4 mr-1" />
-                    新建对话
-                  </Button>
-                  {/* 编辑当前对话 */}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (currentConversation) {
-                        setEditConversationName(currentConversation.title);
-                        setIsEditDialogOpen(true);
-                      }
-                    }}
-                    disabled={!currentConversation}
-                  >
-                    <Edit className="w-4 h-4" />
-                  </Button>
-                  {/* 删除当前对话 */}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (currentConversation && confirm(`确定要删除「${currentConversation.title}」吗？`)) {
-                        handleDeleteConversation(currentConversation.id);
-                      }
-                    }}
-                    disabled={!currentConversation}
-                    className="text-red-500 hover:text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                    {conversations.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCreateConversation}
+                      className="flex-1"
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      新建对话
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (currentConversation) {
+                          setEditConversationName(currentConversation.title);
+                          setIsEditDialogOpen(true);
+                        }
+                      }}
+                      disabled={!currentConversation}
+                    >
+                      <Edit className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (currentConversation && confirm(`确定要删除「${currentConversation.title}」吗？`)) {
+                          handleDeleteConversation(currentConversation.id);
+                        }
+                      }}
+                      disabled={!currentConversation}
+                      className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsSettingsOpen(true)}
+                    >
+                      <Settings className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <ChatArea
+                  messages={currentConversation?.messages || []}
+                  onSendMessage={handleSendMessage}
+                  isGenerating={isGenerating}
+                />
+              </section>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="translate" className="flex-1 min-h-0 m-0 overflow-y-auto">
+            <div className="min-h-full flex flex-col">
+              <div className="flex-1 p-4 md:p-6 lg:p-8">
+                <div className="mx-auto max-w-5xl space-y-6">
+                  <div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-end">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">源语言</label>
+                      <Select value={sourceLanguage} onValueChange={setSourceLanguage}>
+                        <SelectTrigger className="w-full bg-background">
+                          <SelectValue placeholder="选择源语言" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TRANSLATION_LANGUAGES.map((language) => (
+                            <SelectItem key={language.value} value={language.value}>
+                              {language.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="hidden md:flex h-9 items-center justify-center text-muted-foreground">
+                      <ArrowRightLeft className="w-4 h-4" />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">目标语言</label>
+                      <Select value={targetLanguage} onValueChange={setTargetLanguage}>
+                        <SelectTrigger className="w-full bg-background">
+                          <SelectValue placeholder="选择目标语言" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TARGET_TRANSLATION_LANGUAGES.map((language) => (
+                            <SelectItem key={language.value} value={language.value}>
+                              {language.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium">翻译输入</label>
+                      <span className="text-xs text-muted-foreground">{translationInput.length} / 5000</span>
+                    </div>
+                    <Textarea
+                      value={translationInput}
+                      onChange={(e) => setTranslationInput(e.target.value.slice(0, 5000))}
+                      placeholder="请输入要翻译的内容..."
+                      className="min-h-40 resize-none bg-background"
+                    />
+                  </div>
+
+                  <div className="flex justify-center">
+                    <Button onClick={handleTranslate} disabled={isTranslating || !translationInput.trim()} className="min-w-32">
+                      {isTranslating ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Languages className="w-4 h-4 mr-2" />
+                      )}
+                      翻译
+                    </Button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <label className="text-sm font-medium">翻译结果</label>
+                      <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="sm" onClick={handleCopyTranslation} disabled={!translationResult}>
+                          {isTranslationCopied ? (
+                            <Check className="w-4 h-4 mr-1" />
+                          ) : (
+                            <Copy className="w-4 h-4 mr-1" />
+                          )}
+                          复制
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={handleClearTranslation} disabled={!translationInput && !translationResult}>
+                          清空
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="min-h-40 rounded-md border bg-background p-3 text-sm whitespace-pre-wrap text-foreground shadow-xs">
+                      {translationResult || <span className="text-muted-foreground">翻译结果将显示在这里...</span>}
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <ChatArea
-                messages={currentConversation?.messages || []}
-                onSendMessage={handleSendMessage}
-                isGenerating={isGenerating}
-              />
-            </TabsContent>
+              <div className="border-t p-3">
+                <Button
+                  variant="ghost"
+                  className="justify-start text-muted-foreground hover:text-foreground"
+                  onClick={() => setIsSettingsOpen(true)}
+                >
+                  <Settings className="w-4 h-4 mr-2" />
+                  设置
+                </Button>
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </main>
 
-            {/* 移动端编辑对话框 */}
-            <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-              <DialogContent className="sm:max-w-[425px]">
-                <DialogHeader>
-                  <DialogTitle>编辑对话</DialogTitle>
-                  <DialogDescription>修改对话名称</DialogDescription>
-                </DialogHeader>
-                <div className="py-4">
-                  <Input
-                    value={editConversationName}
-                    onChange={(e) => setEditConversationName(e.target.value)}
-                    placeholder="输入对话名称"
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        handleRenameConversation(currentConversationId!, editConversationName);
-                      }
-                    }}
-                  />
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-                    取消
-                  </Button>
-                  <Button onClick={() => handleRenameConversation(currentConversationId!, editConversationName)}>保存</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+      {/* 移动端编辑对话框 */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>编辑对话</DialogTitle>
+            <DialogDescription>修改对话名称</DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              value={editConversationName}
+              onChange={(e) => setEditConversationName(e.target.value)}
+              placeholder="输入对话名称"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleRenameConversation(currentConversationId!, editConversationName);
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={() => handleRenameConversation(currentConversationId!, editConversationName)}>保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-            <TabsContent value="knowledge" className="flex-1 min-h-0 m-0 overflow-y-auto">
-              <KnowledgeManager />
-            </TabsContent>
-          </Tabs>
-        </main>
-      </div>
+      <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>设置</DialogTitle>
+            <DialogDescription>管理知识库、Prompt、模型与扩展翻译配置</DialogDescription>
+          </DialogHeader>
+          <KnowledgeManager />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
