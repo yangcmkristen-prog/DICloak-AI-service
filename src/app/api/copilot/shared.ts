@@ -133,7 +133,18 @@ export async function getExtensionTranslateApiConfig(): Promise<ApiConfig | null
   }
 }
 
-async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: string, userPrompt: string, temperature: number): Promise<string> {
+type TranslationTerm = {
+  source: string;
+  target: string;
+};
+
+type TranslationOptions = {
+  sourceLang: string;
+  targetLang: string;
+  terms?: TranslationTerm[];
+};
+
+async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: string, userPrompt: string, temperature: number, translationOptions?: TranslationOptions): Promise<string> {
   if (!config?.apiKey) {
     throw new Error('未配置 API Key，请先在网页端设置中配置');
   }
@@ -144,12 +155,28 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
       : config.provider === 'aliyun'
         ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
         : 'https://api.coze.cn/v1');
-  const messages = config.provider === 'aliyun'
-    ? [{ role: 'user', content: `${systemPrompt}\n\n${userPrompt}` }]
-    : [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ];
+  const isAliyunTranslationModel = config.provider === 'aliyun' && config.model.startsWith('qwen-mt-') && translationOptions;
+  const messages = isAliyunTranslationModel
+    ? [{ role: 'user', content: userPrompt }]
+    : config.provider === 'aliyun'
+      ? [{ role: 'user', content: `${systemPrompt}\n\n${userPrompt}` }]
+      : [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ];
+  const requestBody: Record<string, unknown> = {
+    model: config.model || 'doubao-seed-2-0-lite-260215',
+    messages,
+    temperature,
+  };
+
+  if (isAliyunTranslationModel) {
+    requestBody.translation_options = {
+      source_lang: translationOptions.sourceLang,
+      target_lang: translationOptions.targetLang,
+      ...(translationOptions.terms && translationOptions.terms.length > 0 ? { terms: translationOptions.terms } : {}),
+    };
+  }
 
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
@@ -157,11 +184,7 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
       'Content-Type': 'application/json',
       Authorization: `Bearer ${config.apiKey}`,
     },
-    body: JSON.stringify({
-      model: config.model || 'doubao-seed-2-0-lite-260215',
-      messages,
-      temperature,
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   const data = await response.json() as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } };
@@ -176,6 +199,6 @@ export async function callTextModel(systemPrompt: string, userPrompt: string, te
   return callTextModelWithConfig(await getBackendApiConfig(), systemPrompt, userPrompt, temperature);
 }
 
-export async function callExtensionTranslateModel(systemPrompt: string, userPrompt: string, temperature: number): Promise<string> {
-  return callTextModelWithConfig(await getExtensionTranslateApiConfig(), systemPrompt, userPrompt, temperature);
+export async function callExtensionTranslateModel(systemPrompt: string, userPrompt: string, temperature: number, translationOptions?: TranslationOptions): Promise<string> {
+  return callTextModelWithConfig(await getExtensionTranslateApiConfig(), systemPrompt, userPrompt, temperature, translationOptions);
 }

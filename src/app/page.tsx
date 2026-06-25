@@ -35,7 +35,8 @@ const TRANSLATION_LANGUAGES = [
   { value: "zh", label: "简体中文" },
   { value: "en", label: "英语" },
   { value: "es", label: "西班牙语" },
-  { value: "pt", label: "葡萄牙语" },
+  { value: "pt-BR", label: "葡萄牙语（巴西）" },
+  { value: "pt-PT", label: "葡萄牙语（欧洲）" },
   { value: "ru", label: "俄语" },
   { value: "vi", label: "越南语" },
   { value: "id", label: "印尼语" },
@@ -46,6 +47,7 @@ const TRANSLATION_LANGUAGES = [
 ];
 
 const TARGET_TRANSLATION_LANGUAGES = TRANSLATION_LANGUAGES.filter((language) => language.value !== "auto");
+const getTranslationLanguageLabel = (value: string | null) => TRANSLATION_LANGUAGES.find((language) => language.value === value)?.label || value || "未知语言";
 
 // 从数据库同步配置到 localStorage
 async function syncConfigFromDatabase() {
@@ -234,6 +236,7 @@ export default function Home() {
   const [targetLanguage, setTargetLanguage] = useState("zh");
   const [translationInput, setTranslationInput] = useState("");
   const [translationResult, setTranslationResult] = useState("");
+  const [detectedSourceLanguage, setDetectedSourceLanguage] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isTranslationCopied, setIsTranslationCopied] = useState(false);
 
@@ -518,12 +521,13 @@ export default function Home() {
         }),
       });
 
-      const data = await response.json() as { translation?: string; message?: string; error?: string };
+      const data = await response.json() as { translation?: string; message?: string; error?: string; detectedSourceLanguage?: string | null };
       if (!response.ok) {
         throw new Error(data.error || "翻译失败");
       }
 
       setTranslationResult(data.translation || text);
+      setDetectedSourceLanguage(data.detectedSourceLanguage || null);
       toast.success(data.message || "翻译成功");
     } catch (error) {
       console.error("翻译失败:", error);
@@ -553,7 +557,21 @@ export default function Home() {
   const handleClearTranslation = () => {
     setTranslationInput("");
     setTranslationResult("");
+    setDetectedSourceLanguage(null);
     setIsTranslationCopied(false);
+  };
+
+  const handleSwapTranslationLanguages = () => {
+    const resolvedSourceLanguage = sourceLanguage === "auto" ? detectedSourceLanguage : sourceLanguage;
+
+    if (!resolvedSourceLanguage) {
+      toast.info("自动检测源语言后再交换语言");
+      return;
+    }
+
+    setSourceLanguage(targetLanguage);
+    setTargetLanguage(resolvedSourceLanguage);
+    setDetectedSourceLanguage(null);
   };
 
   return (
@@ -695,7 +713,13 @@ export default function Home() {
                   <div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-end">
                     <div className="space-y-2">
                       <label className="text-sm font-medium">源语言</label>
-                      <Select value={sourceLanguage} onValueChange={setSourceLanguage}>
+                      <Select
+                        value={sourceLanguage}
+                        onValueChange={(value) => {
+                          setSourceLanguage(value);
+                          setDetectedSourceLanguage(null);
+                        }}
+                      >
                         <SelectTrigger className="w-full bg-background">
                           <SelectValue placeholder="选择源语言" />
                         </SelectTrigger>
@@ -707,10 +731,23 @@ export default function Home() {
                           ))}
                         </SelectContent>
                       </Select>
+                      {sourceLanguage === "auto" && detectedSourceLanguage && (
+                        <p className="text-xs text-muted-foreground">
+                          已检测：{getTranslationLanguageLabel(detectedSourceLanguage)}
+                        </p>
+                      )}
                     </div>
 
-                    <div className="hidden md:flex h-9 items-center justify-center text-muted-foreground">
-                      <ArrowRightLeft className="w-4 h-4" />
+                    <div className="flex h-9 items-center justify-center text-muted-foreground md:self-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={handleSwapTranslationLanguages}
+                        aria-label="交换源语言和目标语言"
+                      >
+                        <ArrowRightLeft className="w-4 h-4" />
+                      </Button>
                     </div>
 
                     <div className="space-y-2">
