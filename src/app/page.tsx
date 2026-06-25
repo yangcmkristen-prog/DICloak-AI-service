@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { ArrowRightLeft, Check, Copy, Edit, Languages, Loader2, MessageSquare, Plus, Settings, Trash2 } from "lucide-react";
+import { Archive, ArrowRightLeft, Check, ChevronRight, Copy, Edit, Folder, Languages, Loader2, MessageSquare, Plus, Search, Settings, Trash2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConversationList } from "@/components/conversation-list";
 import { ChatArea } from "@/components/chat-area";
@@ -47,7 +47,50 @@ const TRANSLATION_LANGUAGES = [
 ];
 
 const TARGET_TRANSLATION_LANGUAGES = TRANSLATION_LANGUAGES.filter((language) => language.value !== "auto");
+const PHRASE_TRANSLATION_LANGUAGES = [
+  { value: "zh", label: "中文" },
+  { value: "en", label: "英文" },
+  { value: "pt-BR", label: "葡萄牙语" },
+  { value: "es", label: "西班牙语" },
+  { value: "ru", label: "俄语" },
+  { value: "vi", label: "越南语" },
+] as const;
+const SAVED_PHRASES_STORAGE_KEY = "diclok_saved_phrases";
+
+type PhraseLanguage = typeof PHRASE_TRANSLATION_LANGUAGES[number]["value"];
+type SavedPhraseFolder = { id: string; name: string };
+type SavedPhrase = { id: string; name: string; sourceText: string; folderId: string | null; translations: Record<PhraseLanguage, string>; createdAt: number };
+type SavedPhraseState = { folders: SavedPhraseFolder[]; phrases: SavedPhrase[] };
+
 const getTranslationLanguageLabel = (value: string | null) => TRANSLATION_LANGUAGES.find((language) => language.value === value)?.label || value || "未知语言";
+
+function createEmptyPhraseTranslations(): Record<PhraseLanguage, string> {
+  return PHRASE_TRANSLATION_LANGUAGES.reduce((result, language) => {
+    result[language.value] = "";
+    return result;
+  }, {} as Record<PhraseLanguage, string>);
+}
+
+function getSavedPhraseState(): SavedPhraseState {
+  if (typeof window === "undefined") return { folders: [], phrases: [] };
+
+  try {
+    const raw = window.localStorage.getItem(SAVED_PHRASES_STORAGE_KEY);
+    if (!raw) return { folders: [], phrases: [] };
+    const parsed = JSON.parse(raw) as Partial<SavedPhraseState>;
+    return {
+      folders: Array.isArray(parsed.folders) ? parsed.folders : [],
+      phrases: Array.isArray(parsed.phrases) ? parsed.phrases : [],
+    };
+  } catch (error) {
+    console.error("读取收纳话术失败:", error);
+    return { folders: [], phrases: [] };
+  }
+}
+
+function saveSavedPhraseState(state: SavedPhraseState) {
+  window.localStorage.setItem(SAVED_PHRASES_STORAGE_KEY, JSON.stringify(state));
+}
 
 // 从数据库同步配置到 localStorage
 async function syncConfigFromDatabase() {
@@ -227,6 +270,52 @@ function matchFaqsByKeywords(knowledge: Partial<KnowledgeBase> | null | undefine
 }
 
 export default function Home() {
+type PhraseListItemProps = {
+  phrase: SavedPhrase;
+  editingPhraseId: string | null;
+  editingPhraseName: string;
+  onOpen: (phrase: SavedPhrase) => void;
+  onStartEdit: (phrase: SavedPhrase) => void;
+  onChangeEditName: (name: string) => void;
+  onSaveEdit: (phraseId: string) => void;
+  onDelete: (phraseId: string) => void;
+};
+
+function PhraseListItem({ phrase, editingPhraseId, editingPhraseName, onOpen, onStartEdit, onChangeEditName, onSaveEdit, onDelete }: PhraseListItemProps) {
+  const isEditing = editingPhraseId === phrase.id;
+
+  if (isEditing) {
+    return (
+      <div className="flex items-center gap-1">
+        <Input
+          value={editingPhraseName}
+          onChange={(event) => onChangeEditName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") onSaveEdit(phrase.id);
+            if (event.key === "Escape") onChangeEditName(phrase.name);
+          }}
+          className="h-8 min-w-0 text-sm"
+          autoFocus
+        />
+        <Button size="sm" variant="ghost" onClick={() => onSaveEdit(phrase.id)}>保存</Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group flex min-w-0 items-center gap-1 rounded-md hover:bg-muted">
+      <button type="button" onClick={() => onOpen(phrase)} className="min-w-0 flex-1 truncate px-3 py-2 text-left text-sm">
+        {phrase.name}
+      </button>
+      <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 opacity-70 group-hover:opacity-100" onClick={() => onStartEdit(phrase)} aria-label="修改话术名称">
+        <Edit className="h-3.5 w-3.5" />
+      </Button>
+      <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 text-red-500 opacity-70 hover:text-red-600 group-hover:opacity-100" onClick={() => onDelete(phrase.id)} aria-label="删除话术">
+        <Trash2 className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  );
+}
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationIdState] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -239,10 +328,22 @@ export default function Home() {
   const [detectedSourceLanguage, setDetectedSourceLanguage] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isTranslationCopied, setIsTranslationCopied] = useState(false);
+  const [savedPhraseState, setSavedPhraseState] = useState<SavedPhraseState>({ folders: [], phrases: [] });
+  const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
+  const [phraseSearch, setPhraseSearch] = useState("");
+  const [isSavePhraseDialogOpen, setIsSavePhraseDialogOpen] = useState(false);
+  const [selectedFolderIdForSave, setSelectedFolderIdForSave] = useState("root");
+  const [isSavingPhrase, setIsSavingPhrase] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [editingPhraseId, setEditingPhraseId] = useState<string | null>(null);
+  const [editingPhraseName, setEditingPhraseName] = useState("");
+  const [selectedPhrase, setSelectedPhrase] = useState<SavedPhrase | null>(null);
+  const [isSavedPhraseSyncing, setIsSavedPhraseSyncing] = useState(false);
 
   // 移动端编辑对话框状态
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editConversationName, setEditConversationName] = useState("");
+  
 
   // 重命名对话
   const handleRenameConversation = useCallback((id: string, newName: string) => {
@@ -272,6 +373,8 @@ export default function Home() {
         setCurrentConversationId(loadedConversations[0].id);
       }
     }
+    
+    void loadSavedPhraseState();
 
     // 从数据库同步配置到 localStorage
     syncConfigFromDatabase();
@@ -574,6 +677,154 @@ export default function Home() {
     setDetectedSourceLanguage(null);
   };
 
+  const loadSavedPhraseState = async () => {
+    const localState = getSavedPhraseState();
+    setSavedPhraseState(localState);
+    setIsSavedPhraseSyncing(true);
+
+    try {
+      const response = await fetch("/api/saved-phrases", { cache: "no-store" });
+      const data = await response.json() as { success?: boolean; data?: SavedPhraseState; error?: string };
+      if (!response.ok || !data.success) throw new Error(data.error || "获取收纳话术失败");
+
+      const remoteState = data.data || { folders: [], phrases: [] };
+      setSavedPhraseState(remoteState);
+      saveSavedPhraseState(remoteState);
+    } catch (error) {
+      console.error("同步收纳话术失败:", error);
+      if (localState.phrases.length > 0 || localState.folders.length > 0) {
+        toast.warning("收纳话术云端同步失败，已显示本机缓存");
+      }
+    } finally {
+      setIsSavedPhraseSyncing(false);
+    }
+  };
+
+  const persistSavedPhraseState = async (nextState: SavedPhraseState) => {
+    setSavedPhraseState(nextState);
+    saveSavedPhraseState(nextState);
+    setIsSavedPhraseSyncing(true);
+
+    try {
+      const response = await fetch("/api/saved-phrases", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: nextState }),
+      });
+      const data = await response.json() as { success?: boolean; data?: SavedPhraseState; error?: string };
+      if (!response.ok || !data.success) throw new Error(data.error || "保存收纳话术失败");
+
+      const remoteState = data.data || nextState;
+      setSavedPhraseState(remoteState);
+      saveSavedPhraseState(remoteState);
+    } catch (error) {
+      console.error("保存收纳话术到云端失败:", error);
+      toast.error(error instanceof Error ? error.message : "云端同步失败，请稍后重试");
+    } finally {
+      setIsSavedPhraseSyncing(false);
+    }
+  };
+
+  const handleAddPhraseFolder = () => {
+    const name = newFolderName.trim();
+    if (!name) {
+      toast.error("请输入文件夹名称");
+      return;
+    }
+    const nextState = {
+      ...savedPhraseState,
+      folders: [...savedPhraseState.folders, { id: generateId(), name }],
+    };
+    void persistSavedPhraseState(nextState);
+    setNewFolderName("");
+    toast.success("文件夹已添加");
+  };
+
+  const handleSavePhrase = async () => {
+    const text = translationInput.trim();
+    if (!text || !translationResult) {
+      toast.error("请先完成翻译后再收纳话术");
+      return;
+    }
+
+    setIsSavingPhrase(true);
+    try {
+      const response = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          sourceLanguage,
+          targetLanguages: PHRASE_TRANSLATION_LANGUAGES.map((language) => language.value),
+        }),
+      });
+      const data = await response.json() as { translations?: Partial<Record<PhraseLanguage, string>>; error?: string };
+      if (!response.ok) throw new Error(data.error || "收纳话术翻译失败");
+
+      const translations = createEmptyPhraseTranslations();
+      PHRASE_TRANSLATION_LANGUAGES.forEach((language) => {
+        translations[language.value] = data.translations?.[language.value] || text;
+      });
+
+      const phrase: SavedPhrase = {
+        id: generateId(),
+        name: text,
+        sourceText: text,
+        folderId: selectedFolderIdForSave === "root" ? null : selectedFolderIdForSave,
+        translations,
+        createdAt: Date.now(),
+      };
+      await persistSavedPhraseState({ ...savedPhraseState, phrases: [phrase, ...savedPhraseState.phrases] });
+      setIsSavePhraseDialogOpen(false);
+      setSelectedFolderIdForSave("root");
+      toast.success("话术已收纳");
+    } catch (error) {
+      console.error("收纳话术失败:", error);
+      toast.error(error instanceof Error ? error.message : "收纳话术失败，请稍后重试");
+    } finally {
+      setIsSavingPhrase(false);
+    }
+  };
+
+  const handleRenamePhrase = (phraseId: string) => {
+    const name = editingPhraseName.trim();
+    if (!name) return;
+    void persistSavedPhraseState({
+      ...savedPhraseState,
+      phrases: savedPhraseState.phrases.map((phrase) => phrase.id === phraseId ? { ...phrase, name } : phrase),
+    });
+    setEditingPhraseId(null);
+    setEditingPhraseName("");
+    toast.success("话术名称已更新");
+  };
+
+  const handleDeletePhrase = (phraseId: string) => {
+    const phrase = savedPhraseState.phrases.find((item) => item.id === phraseId);
+    if (!phrase) return;
+    if (!window.confirm(`确定要删除「${phrase.name}」吗？删除后其他设备也会同步删除。`)) return;
+
+    void persistSavedPhraseState({
+      ...savedPhraseState,
+      phrases: savedPhraseState.phrases.filter((item) => item.id !== phraseId),
+    });
+    if (selectedPhrase?.id === phraseId) setSelectedPhrase(null);
+    toast.success("话术已删除");
+  };
+
+  const handleCopySavedPhrase = async (phrase: SavedPhrase, language: PhraseLanguage) => {
+    try {
+      await navigator.clipboard.writeText(phrase.translations[language] || phrase.sourceText);
+      toast.success("已复制");
+    } catch (error) {
+      console.error("复制话术失败:", error);
+      toast.error("复制失败，请手动复制");
+    }
+  };
+
+  const searchedPhrases = phraseSearch.trim()
+    ? savedPhraseState.phrases.filter((phrase) => phrase.name.toLowerCase().includes(phraseSearch.trim().toLowerCase()))
+    : [];
+
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* 顶部标题栏 */}
@@ -709,7 +960,8 @@ export default function Home() {
           <TabsContent value="translate" className="flex-1 min-h-0 m-0 overflow-y-auto">
             <div className="min-h-full flex flex-col">
               <div className="flex-1 p-4 md:p-6 lg:p-8">
-                <div className="mx-auto max-w-5xl space-y-6">
+                <div className="mx-auto grid max-w-7xl gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+                  <div className="space-y-6">
                   <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2 sm:gap-4">
                     <div className="min-w-0 space-y-2">
                       <label className="text-sm font-medium">源语言</label>
@@ -797,6 +1049,15 @@ export default function Home() {
                     <div className="flex items-center justify-between gap-3">
                       <label className="text-sm font-medium">翻译结果</label>
                       <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setIsSavePhraseDialogOpen(true)}
+                          disabled={!translationInput.trim() || !translationResult}
+                        >
+                          <Archive className="w-4 h-4 mr-1" />
+                          收纳话术
+                        </Button>
                         <Button variant="ghost" size="sm" onClick={handleCopyTranslation} disabled={!translationResult}>
                           {isTranslationCopied ? (
                             <Check className="w-4 h-4 mr-1" />
@@ -813,6 +1074,64 @@ export default function Home() {
                     <div className="min-h-40 rounded-md border bg-background p-3 text-sm whitespace-pre-wrap text-foreground shadow-xs">
                       {translationResult || <span className="text-muted-foreground">翻译结果将显示在这里...</span>}
                     </div>
+                    </div>
+
+                    <aside className="rounded-lg border bg-background p-4 shadow-xs xl:sticky xl:top-4 xl:max-h-[calc(100vh-11rem)] xl:overflow-y-auto">
+                      <div className="mb-4 flex items-center justify-between gap-2">
+                        <div>
+                          <h2 className="text-base font-semibold">收纳话术</h2>
+                          <p className="text-xs text-muted-foreground">保存常用翻译，跨设备同步，后续复制不再消耗 token</p>
+                        </div>
+                        {isSavedPhraseSyncing && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                      </div>
+                      <div className="mb-4 flex gap-2">
+                        <Input value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} placeholder="新建文件夹" className="min-w-0" />
+                        <Button size="icon" variant="outline" onClick={handleAddPhraseFolder} aria-label="添加文件夹">
+                          <Plus className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      <div className="relative mb-4">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input value={phraseSearch} onChange={(e) => setPhraseSearch(e.target.value)} placeholder="搜索话术名称" className="pl-9" />
+                      </div>
+                      <div className="space-y-2">
+                        {phraseSearch.trim() ? (
+                          searchedPhrases.length > 0 ? searchedPhrases.map((phrase) => (
+                            <PhraseListItem key={phrase.id} phrase={phrase} editingPhraseId={editingPhraseId} editingPhraseName={editingPhraseName} onOpen={setSelectedPhrase} onStartEdit={(item) => { setEditingPhraseId(item.id); setEditingPhraseName(item.name); }} onChangeEditName={setEditingPhraseName} onSaveEdit={handleRenamePhrase} onDelete={handleDeletePhrase} />
+                          )) : <p className="py-6 text-center text-sm text-muted-foreground">未找到匹配话术</p>
+                        ) : (
+                          <>
+                            <div className="space-y-1">
+                              {savedPhraseState.phrases.filter((phrase) => !phrase.folderId).map((phrase) => (
+                                <PhraseListItem key={phrase.id} phrase={phrase} editingPhraseId={editingPhraseId} editingPhraseName={editingPhraseName} onOpen={setSelectedPhrase} onStartEdit={(item) => { setEditingPhraseId(item.id); setEditingPhraseName(item.name); }} onChangeEditName={setEditingPhraseName} onSaveEdit={handleRenamePhrase} onDelete={handleDeletePhrase} />
+                              ))}
+                            </div>
+                            {savedPhraseState.folders.map((folder) => {
+                              const isExpanded = expandedFolderIds.includes(folder.id);
+                              const folderPhrases = savedPhraseState.phrases.filter((phrase) => phrase.folderId === folder.id);
+                              return (
+                                <div key={folder.id} className="rounded-md border">
+                                  <button type="button" onClick={() => setExpandedFolderIds((prev) => isExpanded ? prev.filter((id) => id !== folder.id) : [...prev, folder.id])} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium">
+                                    <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                                    <Folder className="h-4 w-4 text-blue-500" />
+                                    <span className="min-w-0 flex-1 truncate">{folder.name}</span>
+                                    <span className="text-xs text-muted-foreground">{folderPhrases.length}</span>
+                                  </button>
+                                  {isExpanded && (
+                                    <div className="space-y-1 border-t p-2">
+                                      {folderPhrases.length > 0 ? folderPhrases.map((phrase) => (
+                                        <PhraseListItem key={phrase.id} phrase={phrase} editingPhraseId={editingPhraseId} editingPhraseName={editingPhraseName} onOpen={setSelectedPhrase} onStartEdit={(item) => { setEditingPhraseId(item.id); setEditingPhraseName(item.name); }} onChangeEditName={setEditingPhraseName} onSaveEdit={handleRenamePhrase} onDelete={handleDeletePhrase} />
+                                      )) : <p className="px-2 py-3 text-xs text-muted-foreground">文件夹暂无话术</p>}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {savedPhraseState.phrases.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">暂无收纳话术</p>}
+                          </>
+                        )}
+                      </div>
+                    </aside>
                   </div>
                 </div>
               </div>
@@ -858,6 +1177,65 @@ export default function Home() {
             </Button>
             <Button onClick={() => handleRenameConversation(currentConversationId!, editConversationName)}>保存</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isSavePhraseDialogOpen} onOpenChange={setIsSavePhraseDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>收纳话术</DialogTitle>
+            <DialogDescription>选择文件夹；不选择则保存到一级列表。收纳时会一次性生成并储存多语种翻译。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-4">
+            <label className="text-sm font-medium">保存位置</label>
+            <Select value={selectedFolderIdForSave} onValueChange={setSelectedFolderIdForSave}>
+              <SelectTrigger>
+                <SelectValue placeholder="选择文件夹" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="root">一级列表</SelectItem>
+                {savedPhraseState.folders.map((folder) => (
+                  <SelectItem key={folder.id} value={folder.id}>{folder.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="line-clamp-3 rounded-md bg-muted p-3 text-xs text-muted-foreground">{translationInput.trim()}</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsSavePhraseDialogOpen(false)} disabled={isSavingPhrase}>取消</Button>
+            <Button onClick={handleSavePhrase} disabled={isSavingPhrase}>
+              {isSavingPhrase && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              确认收纳
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(selectedPhrase)} onOpenChange={(open) => { if (!open) setSelectedPhrase(null); }}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle className="truncate">{selectedPhrase?.name || "话术详情"}</DialogTitle>
+            <DialogDescription>查看完整话术，点击语种即可复制已储存的翻译内容。</DialogDescription>
+          </DialogHeader>
+          {selectedPhrase && (
+            <div className="space-y-4 py-4">
+              <div>
+                <div className="mb-2 text-sm font-medium">完整内容</div>
+                <div className="max-h-40 overflow-y-auto rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap">{selectedPhrase.sourceText}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {PHRASE_TRANSLATION_LANGUAGES.map((language) => (
+                  <Button key={language.value} variant="outline" onClick={() => handleCopySavedPhrase(selectedPhrase, language.value)}>
+                    {language.label}
+                  </Button>
+                ))}
+              </div>
+              <Button variant="outline" className="w-full text-red-500 hover:text-red-600" onClick={() => handleDeletePhrase(selectedPhrase.id)}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                删除话术
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

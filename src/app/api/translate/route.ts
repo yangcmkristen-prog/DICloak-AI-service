@@ -161,10 +161,11 @@ function detectSourceLanguage(text: string): string | null {
 
 export async function POST(request: NextRequest) {
   try {
-    const { text, sourceLanguage = "auto", targetLanguage = "zh" } = await request.json() as {
+    const { text, sourceLanguage = "auto", targetLanguage = "zh", targetLanguages } = await request.json() as {
       text?: unknown;
       sourceLanguage?: unknown;
       targetLanguage?: unknown;
+      targetLanguages?: unknown;
     };
     
     if (!text || typeof text !== "string") {
@@ -172,31 +173,51 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedSourceLanguage = normalizeLanguage(sourceLanguage, "auto", true);
-    const normalizedTargetLanguage = normalizeLanguage(targetLanguage, "zh", false);
     const detectedSourceLanguage = normalizedSourceLanguage === "auto"
       ? detectSourceLanguage(text)
       : normalizedSourceLanguage;
+    const requestedTargetLanguages = Array.isArray(targetLanguages) && targetLanguages.length > 0
+      ? targetLanguages.map((language) => normalizeLanguage(language, "zh", false))
+      : [normalizeLanguage(targetLanguage, "zh", false)];
+    const uniqueTargetLanguages = [...new Set(requestedTargetLanguages)];
+    const knowledgeTerms = await getKnowledgeTerms();
 
-    const sourceLanguageName = detectedSourceLanguage
-      ? LANGUAGE_PROMPT_NAMES[detectedSourceLanguage]
-      : LANGUAGE_PROMPT_NAMES[normalizedSourceLanguage];
-    const targetLanguageName = LANGUAGE_PROMPT_NAMES[normalizedTargetLanguage];
-    const glossaryTerms = buildTranslationTerms(await getKnowledgeTerms(), text, detectedSourceLanguage || normalizedSourceLanguage, normalizedTargetLanguage);
+    const translateToLanguage = async (normalizedTargetLanguage: string): Promise<string> => {
+      const sourceLanguageName = detectedSourceLanguage
+        ? LANGUAGE_PROMPT_NAMES[detectedSourceLanguage]
+        : LANGUAGE_PROMPT_NAMES[normalizedSourceLanguage];
+      const targetLanguageName = LANGUAGE_PROMPT_NAMES[normalizedTargetLanguage];
+      const glossaryTerms = buildTranslationTerms(knowledgeTerms, text, detectedSourceLanguage || normalizedSourceLanguage, normalizedTargetLanguage);
 
-    const systemPrompt = [
-      "You are a professional translation engine for DICloak customer support.",
-      `Source language: ${normalizedSourceLanguage === "auto" ? `auto-detect${detectedSourceLanguage ? ` (detected: ${sourceLanguageName})` : ""}` : sourceLanguageName}.`,
-      `Target language: ${targetLanguageName}.`,
-      `You MUST output only in ${targetLanguageName}. Do not output English unless the target language is English.`,
-      "Preserve tone, line breaks, numbers, emails, URLs, product names, account information, proper nouns, and contextual meaning.",
-      "Output only the translated text. Do not add explanations, prefixes, suffixes, quotes, or language labels.",
-      ...(glossaryTerms.length > 0 ? [`Use this terminology exactly: ${glossaryTerms.map((term) => `${term.source} => ${term.target}`).join("; ")}.`] : []),
-    ].join("\n");
-    const translation = await callExtensionTranslateModel(systemPrompt, text, 0.1, {
-      sourceLang: detectedSourceLanguage ? QWEN_MT_LANGUAGE_NAMES[detectedSourceLanguage] : "auto",
-      targetLang: QWEN_MT_LANGUAGE_NAMES[normalizedTargetLanguage],
-      terms: glossaryTerms,
-    });
+      const systemPrompt = [
+        "You are a professional translation engine for DICloak customer support.",
+        `Source language: ${normalizedSourceLanguage === "auto" ? `auto-detect${detectedSourceLanguage ? ` (detected: ${sourceLanguageName})` : ""}` : sourceLanguageName}.`,
+        `Target language: ${targetLanguageName}.`,
+        `You MUST output only in ${targetLanguageName}. Do not output English unless the target language is English.`,
+        "Preserve tone, line breaks, numbers, emails, URLs, product names, account information, proper nouns, and contextual meaning.",
+        "Output only the translated text. Do not add explanations, prefixes, suffixes, quotes, or language labels.",
+        ...(glossaryTerms.length > 0 ? [`Use this terminology exactly: ${glossaryTerms.map((term) => `${term.source} => ${term.target}`).join("; ")}.`] : []),
+      ].join("\n");
+
+      return callExtensionTranslateModel(systemPrompt, text, 0.1, {
+        sourceLang: detectedSourceLanguage ? QWEN_MT_LANGUAGE_NAMES[detectedSourceLanguage] : "auto",
+        targetLang: QWEN_MT_LANGUAGE_NAMES[normalizedTargetLanguage],
+        terms: glossaryTerms,
+      });
+    };
+
+    if (Array.isArray(targetLanguages) && targetLanguages.length > 0) {
+      const entries = await Promise.all(uniqueTargetLanguages.map(async (language) => [language, await translateToLanguage(language)] as const));
+      return NextResponse.json({
+        translations: Object.fromEntries(entries),
+        sourceLanguage: normalizedSourceLanguage,
+        detectedSourceLanguage,
+        targetLanguages: uniqueTargetLanguages,
+      });
+    }
+
+    const normalizedTargetLanguage = uniqueTargetLanguages[0];
+    const translation = await translateToLanguage(normalizedTargetLanguage);
 
     return NextResponse.json({
       translation,
