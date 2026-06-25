@@ -269,7 +269,6 @@ function matchFaqsByKeywords(knowledge: Partial<KnowledgeBase> | null | undefine
   };
 }
 
-export default function Home() {
 type PhraseListItemProps = {
   phrase: SavedPhrase;
   editingPhraseId: string | null;
@@ -316,6 +315,8 @@ function PhraseListItem({ phrase, editingPhraseId, editingPhraseName, onOpen, on
     </div>
   );
 }
+
+export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationIdState] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -337,7 +338,10 @@ function PhraseListItem({ phrase, editingPhraseId, editingPhraseName, onOpen, on
   const [newFolderName, setNewFolderName] = useState("");
   const [editingPhraseId, setEditingPhraseId] = useState<string | null>(null);
   const [editingPhraseName, setEditingPhraseName] = useState("");
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editingFolderName, setEditingFolderName] = useState("");
   const [selectedPhrase, setSelectedPhrase] = useState<SavedPhrase | null>(null);
+  const [copiedSavedPhraseLanguage, setCopiedSavedPhraseLanguage] = useState<PhraseLanguage | null>(null);
   const [isSavedPhraseSyncing, setIsSavedPhraseSyncing] = useState(false);
 
   // 移动端编辑对话框状态
@@ -798,6 +802,35 @@ function PhraseListItem({ phrase, editingPhraseId, editingPhraseName, onOpen, on
     toast.success("话术名称已更新");
   };
 
+  const handleRenameFolder = (folderId: string) => {
+    const name = editingFolderName.trim();
+    if (!name) return;
+    void persistSavedPhraseState({
+      ...savedPhraseState,
+      folders: savedPhraseState.folders.map((folder) => folder.id === folderId ? { ...folder, name } : folder),
+    });
+    setEditingFolderId(null);
+    setEditingFolderName("");
+    toast.success("文件夹名称已更新");
+  };
+
+  const handleMovePhrase = (phraseId: string, folderValue: string) => {
+    const nextFolderId = folderValue === "root" ? null : folderValue;
+    const nextState = {
+      ...savedPhraseState,
+      phrases: savedPhraseState.phrases.map((phrase) => phrase.id === phraseId ? { ...phrase, folderId: nextFolderId } : phrase),
+    };
+    void persistSavedPhraseState(nextState);
+    if (selectedPhrase?.id === phraseId) {
+      setSelectedPhrase((phrase) => phrase ? { ...phrase, folderId: nextFolderId } : phrase);
+    }
+    if (nextFolderId && !expandedFolderIds.includes(nextFolderId)) {
+      setExpandedFolderIds((prev) => [...prev, nextFolderId]);
+    }
+    toast.success("话术所属文件夹已更新");
+  };
+
+
   const handleDeletePhrase = (phraseId: string) => {
     const phrase = savedPhraseState.phrases.find((item) => item.id === phraseId);
     if (!phrase) return;
@@ -814,7 +847,9 @@ function PhraseListItem({ phrase, editingPhraseId, editingPhraseName, onOpen, on
   const handleCopySavedPhrase = async (phrase: SavedPhrase, language: PhraseLanguage) => {
     try {
       await navigator.clipboard.writeText(phrase.translations[language] || phrase.sourceText);
+      setCopiedSavedPhraseLanguage(language);
       toast.success("已复制");
+      window.setTimeout(() => setCopiedSavedPhraseLanguage((currentLanguage) => currentLanguage === language ? null : currentLanguage), 1500);
     } catch (error) {
       console.error("复制话术失败:", error);
       toast.error("复制失败，请手动复制");
@@ -1075,6 +1110,7 @@ function PhraseListItem({ phrase, editingPhraseId, editingPhraseName, onOpen, on
                       {translationResult || <span className="text-muted-foreground">翻译结果将显示在这里...</span>}
                     </div>
                     </div>
+                  </div>
 
                     <aside className="rounded-lg border bg-background p-4 shadow-xs xl:sticky xl:top-4 xl:max-h-[calc(100vh-11rem)] xl:overflow-y-auto">
                       <div className="mb-4 flex items-center justify-between gap-2">
@@ -1111,12 +1147,46 @@ function PhraseListItem({ phrase, editingPhraseId, editingPhraseName, onOpen, on
                               const folderPhrases = savedPhraseState.phrases.filter((phrase) => phrase.folderId === folder.id);
                               return (
                                 <div key={folder.id} className="rounded-md border">
-                                  <button type="button" onClick={() => setExpandedFolderIds((prev) => isExpanded ? prev.filter((id) => id !== folder.id) : [...prev, folder.id])} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium">
-                                    <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
-                                    <Folder className="h-4 w-4 text-blue-500" />
-                                    <span className="min-w-0 flex-1 truncate">{folder.name}</span>
-                                    <span className="text-xs text-muted-foreground">{folderPhrases.length}</span>
-                                  </button>
+                                                                    {editingFolderId === folder.id ? (
+                                    <div className="flex items-center gap-1 px-2 py-2">
+                                      <Folder className="h-4 w-4 shrink-0 text-blue-500" />
+                                      <Input
+                                        value={editingFolderName}
+                                        onChange={(event) => setEditingFolderName(event.target.value)}
+                                        onKeyDown={(event) => {
+                                          if (event.key === "Enter") handleRenameFolder(folder.id);
+                                          if (event.key === "Escape") {
+                                            setEditingFolderId(null);
+                                            setEditingFolderName("");
+                                          }
+                                        }}
+                                        className="h-8 min-w-0 text-sm"
+                                        autoFocus
+                                      />
+                                      <Button size="sm" variant="ghost" onClick={() => handleRenameFolder(folder.id)}>保存</Button>
+                                    </div>
+                                  ) : (
+                                    <div className="group flex items-center gap-1">
+                                      <button type="button" onClick={() => setExpandedFolderIds((prev) => isExpanded ? prev.filter((id) => id !== folder.id) : [...prev, folder.id])} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm font-medium">
+                                        <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                                        <Folder className="h-4 w-4 text-blue-500" />
+                                        <span className="min-w-0 flex-1 truncate">{folder.name}</span>
+                                        <span className="text-xs text-muted-foreground">{folderPhrases.length}</span>
+                                      </button>
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="mr-1 h-8 w-8 shrink-0 opacity-70 group-hover:opacity-100"
+                                        onClick={() => {
+                                          setEditingFolderId(folder.id);
+                                          setEditingFolderName(folder.name);
+                                        }}
+                                        aria-label="修改文件夹名称"
+                                      >
+                                        <Edit className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </div>
+                                  )}
                                   {isExpanded && (
                                     <div className="space-y-1 border-t p-2">
                                       {folderPhrases.length > 0 ? folderPhrases.map((phrase) => (
@@ -1132,7 +1202,6 @@ function PhraseListItem({ phrase, editingPhraseId, editingPhraseName, onOpen, on
                         )}
                       </div>
                     </aside>
-                  </div>
                 </div>
               </div>
 
@@ -1211,7 +1280,12 @@ function PhraseListItem({ phrase, editingPhraseId, editingPhraseName, onOpen, on
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(selectedPhrase)} onOpenChange={(open) => { if (!open) setSelectedPhrase(null); }}>
+      <Dialog open={Boolean(selectedPhrase)} onOpenChange={(open) => {
+        if (!open) {
+          setSelectedPhrase(null);
+          setCopiedSavedPhraseLanguage(null);
+        }
+      }}>
         <DialogContent className="sm:max-w-[520px]">
           <DialogHeader>
             <DialogTitle className="truncate">{selectedPhrase?.name || "话术详情"}</DialogTitle>
@@ -1223,12 +1297,39 @@ function PhraseListItem({ phrase, editingPhraseId, editingPhraseName, onOpen, on
                 <div className="mb-2 text-sm font-medium">完整内容</div>
                 <div className="max-h-40 overflow-y-auto rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap">{selectedPhrase.sourceText}</div>
               </div>
+              <div className="space-y-2">
+                <div className="text-sm font-medium">所属文件夹</div>
+                <Select value={selectedPhrase.folderId || "root"} onValueChange={(value) => handleMovePhrase(selectedPhrase.id, value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="选择文件夹" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="root">一级列表</SelectItem>
+                    {savedPhraseState.folders.map((folder) => (
+                      <SelectItem key={folder.id} value={folder.id}>{folder.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {PHRASE_TRANSLATION_LANGUAGES.map((language) => (
-                  <Button key={language.value} variant="outline" onClick={() => handleCopySavedPhrase(selectedPhrase, language.value)}>
-                    {language.label}
-                  </Button>
-                ))}
+                {PHRASE_TRANSLATION_LANGUAGES.map((language) => {
+                  const isCopied = copiedSavedPhraseLanguage === language.value;
+
+                  return (
+                    <Button
+                      key={language.value}
+                      variant={isCopied ? "default" : "outline"}
+                      onClick={() => handleCopySavedPhrase(selectedPhrase, language.value)}
+                    >
+                      {isCopied ? (
+                        <>
+                          <Check className="mr-2 h-4 w-4" />
+                          已复制
+                        </>
+                      ) : language.label}
+                    </Button>
+                  );
+                })}
               </div>
               <Button variant="outline" className="w-full text-red-500 hover:text-red-600" onClick={() => handleDeletePhrase(selectedPhrase.id)}>
                 <Trash2 className="mr-2 h-4 w-4" />
