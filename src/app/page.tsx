@@ -710,8 +710,8 @@ export default function Home() {
             <div className="min-h-full flex flex-col">
               <div className="flex-1 p-4 md:p-6 lg:p-8">
                 <div className="mx-auto max-w-5xl space-y-6">
-                  <div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-end">
-                    <div className="space-y-2">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2 sm:gap-4">
+                    <div className="min-w-0 space-y-2">
                       <label className="text-sm font-medium">源语言</label>
                       <Select
                         value={sourceLanguage}
@@ -731,14 +731,9 @@ export default function Home() {
                           ))}
                         </SelectContent>
                       </Select>
-                      {sourceLanguage === "auto" && detectedSourceLanguage && (
-                        <p className="text-xs text-muted-foreground">
-                          已检测：{getTranslationLanguageLabel(detectedSourceLanguage)}
-                        </p>
-                      )}
                     </div>
 
-                    <div className="flex h-9 items-center justify-center text-muted-foreground md:self-end">
+                    <div className="flex h-9 items-center justify-center text-muted-foreground self-end">
                       <Button
                         type="button"
                         variant="ghost"
@@ -750,7 +745,7 @@ export default function Home() {
                       </Button>
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="min-w-0 space-y-2">
                       <label className="text-sm font-medium">目标语言</label>
                       <Select value={targetLanguage} onValueChange={setTargetLanguage}>
                         <SelectTrigger className="w-full bg-background">
@@ -768,9 +763,16 @@ export default function Home() {
                   </div>
 
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium">翻译输入</label>
-                      <span className="text-xs text-muted-foreground">{translationInput.length} / 5000</span>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <label className="shrink-0 text-sm font-medium">翻译输入</label>
+                        {sourceLanguage === "auto" && detectedSourceLanguage && (
+                          <span className="truncate text-xs text-muted-foreground">
+                            已检测：{getTranslationLanguageLabel(detectedSourceLanguage)}
+                          </span>
+                        )}
+                      </div>
+                      <span className="shrink-0 text-xs text-muted-foreground">{translationInput.length} / 5000</span>
                     </div>
                     <Textarea
                       value={translationInput}
