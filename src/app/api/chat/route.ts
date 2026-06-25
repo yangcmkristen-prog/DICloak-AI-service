@@ -802,6 +802,13 @@ export async function POST(request: NextRequest) {
     6. 正文必须是纯文本，不要使用 Markdown 加粗/斜体/标题符号，例如不要输出 **文本**、__文本__、# 标题。
     7. 正文不得保留术语占位符花括号；如果知识库出现 {{Equipo}}、{{Members}}，输出时必须变成 Equipo、Members 或目标语言译文。`;
 
+    const evidenceGuardrail = `## 知识依据与防编造硬性要求
+    1. 回复只能基于上方提供的 FAQ、Troubleshooting、功能知识库、API 表、价格功能表和同会话历史。
+    2. 禁止编造 DICloak 知识库中没有出现的套餐权益、容量、配额、限制、价格、入口路径、按钮名称、操作步骤或功能结论。
+    3. 当用户询问“是否有限制/容量/配额/上限/limit/quota/capacity/storage”等问题时，只有知识库明确给出具体限制，才允许回答具体数值或套餐差异。
+    4. 如果知识库没有明确证据，必须说明“当前知识库未记录该限制/暂未查询到固定上限”，并建议客服核实后台配置或补充相关知识库；不要自行推测。
+    5. DICloak 不存在已知的云存储空间容量套餐限制；除非知识库明确提供容量上限，否则不得输出 Free/Base/Plus/Share 等套餐对应的云存储容量数值。`;
+  
     const intentGuardrail = (classification?.intents && classification.intents.length > 0)
       ? `
     ## Intent Coverage Rules (MUST)
@@ -816,7 +823,7 @@ export async function POST(request: NextRequest) {
     `
       : "";
 
-    const finalPromptWithCoverage = `${finalSystemPrompt}\n${intentGuardrail}\n${outputFormatGuardrail}\n${languageRule}`;
+    const finalPromptWithCoverage = `${finalSystemPrompt}\n${intentGuardrail}\n${outputFormatGuardrail}\n${evidenceGuardrail}\n${languageRule}`;
 
     // 构建知识库上下文（只传递最相关的知识库项）
     let knowledgeContext = "";
@@ -1550,6 +1557,8 @@ export async function POST(request: NextRequest) {
     ${aiOutputFormat}
 
     ${outputFormatGuardrail}
+
+    ${evidenceGuardrail}
 
     ${historyContext}
 
