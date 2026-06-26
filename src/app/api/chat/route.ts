@@ -3,6 +3,46 @@ import { LLMClient, Config } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import type { KnowledgeBase } from '@/lib/types';
 
+function sanitizeCustomerFacingContent(content: string): string {
+  return content
+    .replace(/根据(?:当前)?(?:价格功能表|Pricing Feature Comparison Table|pricing table)(?:中的)?(?:信息|数据)?[，,：:]?/gi, '')
+    .replace(/(?:当前)?(?:价格功能表|Pricing Feature Comparison Table|pricing table)(?:显示|中显示|记录|中记录)[，,：:]?/gi, '')
+    .replace(/(?:FAQ|价格功能表|Pricing Feature Comparison Table|pricing table|检索结果|表格显示)[：:]/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+
+function detectRequestLanguage(text: string, provided?: string): string {
+  if (provided && provided !== 'other') {
+    return provided;
+  }
+
+  const cleanText = text.trim();
+  const totalChars = cleanText.replace(/\s/g, '').length;
+  if (totalChars === 0) {
+    return 'zh';
+  }
+
+  const scripts: Array<[string, RegExp]> = [
+    ['ru', /[\u0400-\u04FF]/g],
+    ['ar', /[\u0600-\u06ff\u0750-\u077f]/g],
+    ['th', /[\u0e00-\u0e7f]/g],
+    ['ja', /[\u3040-\u30ff]/g],
+    ['ko', /[\uac00-\ud7af\u1100-\u115f]/g],
+    ['zh', /[\u4e00-\u9fa5]/g],
+  ];
+
+  for (const [language, pattern] of scripts) {
+    const count = (cleanText.match(pattern) || []).length;
+    if (count / totalChars >= 0.2) {
+      return language;
+    }
+  }
+
+  return /[a-zA-Z]/.test(cleanText) ? 'en' : 'zh';
+}
+
 // ==================== 后端获取 API 配置 ====================
 
 async function getBackendApiConfig(): Promise<{
@@ -451,12 +491,39 @@ const PLAN_NAME_KEYWORDS = [
   'free plan', 'base plan', 'plus plan', 'share plan'
 ];
 
-const NON_DICLOAK_KEYWORDS = [
+// 这些是第三方工具/用途名称，不代表一定是非 DICloak 业务；
+// 只有在后续规则排除 DICloak/账号管理上下文后，才可能用于超范围判断。
+const EXTERNAL_TOOL_KEYWORDS = [
   'chatgpt', 'gpt', 'claude', 'ai写作', 'ai生成',
   '编程', '写代码', '视频制作', '剪辑', '绘图',
   'midjourney', 'runway', 'freepik', 'canva',
   '文案', '翻译', '配音'
 ];
+
+const DICLOAK_CONTEXT_SIGNALS = [
+  'dicloak', '浏览器', '环境', '账号共享', '多账号', 'profile', 'env', 'environment',
+];
+
+const ACCOUNT_MANAGEMENT_SIGNALS = [
+  '团队', '成员', '分发', '分享', '共享', '管理', '配置', '设置', '环境', 'profile',
+  '多人', '额度', '席位', 'seat', 'member', 'team', 'share', 'distribute', 'manage',
+  'команда', 'команд', 'человек', 'пользовател', 'раздать', 'выдать', 'поделиться',
+  'настроить', 'настрой', 'профиль', 'аккаунт', 'учетн',
+];
+
+function hasAnySignal(text: string, signals: string[]): boolean {
+  return signals.some((signal) => text.includes(signal));
+}
+
+function hasExternalToolMention(text: string): boolean {
+  return EXTERNAL_TOOL_KEYWORDS.some((keyword) => text.includes(keyword));
+}
+
+function hasOutOfScopeExternalToolMention(text: string): boolean {
+  return hasExternalToolMention(text) &&
+    !hasAnySignal(text, DICLOAK_CONTEXT_SIGNALS) &&
+    !hasAnySignal(text, ACCOUNT_MANAGEMENT_SIGNALS);
+}
 
 function checkSubscriptionProblem(message: string): { 
   isSubscriptionProblem: boolean; 
@@ -475,26 +542,19 @@ function checkSubscriptionProblem(message: string): {
     return { isSubscriptionProblem: false, isDicloak: null };
   }
   
-  // 检查是否明确提到 DICloak
-  const hasDicloakMention = msgLower.includes('dicloak') || 
-    msgLower.includes('浏览器') || msgLower.includes('环境') ||
-    msgLower.includes('账号共享') || msgLower.includes('多账号');
-  
-  // 检查是否提到非 DICloak 用途
-  let nonDicloakPurpose: string | undefined;
-  for (const kw of NON_DICLOAK_KEYWORDS) {
-    if (msgLower.includes(kw)) {
-      nonDicloakPurpose = kw;
-      break;
-    }
-  }
-  
-  if (nonDicloakPurpose) {
-    return { isSubscriptionProblem: true, isDicloak: false, nonDicloakPurpose };
-  }
-  
-  if (hasDicloakMention) {
+  const hasDicloakContext = hasAnySignal(msgLower, DICLOAK_CONTEXT_SIGNALS);
+  const hasAccountManagementContext = hasAnySignal(msgLower, ACCOUNT_MANAGEMENT_SIGNALS);
+  const externalToolMention = hasExternalToolMention(msgLower);
+
+  if (hasDicloakContext || hasAccountManagementContext) {
     return { isSubscriptionProblem: true, isDicloak: true };
+  }
+
+  // 多语言输入无法靠有限关键词穷尽识别“管理/分发账号”的语义。
+  // 因此，订阅/套餐问题只要提到第三方工具，就保持意图不明确并带上价格表，交由后续追问或 LLM 语义分类处理，
+  // 避免把多语言的 Claude/ChatGPT 账号管理问题误判为超范围。
+  if (externalToolMention) {
+    return { isSubscriptionProblem: true, isDicloak: null, nonDicloakPurpose: 'external_tool_subscription' };
   }
   
    // 意图不明确
@@ -503,7 +563,7 @@ function checkSubscriptionProblem(message: string): {
 
 function hasAmbiguousExternalToolTrouble(message: string): boolean {
   const msgLower = message.toLowerCase();
-  const hasExternalToolName = NON_DICLOAK_KEYWORDS.some((kw) => msgLower.includes(kw));
+  const hasExternalToolName = hasExternalToolMention(msgLower);
   if (!hasExternalToolName) {
     return false;
   }
@@ -583,13 +643,9 @@ function identifyProblemType(
     };
   }
 
-  // 5. 检查是否超出支持范围（非 API/订阅场景）
-  const outOfScopeKeywords = [
-    'chatgpt', 'gpt-4', 'claude', 'midjourney', 'runway', 
-    'freepik', 'canva', 'ai写作', 'ai生成', '编程工具',
-    '视频制作', '剪辑软件', '绘图工具'
-  ];
-  if (outOfScopeKeywords.some(kw => msgLower.includes(kw))) {
+  // 5. 检查是否超出支持范围（非 API/订阅场景）。
+  // 注意：第三方工具名称本身不等于非 DICloak 业务；只有没有 DICloak/账号管理上下文时才判超范围。
+  if (hasOutOfScopeExternalToolMention(msgLower)) {
     return { type: 'out_of_scope', reason: '超出 DICloak 支持范围' };
   }
   
@@ -629,7 +685,7 @@ function identifyUserRole(message: string, history?: Array<{ role: string; conte
   // 客户/管理员特征
   const clientIndicators = [
     '我是管理员', '我的团队', '管理成员', '设置环境', 
-    '我购买的', '我的套餐', '管理代理', '数据同步',
+    '我购买的', '我的套餐', '管理代理', '数据同步', '分发', '分享账号', '共享账号', '团队', '成员', '环境额度',
     'i am admin', 'my team', 'i purchased', 'manage members'
   ];
   if (clientIndicators.some(ind => allText.includes(ind))) {
@@ -659,53 +715,91 @@ function getOutputFormatType(problemType: ProblemType, userRole: UserRole): 'A' 
 }
 
 /**
- * 生成 AI 输出格式要求（AI 只输出内容，不带标题）
+ * 生成问题类型展示文案。
+ */
+function getProblemTypeOutputLabel(problemType: ProblemType): string {
+  const labels: Record<ProblemType, string> = {
+    api_problem: '功能咨询',
+    subscription_problem: '功能咨询',
+    troubleshooting: '故障排查',
+    feature_faq: '功能咨询',
+    info_insufficient: '信息不足',
+    intent_unclear: '意图不明确',
+    out_of_scope: '超出支持范围',
+    user_routing: '终端用户问题',
+  };
+
+  return labels[problemType] || '功能咨询';
+}
+
+/**
+ * 生成 AI 输出格式要求。必须和网站系统 Prompt 的 A/B/C 标题保持一致，避免覆盖后台配置的格式。
  */
 function generateAIOutputFormat(problemType: ProblemType, userRole: UserRole): string {
+  const problemTypeLabel = getProblemTypeOutputLabel(problemType);
+
   // A 格式：非故障类问题
-  if (problemType === 'feature_faq' || problemType === 'out_of_scope' || 
-      problemType === 'intent_unclear' || problemType === 'info_insufficient') {
-    return `## 你需要输出的内容
+  if (problemType === 'feature_faq' || problemType === 'out_of_scope' ||
+      problemType === 'intent_unclear' || problemType === 'info_insufficient' ||
+      problemType === 'api_problem' || problemType === 'subscription_problem' ||
+      problemType === 'user_routing') {
+    return `## 输出格式要求（必须按网站系统 Prompt 的 A 格式输出）
 
-[主回复]
-完整输出 FAQ 标准答案的所有内容，不要拆分到其他部分
+【问题类型】
+${problemTypeLabel}
 
-[补充建议]
-独立的补充建议（如有），如无则写"无"
+【主回复｜优先发送】
+完整主回复。主回复必须完整，不要拆分到补充建议中。
 
-[需要补充的信息]
-需要用户提供的信息（如有），如无需则写"无"`;
+【补充建议｜可选发送】
+独立的补充建议；没有合适补充建议时写：无。
+
+【需要补充的信息】
+需要客户补充的信息；不需要补充信息时写：无。`;
   }
   
   // B 格式：故障排查 + 身份明确
   if (problemType === 'troubleshooting' && userRole !== 'unknown') {
+    const identityLabel = userRole === 'client' ? 'DICloak 客户' : '终端用户';
     const roleAnswer = userRole === 'client' ? 'client' : 'end_user';
-    return `## 你需要输出的内容
+    return `## 输出格式要求（必须按网站系统 Prompt 的 B 格式输出）
 
-[主回复]
-完整输出 FAQ 中的「标准答案（${roleAnswer}）」，如为空则用「标准答案（通用）」
+【问题类型】
+故障排查
 
-[补充建议]
-独立的补充建议（如有），如无则写"无"
+【身份状态】
+${identityLabel}
 
-[需要补充的信息]
-需要用户提供的信息（如有），如无需则写"无"`;
+【主回复｜优先发送】
+完整输出匹配资料中的「标准答案（${roleAnswer}）」，如为空则用「标准答案（通用）」；主回复必须完整，不要拆分到补充建议中。
+
+【补充建议｜可选发送】
+独立的补充建议；没有合适补充建议时写：无。
+
+【需要补充的信息】
+需要客户补充的信息；不需要补充信息时写：无。`;
   }
   
   // C 格式：故障排查 + 身份不明确
-  return `## 你需要输出的内容
+  return `## 输出格式要求（必须按网站系统 Prompt 的 C 格式输出）
 
-[通用回复]
-完整输出 FAQ 中的「标准答案（通用）」，如为空则写"无"
+【问题类型】
+故障排查
 
-[客户回复]
-完整输出 FAQ 中的「标准答案（client）」，如为空则写"无"
+【身份状态】
+身份不明确，需要客服进一步确认
 
-[终端用户回复]
-输出「标准答案（end_user）」的简短版，重点说明需联系账号/服务提供方，如为空则写"无"
+【通用回复｜不确定身份时优先发送】
+完整输出匹配资料中的「标准答案（通用）」，如为空则写：无。
 
-[需要补充的信息]
-生成追问，收集身份相关信息（如：账号是自己管理的还是他人提供的）`;
+【客户回复｜适用于 DICloak 客户 / 管理员】
+完整输出匹配资料中的「标准答案（client）」，如为空则写：无。
+
+【终端用户回复｜简短版】
+输出「标准答案（end_user）」的简短版，重点说明需联系账号/服务提供方；如为空则写：无。
+
+【需要补充的信息｜用于继续排查】
+生成追问，收集身份相关信息（如：账号是自己管理的还是他人提供的）。`;
 }
 
 export async function POST(request: NextRequest) {
@@ -739,7 +833,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 调试知识库数据
-    console.log('[DEBUG] 后端接收语言:', detectedLanguage);
+    const effectiveLanguage = detectRequestLanguage(message, detectedLanguage);
+    console.log('[DEBUG] 后端接收语言:', detectedLanguage, '=>', effectiveLanguage);
     console.log('[DEBUG] AI 关键词:', aiKeywords);
     if (knowledge) {
       console.log('[DEBUG] FAQ数量:', knowledge.faqItems?.length || 0);
@@ -763,7 +858,7 @@ export async function POST(request: NextRequest) {
       ko: "모든 답변은 한국어로 작성해야 합니다",
       mixed: "用户问题中包含多种语言，请使用中文回复",
     };
-    const languageRule = languageRules[detectedLanguage || "zh"] || languageRules.zh;
+    const languageRule = languageRules[effectiveLanguage] || languageRules.zh;
     console.log(`[PERF][CHAT] pre_config_ms=${Date.now() - t0}`);
 
     // API 配置
@@ -779,6 +874,8 @@ export async function POST(request: NextRequest) {
 2. Use the FAQ StandardAnswer as the basis for your reply
 3. Do NOT expose internal logic (FAQ, knowledge base, matching, etc.)
 4. Reply in the same language as the user's question
+5. Tool names such as ChatGPT or Claude do not by themselves mean end-user or out-of-scope; account management/sharing/distribution questions are DICloak client questions
+6. Client = person managing/sharing AI or other tool accounts; end user = person using an account sold or assigned by the client; if role is uncertain, ask for the role before giving role-specific steps
 
 ## FAQ Selection
 - Choose the FAQ with HIGHEST Score
@@ -788,26 +885,37 @@ export async function POST(request: NextRequest) {
 ## Term Translation
 - Replace {{UI terms}} with translated terms
 - Remove {{}} symbols in output
-- For languages not in term library, translate the entire content`;
+- For languages not in term library, translate the entire content
+
+## Pricing Rules
+- For plan, price, member quota, environment quota, or recommendation questions, the Pricing Feature Comparison Table has highest priority
+- Except Free, paid plans can adjust member/environment quotas when the pricing table indicates configurable or purchasable quotas; do not claim Base cannot buy extra members unless the table explicitly says so
+- When recommending plans by user/member count, compare against the pricing table and do not exclude Base only because the team has more than 2 users
+- You may share official website or help-guide links when useful for the customer to verify details
+- Do not expose internal file/table names such as FAQ file names, pricing table names, or Pricing Feature Comparison Table in customer-facing replies; answer directly as DICloak support`;
 
     // 优先使用前端传递的 System Prompt，否则使用精简版
     const finalSystemPrompt = systemPrompt || baseSystemPrompt;
 
     const outputFormatGuardrail = `## 输出格式硬性要求
-    1. 每个板块标题必须独占一行，标题后必须换行再写内容。
-    2. 不要把下一个板块标题或标题图标接在上一段正文后面。
-    3. 禁止单独输出 📌、⚠️、✅、🟡、🔵、🟣、💡、📝 这类标题图标作为一行。
-    4. 板块标题是 UI 解析锚点，必须原样使用中文方括号标题，不允许翻译、改写、加粗或替换括号/符号。只能从以下标题中选择：[问题类型]、[身份状态]、[主回复]、[补充建议]、[需要补充的信息]、[通用回复]、[客户回复]、[终端用户回复]。
-    5. 只能翻译正文内容，禁止翻译板块标题；例如西班牙语回复也必须保留 [主回复]，不能输出 [Respuesta general] 或 【Respuesta general】。
-    6. 正文必须是纯文本，不要使用 Markdown 加粗/斜体/标题符号，例如不要输出 **文本**、__文本__、# 标题。
-    7. 正文不得保留术语占位符花括号；如果知识库出现 {{Equipo}}、{{Members}}，输出时必须变成 Equipo、Members 或目标语言译文。`;
+    1. 输出格式必须以网站系统 Prompt 的 A/B/C 格式为准，并使用本次用户消息中提供的“输出格式要求”。
+    2. 每个板块标题必须独占一行，标题后必须换行再写内容。
+    3. 不要把下一个板块标题或标题图标接在上一段正文后面。
+    4. 板块标题必须只保留文字标题，不使用 emoji 图标，也不要单独输出任何标题图标。
+    5. 板块标题必须保留网站系统 Prompt 指定的中文书名号样式方括号“【】”、分隔符“｜”和中文标题，例如“【主回复｜优先发送】”；禁止改成 []、翻译标题或改写标题。
+    6. 只能翻译正文内容，禁止翻译板块标题；例如西班牙语回复也必须保留“【主回复｜优先发送】”。
+    7. 正文必须是纯文本，不要使用 Markdown 加粗/斜体/标题符号，例如不要输出 **文本**、__文本__、# 标题。
+    8. 正文不得保留术语占位符花括号；如果内部资料出现 {{Equipo}}、{{Members}}，输出时必须变成 Equipo、Members 或目标语言译文。`;
 
     const evidenceGuardrail = `## 知识依据与防编造硬性要求
-    1. 回复只能基于上方提供的 FAQ、Troubleshooting、功能知识库、API 表、价格功能表和同会话历史。
-    2. 禁止编造 DICloak 知识库中没有出现的套餐权益、容量、配额、限制、价格、入口路径、按钮名称、操作步骤或功能结论。
-    3. 当用户询问“是否有限制/容量/配额/上限/limit/quota/capacity/storage”等问题时，只有知识库明确给出具体限制，才允许回答具体数值或套餐差异。
-    4. 如果知识库没有明确证据，必须说明“当前知识库未记录该限制/暂未查询到固定上限”，并建议客服核实后台配置或补充相关知识库；不要自行推测。
-    5. DICloak 不存在已知的云存储空间容量套餐限制；除非知识库明确提供容量上限，否则不得输出 Free/Base/Plus/Share 等套餐对应的云存储容量数值。`;
+    1. 回复只能基于上方提供的内部资料和同会话历史；这些资料名称仅供内部生成使用。
+    2. 禁止编造内部资料中没有出现的套餐权益、容量、配额、限制、价格、入口路径、按钮名称、操作步骤或功能结论。
+    3. 当用户询问“是否有限制/容量/配额/上限/limit/quota/capacity/storage”等问题时，只有内部资料明确给出具体限制，才允许回答具体数值或套餐差异。
+    4. 如果内部资料没有明确证据，可以直接说明“知识库未检索到相关知识，此回复来源为 AI 生成”，并建议进一步核实；不要自行推测确定结论。
+    5. DICloak 不存在已知的云存储空间容量套餐限制；除非知识库明确提供容量上限，否则不得输出 Free/Base/Plus/Share 等套餐对应的云存储容量数值。
+    6. 套餐问题必须优先使用内部价格数据；除免费版外，成员和环境额度是否可调整、是否可购买额外额度，以内部价格数据为准，不得沿用旧结论。
+    7. 可以提供官网或操作指南链接，帮助客户自行核对具体信息。
+    8. 面向客户的正文不得透露内部具体文件/表名称或工作流，例如“FAQ 文件/价格功能表/Pricing Feature Comparison Table/表格显示”；但在未检索到相关信息时，可以说“知识库未检索到相关知识，此回复来源为 AI 生成”。`;
   
     const intentGuardrail = (classification?.intents && classification.intents.length > 0)
       ? `
@@ -827,6 +935,7 @@ export async function POST(request: NextRequest) {
 
     // 构建知识库上下文（只传递最相关的知识库项）
     let knowledgeContext = "";
+    let responseShouldUsePricingTable = false;
 
     // 关键词来源：优先使用 AI 提取的关键词，否则使用本地提取
     const extractKeywords = (text: string): string[] => {
@@ -1273,6 +1382,7 @@ export async function POST(request: NextRequest) {
       // 更新优先级判断（考虑检索结果）
       const finalIsApiQuestion = isApiQuestion || apiSearchResult?.found;
       const finalIsPricingQuestion = isPricingQuestion || pricingSearchResult?.found;
+      responseShouldUsePricingTable = Boolean(finalIsPricingQuestion);
       
       console.log("[PRIORITY DEBUG] isApiQuestion:", finalIsApiQuestion, "isPricingQuestion:", finalIsPricingQuestion);
 
@@ -1349,9 +1459,10 @@ export async function POST(request: NextRequest) {
 
       // 优先构建价格功能表上下文（如果是套餐问题）
       if (pricingSearchResult && pricingSearchResult.found) {
-        priorityContext += "## Pricing Feature Comparison Table (HIGHEST PRIORITY)\n";
-        priorityContext += "IMPORTANT: For subscription/plan questions, you MUST use this pricing table data first.\n";
-        priorityContext += "Use FAQ as supplementary only. Follow the pricing recommendation rules in system prompt.\n\n";
+        priorityContext += "## Pricing Feature Comparison Table (HIGHEST PRIORITY, INTERNAL KNOWLEDGE BASE)\n";
+        priorityContext += "IMPORTANT: For subscription/plan questions, you MUST use this imported pricing table first. This is not live website content.\n";
+        priorityContext += "Use FAQ as supplementary only. If FAQ conflicts with this table, the table wins. Paid plans other than Free may have adjustable member/environment quotas when shown here; do not invent Base restrictions.\n";
+        priorityContext += "Customer-facing wording: you may provide official website/help-guide links when useful, but do NOT expose internal file/table names such as FAQ file, pricing table, or Pricing Feature Comparison Table. Answer directly as DICloak support.\n\n";
         
         // 输出原始横向表格
         if (knowledge.pricingRawTable) {
@@ -1422,7 +1533,7 @@ export async function POST(request: NextRequest) {
           const translatedAnswer = translateTerms(
             item.answer, 
             item.termIds, 
-            detectedLanguage || 'zh',
+            effectiveLanguage,
             knowledge.termItems || []
           );
           // 处理术语定位符
@@ -1454,7 +1565,7 @@ export async function POST(request: NextRequest) {
           const translatedAnswer = translateTerms(
             item.answer, 
             item.termIds, 
-            detectedLanguage || 'zh',
+            effectiveLanguage,
             knowledge.termItems || []
           );
           const processedAnswer = processTermMarkers(translatedAnswer);
@@ -1463,13 +1574,13 @@ export async function POST(request: NextRequest) {
           const translatedAnswerClient = item.answerClient ? processTermMarkers(translateTerms(
             item.answerClient, 
             item.termIds, 
-            detectedLanguage || 'zh',
+            effectiveLanguage,
             knowledge.termItems || []
           )) : '';
           const translatedAnswerEndUser = item.answerEndUser ? processTermMarkers(translateTerms(
             item.answerEndUser, 
             item.termIds, 
-            detectedLanguage || 'zh',
+            effectiveLanguage,
             knowledge.termItems || []
           )) : '';
           
@@ -1554,6 +1665,8 @@ export async function POST(request: NextRequest) {
 
     ${languageRule}
 
+    ${responseShouldUsePricingTable ? "Internal pricing requirement: use the pricing data in the context for plan/price/member/environment quota answers. Do NOT mention internal file/table names such as pricing table or Pricing Feature Comparison Table in the customer-facing reply. Official website/help-guide links are allowed when useful. Answer directly as DICloak support." : ""}
+
     ${aiOutputFormat}
 
     ${outputFormatGuardrail}
@@ -1617,7 +1730,9 @@ export async function POST(request: NextRequest) {
 
     const streamChatResponse = async (controller: ReadableStreamDefaultController<Uint8Array>): Promise<void> => {
       // 首先发送元数据给前端
-      controller.enqueue(new TextEncoder().encode(`[META]${metaData}[/META]\n`));
+      const encoder = new TextEncoder();
+      let fullContent = "";
+      controller.enqueue(encoder.encode(`[META]${metaData}[/META]\n`));
       
       if (isOpenAICompatibleProvider) {
         // DeepSeek / 阿里百炼使用 OpenAI 兼容 API
@@ -1635,7 +1750,7 @@ export async function POST(request: NextRequest) {
           body: JSON.stringify({
             model: config.model || (config.provider === 'aliyun' ? 'qwen-mt-flash' : 'deepseek-chat'),
             messages: requestMessages,
-            temperature: 0.7,
+            temperature: responseShouldUsePricingTable ? 0.2 : 0.7,
             stream: true,
           }),
         });
@@ -1668,7 +1783,7 @@ export async function POST(request: NextRequest) {
                 const parsed = JSON.parse(data);
                 const content = parsed.choices?.[0]?.delta?.content || '';
                 if (content) {
-                  controller.enqueue(new TextEncoder().encode(content));
+                  fullContent += content;
                 }
               } catch (parseError) {
                 void parseError;
@@ -1688,19 +1803,20 @@ export async function POST(request: NextRequest) {
         const client = new LLMClient(llmConfig);
         const llmConfigStream = {
           model: config.model || "doubao-seed-2-0-lite-260215",
-          temperature: 0.7,
+          temperature: responseShouldUsePricingTable ? 0.2 : 0.7,
         };
-  
-        const encoder = new TextEncoder();
   
         for await (const chunk of client.stream(messages, llmConfigStream)) {
           const content = extractTextFromLlmChunk(chunk);
   
           if (content) {
-            controller.enqueue(encoder.encode(content));
+            fullContent += content;
           }
         }
         console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
+      }
+      if (fullContent) {
+        controller.enqueue(encoder.encode(sanitizeCustomerFacingContent(fullContent)));
       }
       controller.close();
     };
