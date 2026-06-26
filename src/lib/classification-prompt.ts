@@ -36,9 +36,8 @@ pricing_table: 价格功能表
 【强制判定规则】
 - “我想续订我的账户 / renew my account / renovar mi cuenta” 这类没有说明是 DICloak 还是其他平台账户的问题，必须判为 intent_unclear，needsFollowUp = true，并追问是否续订 DICloak 账户。
 - “ChatGPT打不开 / Claude打不开 / 某工具打不开” 这类第三方工具名 + 打不开/访问异常，不能直接判为 user_routing；应判为 info_insufficient 或 troubleshooting，并追问是 DICloak 环境/profile 打不开，还是外部网站/工具本身打不开。
-- “给团队/成员分发 Claude/ChatGPT 订阅、管理 AI 账号、共享工具账号、配置多人使用”等是在管理第三方工具账号，属于 DICloak 客户/管理员场景，不能判为 user_routing 或 out_of_scope；该规则适用于任何语言，不要只依赖中英文关键词。
+- “给团队/成员分发 Claude/ChatGPT 订阅、管理 AI 账号、共享工具账号、配置多人使用”等是在管理/共享已有第三方工具账号，属于 DICloak 客户/管理员场景，不能判为 user_routing 或 out_of_scope；该规则适用于任何语言，不要只依赖中英文关键词。俄语如“раздать подписку/аккаунт Claude команде/пользователям”“настроить профиль для Claude”也必须按该规则处理。
 - 客户 = 管理和分享 AI 或其他工具账号的人；终端用户 = 使用客户售卖或分配的工具账号的人。只有语义明确表示“账号是别人/第三方/管理员/服务商提供且自己不是管理者”时，才判为 user_routing；身份不确定时 identityStatus=unknown 且 needsFollowUp=true。
-- 用户描述“多个 profile/环境同时打开同一链接、在多个账号执行同一动作、点赞/点击/输入同步、一个点击控制多个窗口”，这是窗口同步 Window Synchronizer 功能咨询，必须判为 feature_faq，tables 至少包含 faq，可加 function_knowledge；不要判为 RPA。
 
 【表选择规则】
 api_problem: 必须 api_endpoints，可加 faq

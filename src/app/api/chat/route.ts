@@ -481,7 +481,8 @@ function searchPricingPlans(
 const SUBSCRIPTION_KEYWORDS = [
   '订阅', '套餐', '价格', '购买', 'plan', 'price', 
   'billing', 'upgrade', '付费', '订阅', '续费', '续订',
-  'subscription', 'pricing', '多少钱', '收费', 'renew', 'renewal', 'renovar', 'renovación'
+  'subscription', 'pricing', '多少钱', '收费', 'renew', 'renewal', 'renovar', 'renovación',
+  'подписка', 'подписку', 'подписки', 'тариф', 'тарифы', 'цена', 'стоимость', 'купить', 'продлить',
 ];
 
 // 套餐名称关键词（用于识别套餐功能对比问题）
@@ -507,8 +508,9 @@ const DICLOAK_CONTEXT_SIGNALS = [
 const ACCOUNT_MANAGEMENT_SIGNALS = [
   '团队', '成员', '分发', '分享', '共享', '管理', '配置', '设置', '环境', 'profile',
   '多人', '额度', '席位', 'seat', 'member', 'team', 'share', 'distribute', 'manage',
+  '已有账号', '账号分配', '账号分享', '给成员使用', 'share account', 'account sharing', 'assign account',
   'команда', 'команд', 'человек', 'пользовател', 'раздать', 'выдать', 'поделиться',
-  'настроить', 'настрой', 'профиль', 'аккаунт', 'учетн',
+  'распределить', 'предоставить', 'дать доступ', 'доступ', 'настроить', 'настрой', 'профиль', 'аккаунт', 'учетн',
 ];
 
 function hasAnySignal(text: string, signals: string[]): boolean {
@@ -523,6 +525,10 @@ function hasOutOfScopeExternalToolMention(text: string): boolean {
   return hasExternalToolMention(text) &&
     !hasAnySignal(text, DICLOAK_CONTEXT_SIGNALS) &&
     !hasAnySignal(text, ACCOUNT_MANAGEMENT_SIGNALS);
+}
+
+function isExternalToolAccountManagementRequest(text: string): boolean {
+  return hasExternalToolMention(text) && hasAnySignal(text, ACCOUNT_MANAGEMENT_SIGNALS);
 }
 
 function checkSubscriptionProblem(message: string): { 
@@ -635,7 +641,16 @@ function identifyProblemType(
     };
   }
   
-  // 4. 第三方工具名称 + 打不开/访问异常是歧义故障：可能是 DICloak 环境/profile 名称，不直接判为 user_routing 或超范围
+  // 4. 第三方工具账号管理/分发/共享场景：不要被外部工具名误导成超范围。
+  // 例如俄语“给 10 人分配 Claude 订阅/账号并配置 profile”，应视为 DICloak 客户想管理/共享已有工具账号。
+  if (isExternalToolAccountManagementRequest(msgLower)) {
+    return {
+      type: 'feature_faq',
+      reason: '第三方工具账号管理/分发场景，按 DICloak 客户功能咨询处理'
+    };
+  }
+
+  // 5. 第三方工具名称 + 打不开/访问异常是歧义故障：可能是 DICloak 环境/profile 名称，不直接判为 user_routing 或超范围
   if (hasAmbiguousExternalToolTrouble(message)) {
     return {
       type: 'info_insufficient',
@@ -643,13 +658,13 @@ function identifyProblemType(
     };
   }
 
-  // 5. 检查是否超出支持范围（非 API/订阅场景）。
+  /// 6. 检查是否超出支持范围（非 API/订阅场景）。
   // 注意：第三方工具名称本身不等于非 DICloak 业务；只有没有 DICloak/账号管理上下文时才判超范围。
   if (hasOutOfScopeExternalToolMention(msgLower)) {
     return { type: 'out_of_scope', reason: '超出 DICloak 支持范围' };
   }
   
-  // 6. 根据匹配分数判断类型
+  // 7. 根据匹配分数判断类型
   if (matchedTsScore >= matchedFaqScore && matchedTsScore >= matchedOosScore && matchedTsScore > 0) {
     return { type: 'troubleshooting', reason: '匹配到故障排查知识库' };
   }
@@ -662,7 +677,7 @@ function identifyProblemType(
     return { type: 'feature_faq', reason: '匹配到功能FAQ知识库' };
   }
   
-  // 7. 默认返回信息不足
+  // 8. 默认返回信息不足
   return { type: 'info_insufficient', reason: '未匹配到相关知识库' };
 }
 
@@ -749,10 +764,10 @@ function generateAIOutputFormat(problemType: ProblemType, userRole: UserRole): s
 ${problemTypeLabel}
 
 【主回复｜优先发送】
-完整主回复。主回复必须完整，不要拆分到补充建议中。
+完整主回复。若命中标准答案，必须严格基于标准答案改写/翻译，不得新增标准答案没有的按钮、路径、权限、密码、有效期、限制或操作步骤。主回复必须完整，不要拆分到补充建议中。
 
 【补充建议｜可选发送】
-独立的补充建议；没有合适补充建议时写：无。
+独立的补充建议；不得继续补充主回复没有依据的操作步骤。没有合适补充建议时写：无。
 
 【需要补充的信息】
 需要客户补充的信息；不需要补充信息时写：无。`;
@@ -771,10 +786,10 @@ ${problemTypeLabel}
 ${identityLabel}
 
 【主回复｜优先发送】
-完整输出匹配资料中的「标准答案（${roleAnswer}）」，如为空则用「标准答案（通用）」；主回复必须完整，不要拆分到补充建议中。
+完整输出匹配资料中的「标准答案（${roleAnswer}）」，如为空则用「标准答案（通用）」；必须严格基于标准答案改写/翻译，不得新增标准答案没有的按钮、路径、权限、密码、有效期、限制或操作步骤；主回复必须完整，不要拆分到补充建议中。
 
 【补充建议｜可选发送】
-独立的补充建议；没有合适补充建议时写：无。
+独立的补充建议；不得继续补充主回复没有依据的操作步骤。没有合适补充建议时写：无。
 
 【需要补充的信息】
 需要客户补充的信息；不需要补充信息时写：无。`;
@@ -790,13 +805,13 @@ ${identityLabel}
 身份不明确，需要客服进一步确认
 
 【通用回复｜不确定身份时优先发送】
-完整输出匹配资料中的「标准答案（通用）」，如为空则写：无。
+完整输出匹配资料中的「标准答案（通用）」，不得新增标准答案没有的操作步骤；如为空则写：无。
 
 【客户回复｜适用于 DICloak 客户 / 管理员】
-完整输出匹配资料中的「标准答案（client）」，如为空则写：无。
+完整输出匹配资料中的「标准答案（client）」，不得新增标准答案没有的操作步骤；如为空则写：无。
 
 【终端用户回复｜简短版】
-输出「标准答案（end_user）」的简短版，重点说明需联系账号/服务提供方；如为空则写：无。
+输出「标准答案（end_user）」的简短版，重点说明需联系账号/服务提供方；不得新增标准答案没有的操作步骤；如为空则写：无。
 
 【需要补充的信息｜用于继续排查】
 生成追问，收集身份相关信息（如：账号是自己管理的还是他人提供的）。`;
@@ -871,11 +886,12 @@ export async function POST(request: NextRequest) {
 
 ## Core Rules
 1. Generate professional, friendly customer replies
-2. Use the FAQ StandardAnswer as the basis for your reply
+2. Use the FAQ StandardAnswer as the basis for your reply; do not add UI buttons, paths, permissions, password/expiry settings, limits, or operation steps that are not explicitly present in the provided answer/context
 3. Do NOT expose internal logic (FAQ, knowledge base, matching, etc.)
 4. Reply in the same language as the user's question
 5. Tool names such as ChatGPT or Claude do not by themselves mean end-user or out-of-scope; account management/sharing/distribution questions are DICloak client questions
-6. Client = person managing/sharing AI or other tool accounts; end user = person using an account sold or assigned by the client; if role is uncertain, ask for the role before giving role-specific steps
+6. If the customer says they want to distribute/share/provide access to Claude/ChatGPT subscriptions or accounts for their team, interpret it as sharing/managing existing third-party tool accounts through DICloak. Do not say DICloak cannot help distribute the subscription; only clarify that DICloak does not sell or purchase the third-party subscription itself.
+7. Client = person managing/sharing AI or other tool accounts; end user = person using an account sold or assigned by the client; if role is uncertain, ask for the role before giving role-specific steps
 
 ## FAQ Selection
 - Choose the FAQ with HIGHEST Score
@@ -910,12 +926,14 @@ export async function POST(request: NextRequest) {
     const evidenceGuardrail = `## 知识依据与防编造硬性要求
     1. 回复只能基于上方提供的内部资料和同会话历史；这些资料名称仅供内部生成使用。
     2. 禁止编造内部资料中没有出现的套餐权益、容量、配额、限制、价格、入口路径、按钮名称、操作步骤或功能结论。
-    3. 当用户询问“是否有限制/容量/配额/上限/limit/quota/capacity/storage”等问题时，只有内部资料明确给出具体限制，才允许回答具体数值或套餐差异。
-    4. 如果内部资料没有明确证据，可以直接说明“知识库未检索到相关知识，此回复来源为 AI 生成”，并建议进一步核实；不要自行推测确定结论。
-    5. DICloak 不存在已知的云存储空间容量套餐限制；除非知识库明确提供容量上限，否则不得输出 Free/Base/Plus/Share 等套餐对应的云存储容量数值。
-    6. 套餐问题必须优先使用内部价格数据；除免费版外，成员和环境额度是否可调整、是否可购买额外额度，以内部价格数据为准，不得沿用旧结论。
-    7. 可以提供官网或操作指南链接，帮助客户自行核对具体信息。
-    8. 面向客户的正文不得透露内部具体文件/表名称或工作流，例如“FAQ 文件/价格功能表/Pricing Feature Comparison Table/表格显示”；但在未检索到相关信息时，可以说“知识库未检索到相关知识，此回复来源为 AI 生成”。`;
+    3. 如果使用标准答案，必须只基于标准答案改写或翻译；不得添加标准答案没有的“分享按钮、权限设置、密码、有效期、团队管理路径、成员名额、超级管理员占位”等细节，除非这些细节在本次提供的内部资料中明确出现。
+    4. 当用户询问“是否有限制/容量/配额/上限/limit/quota/capacity/storage”等问题时，只有内部资料明确给出具体限制，才允许回答具体数值或套餐差异。
+    5. 如果内部资料没有明确证据，可以直接说明“知识库未检索到相关知识，此回复来源为 AI 生成”，并建议进一步核实；不要自行推测确定结论。
+    6. DICloak 不存在已知的云存储空间容量套餐限制；除非知识库明确提供容量上限，否则不得输出 Free/Base/Plus/Share 等套餐对应的云存储容量数值。
+    7. 套餐问题必须优先使用内部价格数据；除免费版外，成员和环境额度是否可调整、是否可购买额外额度，以内部价格数据为准，不得沿用旧结论。
+    8. 可以提供官网或操作指南链接，帮助客户自行核对具体信息。
+    9. 面向客户的正文不得透露内部具体文件/表名称或工作流，例如“FAQ 文件/价格功能表/Pricing Feature Comparison Table/表格显示”；但在未检索到相关信息时，可以说“知识库未检索到相关知识，此回复来源为 AI 生成”。
+    10. 如果客户说要给团队/成员分配、分享、发放 Claude/ChatGPT 等第三方工具账号或订阅，必须理解为“通过 DICloak 管理/共享已有第三方工具账号”的客户场景；不要回复 DICloak 无法协助分配订阅。可以说明 DICloak 不销售或代购第三方订阅，但可以协助进行账号管理、环境/profile 配置、成员使用安排。`;
   
     const intentGuardrail = (classification?.intents && classification.intents.length > 0)
       ? `
@@ -1526,6 +1544,7 @@ export async function POST(request: NextRequest) {
           knowledgeContext += "NOTE: This is SUPPLEMENTARY information. Priority data (API/Pricing) is provided above.\n";
         }
         knowledgeContext += "IMPORTANT: You MUST start your reply with [FAQ_ID: xxx] where xxx is the FAQ ID you used.\n";
+        knowledgeContext += "STRICT: For FAQ answers, use StandardAnswer as the factual boundary. Do NOT add buttons, paths, permissions, password/expiry settings, quota details, or extra steps that are not explicitly in StandardAnswer or another provided context item.\n";
         knowledgeContext += "HINT: Higher score = more relevant. Prefer FAQs with score >= 10.\n\n";
         matchedFaq.slice(0, 20).forEach((m, index) => {
           const item = m.item;
@@ -1558,6 +1577,7 @@ export async function POST(request: NextRequest) {
       if (matchedTs.length > 0) {
         knowledgeContext += "## Troubleshooting Knowledge Base (sorted by relevance score)\n";
         knowledgeContext += "IMPORTANT: You MUST start your reply with [TS_ID: xxx] where xxx is the FAQ ID you used.\n";
+        knowledgeContext += "STRICT: Use provided StandardAnswer fields as the factual boundary. Do NOT add unprovided buttons, paths, permissions, password/expiry settings, quota details, or extra steps.\n";
         knowledgeContext += "HINT: Higher score = more relevant. Prefer items with score >= 10.\n\n";
         matchedTs.slice(0, 20).forEach((m, index) => {
           const item = m.item;
