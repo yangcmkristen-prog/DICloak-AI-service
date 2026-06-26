@@ -81,7 +81,7 @@ The customer provided ${userCount} actual user(s)/team member(s)/device(s). Thes
 - Base required member seats: ${userCount}.
 - Plus required member seats: ${plusSeats}. Formula: 1 + ceil((${userCount} - 1) / 100).
 - Share+ member seats: unlimited.
-- If recommending Plus, do NOT say the customer needs ${Math.max(userCount - plusSeats, 0)} additional member seat(s). For ${userCount} user(s), Plus requires ${plusSeats} member seat(s) under the configured rule.
+- If recommending Plus, do NOT calculate it as one member seat per actual user. For ${userCount} user(s), Plus requires ${plusSeats} total member seat(s) under the configured rule.
 - You may mention that multiple users sharing one internal member account can be less convenient for management/supervision than Base or Share+.
 `;
 }
@@ -92,24 +92,21 @@ function enforceSeatCalculationCorrections(content: string, userCount: number | 
   }
 
   const plusSeats = 1 + Math.ceil(Math.max(userCount - 1, 0) / 100);
-  const forbiddenAdditionalSeats = Math.max(userCount - plusSeats, 0);
-  if (forbiddenAdditionalSeats <= 0) {
-    return content;
-  }
-
   const normalized = content.toLowerCase();
   const mentionsPlus = normalized.includes('plus');
-  const mentionsForbiddenAdditionalSeats = new RegExp(`\\b${forbiddenAdditionalSeats}\\b`).test(normalized) &&
-    /(additional|extra|дополнительн|добавочн|额外|доп购|加购|докуп)/i.test(content);
+  const additionalSeatMatch = content.match(/\b(\d{1,4})\b[^.\n。]*(?:additional|extra|дополнительн|добавочн|额外|доп购|加购|докуп)/i);
+  const mentionedAdditionalSeats = additionalSeatMatch ? Number.parseInt(additionalSeatMatch[1], 10) : null;
+  const allowedAdditionalSeats = Math.max(plusSeats - 1, 0);
+  const mentionsWrongAdditionalSeats = mentionedAdditionalSeats !== null && mentionedAdditionalSeats !== allowedAdditionalSeats;
 
-  if (!mentionsPlus || !mentionsForbiddenAdditionalSeats) {
+  if (!mentionsPlus || !mentionsWrongAdditionalSeats) {
     return content;
   }
 
   const correctionByLanguage: Record<string, string> = {
-    zh: `更正：按当前成员席位规则，${userCount} 个实际用户使用 Plus 时需要 ${plusSeats} 个成员席位，不需要额外购买 ${forbiddenAdditionalSeats} 个成员席位。`,
-    ru: `Исправление: по текущему правилу расчёта мест для ${userCount} фактических пользователей на Plus требуется ${plusSeats} место участника; покупать ещё ${forbiddenAdditionalSeats} дополнительных мест не нужно.`,
-    en: `Correction: under the current member-seat rule, ${userCount} actual users on Plus require ${plusSeats} member seat(s); they do not need to buy ${forbiddenAdditionalSeats} additional seat(s).`,
+    zh: `更正：按当前成员席位规则，${userCount} 个实际用户使用 Plus 时需要 ${plusSeats} 个成员席位；如果 Plus 默认包含 1 个超管席位，则只需按价格表核对是否补充 ${allowedAdditionalSeats} 个内部成员席位，而不是按每人 1 席位计算。`,
+    ru: `Исправление: по текущему правилу расчёта мест для ${userCount} фактических пользователей на Plus требуется ${plusSeats} места участника; если Plus уже включает 1 место супер-администратора, нужно сверить по прайс-листу только ${allowedAdditionalSeats} внутреннее место, а не считать по одному месту на каждого пользователя.`,
+    en: `Correction: under the current member-seat rule, ${userCount} actual users on Plus require ${plusSeats} total member seat(s); if Plus includes 1 super-admin seat by default, only ${allowedAdditionalSeats} internal seat(s) should be checked against pricing, not one seat per user.`,
   };
   const correction = correctionByLanguage[language] || correctionByLanguage.en;
 
@@ -123,6 +120,51 @@ function hasStepByStepRequest(message: string): boolean {
     'step by step', 'step-by-step', 'instructions', 'setup guide',
     'инструкция', 'инструкции', 'поэтап', 'по этап', 'настроить', 'настройка',
   ].some((signal) => normalized.includes(signal));
+}
+
+type CustomerBusinessType = 'account_sharing' | 'multi_account_management' | 'unknown';
+
+function detectCustomerBusinessType(message: string): CustomerBusinessType {
+  const normalized = message.toLowerCase();
+  const accountSharingSignals = [
+    '账号共享', '共享账号', '账号分享', '分发', '分享', '订阅', '团队使用',
+    'share account', 'account sharing', 'subscription', 'team access', 'distribute',
+    'раздать', 'поделиться', 'доступ', 'подписк', 'команда', 'команде',
+    'claude', 'chatgpt',
+  ];
+  const multiAccountSignals = [
+    '多账号', '多账户', '批量账号', '账号矩阵', '店铺', '社媒', '社交媒体', '电商',
+    'multi-account', 'multiple accounts', 'account management', 'e-commerce', 'social media',
+    'много аккаунтов', 'несколько аккаунтов', 'управление аккаунтами',
+  ];
+
+  const hasAccountSharing = accountSharingSignals.some((signal) => normalized.includes(signal));
+  const hasMultiAccount = multiAccountSignals.some((signal) => normalized.includes(signal));
+
+  if (hasAccountSharing && !hasMultiAccount) return 'account_sharing';
+  if (hasMultiAccount && !hasAccountSharing) return 'multi_account_management';
+  if (hasAccountSharing && hasMultiAccount) return 'account_sharing';
+  return 'unknown';
+}
+
+function buildPlanRecommendationRules(businessType: CustomerBusinessType, userCount: number | null): string {
+  const userCountText = userCount ? `${userCount}` : 'unknown';
+  return `## Deterministic Plan Recommendation Rules (HIGHEST PRIORITY)
+Backend-detected customer business type: ${businessType}. Actual user count: ${userCountText}.
+Recommendation algorithm:
+1. Use the pricing data in the provided context to find plans that satisfy the customer's stated requirements.
+2. Among suitable plans, recommend the lowest total price first. Do NOT recommend Share+ first only because it is convenient if Base or Plus is cheaper and satisfies the stated needs.
+3. If the customer has not explicitly requested advanced features, API, window synchronization, RPA, unlimited members, or stronger per-member supervision, treat lower price as the primary decision factor.
+4. For account-sharing customers:
+   - If the customer only mentions sharing/distributing an existing third-party subscription to a team and does not ask for advanced features, recommend Base first as the lowest-price suitable starting option, then explain Plus and Share+ as upgrade alternatives.
+   - Base can be recommended when the customer mainly needs a low-cost solution. Explain that Base members do not support simultaneous multi-device login; actual users require one member seat each; it does not support disabling website password viewing, window synchronization, Open API, and other advanced features.
+   - Plus can be recommended when the customer needs all feature modules or multi-device use under shared internal member accounts. Explain that it does not support purchasing the cookie-encryption add-on, and shared-account member management/supervision is less convenient than Base or Share+.
+   - Share+ can be recommended when the customer prioritizes account-sharing operations, independent member accounts, unlimited members, and easier supervision. Explain that it is best suited for account-sharing business, but not for window synchronization or large-scale RPA needs.
+5. For multi-account-management customers:
+   - Usually do not recommend Share+ unless the customer explicitly asks for account-sharing business, unlimited members, or each user needing an independent member account.
+   - Choose between Base and Plus according to stated feature needs, with the lower-priced suitable plan first.
+6. If exact total price requires extra-seat pricing and the pricing data does not provide it, do not invent the final total; compare qualitatively and ask the customer to confirm extra-seat pricing on the official pricing page.
+`;
 }
 
 
@@ -964,9 +1006,11 @@ export async function POST(request: NextRequest) {
     const effectiveLanguage = detectRequestLanguage(message, detectedLanguage);
     const actualUserCount = extractActualUserCount(message);
     const stepByStepRequested = hasStepByStepRequest(message);
+    const customerBusinessType = detectCustomerBusinessType(message);
     console.log('[DEBUG] 后端接收语言:', detectedLanguage, '=>', effectiveLanguage);
     console.log('[DEBUG] 解析到实际用户数:', actualUserCount);
     console.log('[DEBUG] 是否请求步骤说明:', stepByStepRequested);
+    console.log('[DEBUG] 客户业务类型:', customerBusinessType);
     console.log('[DEBUG] AI 关键词:', aiKeywords);
     if (knowledge) {
       console.log('[DEBUG] FAQ数量:', knowledge.faqItems?.length || 0);
@@ -1058,11 +1102,12 @@ export async function POST(request: NextRequest) {
     1. 计划名称是产品专有名词。中文回复可写“Plus（高阶版）”；非中文回复必须只使用英文计划名 Free、Base、Plus、Share+，不得输出“高阶版/基础版/共享版+/免费版”等中文版本名称。
     2. 客户提供用户数量、团队成员或设备数量时，视为实际用户数。
     3. Base: 每个实际用户需要 1 个成员席位，所需成员席位 = 实际用户数。
-    4. Plus: 超管占用 1 个成员席位；每个内部成员席位最多支持 100 个实际用户/设备；所需成员席位 = 1 + 向上取整((实际用户数 - 1) / 100)。例如 10 个用户使用 Plus 时，需要 1 个成员席位，不是 10 个成员席位，也不需要额外购买 9 个成员席位；但要提醒多个用户共用同一成员账户时，管理和监督不如 Base 和 Share+。
+    4. Plus: 超管占用 1 个成员席位；每个内部成员席位最多支持 100 个实际用户/设备；所需成员席位 = 1 + 向上取整((实际用户数 - 1) / 100)。例如 10 个用户使用 Plus 时，需要 2 个成员席位，不是 10 个成员席位，也不需要额外购买 9 个成员席位；但要提醒多个用户共用同一成员账户，成员管理和监管没有 Base 和 Share+ 方便。
     5. Share+: 成员席位无限制，每个用户使用独立成员账户，更便于管理和监管。
     6. 如果内部价格数据与旧 FAQ 或历史回复冲突，以本段计算规则和内部价格数据为准；禁止输出“Plus 10 人需要购买 9 个额外席位”这类结论。`;
 
     const deterministicSeatFacts = buildSeatCalculationFacts(actualUserCount);
+    const planRecommendationRules = buildPlanRecommendationRules(customerBusinessType, actualUserCount);
 
     const stepEvidenceGuardrail = stepByStepRequested
       ? `## Step-by-step Evidence Gate (HIGHEST PRIORITY)
@@ -1086,7 +1131,7 @@ The customer requested step-by-step setup instructions. Before giving any number
     `
       : "";
 
-    const finalPromptWithCoverage = `${finalSystemPrompt}\n${intentGuardrail}\n${outputFormatGuardrail}\n${evidenceGuardrail}\n${pricingGuardrail}\n${deterministicSeatFacts}\n${stepEvidenceGuardrail}\n${languageRule}`;
+    const finalPromptWithCoverage = `${finalSystemPrompt}\n${intentGuardrail}\n${outputFormatGuardrail}\n${evidenceGuardrail}\n${pricingGuardrail}\n${deterministicSeatFacts}\n${planRecommendationRules}\n${stepEvidenceGuardrail}\n${languageRule}`;
 
     // 构建知识库上下文（只传递最相关的知识库项）
     let knowledgeContext = "";
@@ -1549,6 +1594,7 @@ The customer requested step-by-step setup instructions. Before giving any number
       if (deterministicSeatFacts) {
         priorityContext += deterministicSeatFacts + "\n";
       }
+      priorityContext += planRecommendationRules + "\n";
       if (stepEvidenceGuardrail) {
         priorityContext += stepEvidenceGuardrail + "\n";
       }
@@ -1863,6 +1909,8 @@ The customer requested step-by-step setup instructions. Before giving any number
     ${pricingGuardrail}
 
     ${deterministicSeatFacts}
+
+    ${planRecommendationRules}
 
     ${stepEvidenceGuardrail}
 
