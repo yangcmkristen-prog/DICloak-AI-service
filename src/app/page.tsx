@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Archive, ArrowRightLeft, Check, ChevronRight, Copy, Edit, Folder, Languages, Loader2, MessageSquare, Plus, Search, Settings, Trash2 } from "lucide-react";
+import type { DragEvent } from "react";
+import { Archive, ArrowRightLeft, Check, ChevronRight, Copy, Edit, Folder, GripVertical, Languages, Loader2, MessageSquare, Plus, Search, Settings, Trash2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConversationList } from "@/components/conversation-list";
 import { ChatArea } from "@/components/chat-area";
@@ -61,6 +62,7 @@ type PhraseLanguage = typeof PHRASE_TRANSLATION_LANGUAGES[number]["value"];
 type SavedPhraseFolder = { id: string; name: string };
 type SavedPhrase = { id: string; name: string; sourceText: string; folderId: string | null; translations: Record<PhraseLanguage, string>; createdAt: number };
 type SavedPhraseState = { folders: SavedPhraseFolder[]; phrases: SavedPhrase[] };
+type SavedPhraseDragItem = { type: "phrase" | "folder"; id: string };
 
 const getTranslationLanguageLabel = (value: string | null) => TRANSLATION_LANGUAGES.find((language) => language.value === value)?.label || value || "未知语言";
 
@@ -278,9 +280,13 @@ type PhraseListItemProps = {
   onChangeEditName: (name: string) => void;
   onSaveEdit: (phraseId: string) => void;
   onDelete: (phraseId: string) => void;
+  isDragging: boolean;
+  onDragStart: (event: DragEvent<HTMLDivElement>, phrase: SavedPhrase) => void;
+  onDragEnd: () => void;
+  onDropOnPhrase: (event: DragEvent<HTMLDivElement>, phrase: SavedPhrase) => void;
 };
 
-function PhraseListItem({ phrase, editingPhraseId, editingPhraseName, onOpen, onStartEdit, onChangeEditName, onSaveEdit, onDelete }: PhraseListItemProps) {
+function PhraseListItem({ phrase, editingPhraseId, editingPhraseName, onOpen, onStartEdit, onChangeEditName, onSaveEdit, onDelete, isDragging, onDragStart, onDragEnd, onDropOnPhrase }: PhraseListItemProps) {
   const isEditing = editingPhraseId === phrase.id;
 
   if (isEditing) {
@@ -302,7 +308,15 @@ function PhraseListItem({ phrase, editingPhraseId, editingPhraseName, onOpen, on
   }
 
   return (
-    <div className="group flex min-w-0 items-center gap-1 rounded-md hover:bg-muted">
+    <div
+      className={`group flex min-w-0 items-center gap-1 rounded-md hover:bg-muted ${isDragging ? "opacity-50 ring-1 ring-primary" : ""}`}
+      draggable
+      onDragStart={(event) => onDragStart(event, phrase)}
+      onDragEnd={onDragEnd}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => onDropOnPhrase(event, phrase)}
+    >
+      <GripVertical className="ml-1 h-4 w-4 shrink-0 cursor-grab text-muted-foreground opacity-60 group-hover:opacity-100" aria-hidden="true" />
       <button type="button" onClick={() => onOpen(phrase)} className="min-w-0 flex-1 truncate px-3 py-2 text-left text-sm">
         {phrase.name}
       </button>
@@ -342,6 +356,7 @@ export default function Home() {
   const [editingFolderName, setEditingFolderName] = useState("");
   const [selectedPhrase, setSelectedPhrase] = useState<SavedPhrase | null>(null);
   const [copiedSavedPhraseLanguage, setCopiedSavedPhraseLanguage] = useState<PhraseLanguage | null>(null);
+  const [savedPhraseDragItem, setSavedPhraseDragItem] = useState<SavedPhraseDragItem | null>(null);
   const [isSavedPhraseSyncing, setIsSavedPhraseSyncing] = useState(false);
 
   // 移动端编辑对话框状态
@@ -830,6 +845,80 @@ export default function Home() {
     toast.success("话术所属文件夹已更新");
   };
 
+  const handleSavedPhraseDragStart = (event: DragEvent<HTMLDivElement>, item: SavedPhraseDragItem) => {
+    setSavedPhraseDragItem(item);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", `${item.type}:${item.id}`);
+  };
+
+  const handleSavedPhraseDragEnd = () => {
+    setSavedPhraseDragItem(null);
+  };
+
+  const handleDropPhraseToFolder = (targetFolderId: string | null, targetPhraseId?: string) => {
+    if (savedPhraseDragItem?.type !== "phrase") return;
+    const draggedPhrase = savedPhraseState.phrases.find((phrase) => phrase.id === savedPhraseDragItem.id);
+    if (!draggedPhrase || draggedPhrase.id === targetPhraseId) return;
+
+    const updatedDraggedPhrase = { ...draggedPhrase, folderId: targetFolderId };
+    const remainingPhrases = savedPhraseState.phrases.filter((phrase) => phrase.id !== draggedPhrase.id);
+    const targetIndex = typeof targetPhraseId === "string"
+      ? remainingPhrases.findIndex((phrase) => phrase.id === targetPhraseId)
+      : -1;
+    const fallbackIndex = remainingPhrases.reduce((lastIndex, phrase, index) => (
+      phrase.folderId === targetFolderId ? index : lastIndex
+    ), -1);
+    const insertIndex = targetIndex >= 0 ? targetIndex : fallbackIndex + 1;
+    const nextPhrases = [...remainingPhrases];
+    nextPhrases.splice(insertIndex, 0, updatedDraggedPhrase);
+
+    void persistSavedPhraseState({ ...savedPhraseState, phrases: nextPhrases });
+    if (selectedPhrase?.id === draggedPhrase.id) setSelectedPhrase(updatedDraggedPhrase);
+    if (targetFolderId && !expandedFolderIds.includes(targetFolderId)) {
+      setExpandedFolderIds((prev) => [...prev, targetFolderId]);
+    }
+    setSavedPhraseDragItem(null);
+    toast.success("话术排序已更新");
+  };
+
+  const handleDropFolderOnFolder = (targetFolderId: string) => {
+    if (savedPhraseDragItem?.type !== "folder" || savedPhraseDragItem.id === targetFolderId) return;
+
+    const draggedFolder = savedPhraseState.folders.find((folder) => folder.id === savedPhraseDragItem.id);
+    if (!draggedFolder) return;
+
+    const remainingFolders = savedPhraseState.folders.filter((folder) => folder.id !== draggedFolder.id);
+    const targetIndex = remainingFolders.findIndex((folder) => folder.id === targetFolderId);
+    const nextFolders = [...remainingFolders];
+    nextFolders.splice(targetIndex >= 0 ? targetIndex : nextFolders.length, 0, draggedFolder);
+
+    void persistSavedPhraseState({ ...savedPhraseState, folders: nextFolders });
+    setSavedPhraseDragItem(null);
+    toast.success("文件夹排序已更新");
+  };
+
+  const handlePhraseDrop = (event: DragEvent<HTMLDivElement>, phrase: SavedPhrase) => {
+    event.preventDefault();
+    event.stopPropagation();
+    handleDropPhraseToFolder(phrase.folderId, phrase.id);
+  };
+
+  const handleFolderDrop = (event: DragEvent<HTMLDivElement>, folderId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (savedPhraseDragItem?.type === "folder") {
+      handleDropFolderOnFolder(folderId);
+      return;
+    }
+    handleDropPhraseToFolder(folderId);
+  };
+
+  const handleRootPhraseDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    handleDropPhraseToFolder(null);
+  };
+
 
   const handleDeletePhrase = (phraseId: string) => {
     const phrase = savedPhraseState.phrases.find((item) => item.id === phraseId);
@@ -859,6 +948,27 @@ export default function Home() {
   const searchedPhrases = phraseSearch.trim()
     ? savedPhraseState.phrases.filter((phrase) => phrase.name.toLowerCase().includes(phraseSearch.trim().toLowerCase()))
     : [];
+
+  const renderSavedPhraseItem = (phrase: SavedPhrase) => (
+    <PhraseListItem
+      key={phrase.id}
+      phrase={phrase}
+      editingPhraseId={editingPhraseId}
+      editingPhraseName={editingPhraseName}
+      onOpen={setSelectedPhrase}
+      onStartEdit={(item) => {
+        setEditingPhraseId(item.id);
+        setEditingPhraseName(item.name);
+      }}
+      onChangeEditName={setEditingPhraseName}
+      onSaveEdit={handleRenamePhrase}
+      onDelete={handleDeletePhrase}
+      isDragging={savedPhraseDragItem?.type === "phrase" && savedPhraseDragItem.id === phrase.id}
+      onDragStart={(event, item) => handleSavedPhraseDragStart(event, { type: "phrase", id: item.id })}
+      onDragEnd={handleSavedPhraseDragEnd}
+      onDropOnPhrase={handlePhraseDrop}
+    />
+  );
 
   return (
     <div className="h-screen flex flex-col bg-background">
@@ -1132,22 +1242,27 @@ export default function Home() {
                       </div>
                       <div className="space-y-2">
                         {phraseSearch.trim() ? (
-                          searchedPhrases.length > 0 ? searchedPhrases.map((phrase) => (
-                            <PhraseListItem key={phrase.id} phrase={phrase} editingPhraseId={editingPhraseId} editingPhraseName={editingPhraseName} onOpen={setSelectedPhrase} onStartEdit={(item) => { setEditingPhraseId(item.id); setEditingPhraseName(item.name); }} onChangeEditName={setEditingPhraseName} onSaveEdit={handleRenamePhrase} onDelete={handleDeletePhrase} />
-                          )) : <p className="py-6 text-center text-sm text-muted-foreground">未找到匹配话术</p>
+                          searchedPhrases.length > 0 ? searchedPhrases.map(renderSavedPhraseItem) : <p className="py-6 text-center text-sm text-muted-foreground">未找到匹配话术</p>
                         ) : (
                           <>
-                            <div className="space-y-1">
-                              {savedPhraseState.phrases.filter((phrase) => !phrase.folderId).map((phrase) => (
-                                <PhraseListItem key={phrase.id} phrase={phrase} editingPhraseId={editingPhraseId} editingPhraseName={editingPhraseName} onOpen={setSelectedPhrase} onStartEdit={(item) => { setEditingPhraseId(item.id); setEditingPhraseName(item.name); }} onChangeEditName={setEditingPhraseName} onSaveEdit={handleRenamePhrase} onDelete={handleDeletePhrase} />
-                              ))}
+                            <div
+                              className="space-y-1 rounded-md border border-dashed border-transparent p-1 transition-colors hover:border-muted-foreground/30"
+                              onDragOver={(event) => event.preventDefault()}
+                              onDrop={handleRootPhraseDrop}
+                            >
+                              {savedPhraseState.phrases.filter((phrase) => !phrase.folderId).map(renderSavedPhraseItem)}
                             </div>
                             {savedPhraseState.folders.map((folder) => {
                               const isExpanded = expandedFolderIds.includes(folder.id);
                               const folderPhrases = savedPhraseState.phrases.filter((phrase) => phrase.folderId === folder.id);
                               return (
-                                <div key={folder.id} className="rounded-md border">
-                                                                    {editingFolderId === folder.id ? (
+                                <div
+                                  key={folder.id}
+                                  className={`rounded-md border ${savedPhraseDragItem?.type === "folder" && savedPhraseDragItem.id === folder.id ? "opacity-50 ring-1 ring-primary" : ""}`}
+                                  onDragOver={(event) => event.preventDefault()}
+                                  onDrop={(event) => handleFolderDrop(event, folder.id)}
+                                >
+                                  {editingFolderId === folder.id ? (
                                     <div className="flex items-center gap-1 px-2 py-2">
                                       <Folder className="h-4 w-4 shrink-0 text-blue-500" />
                                       <Input
@@ -1166,8 +1281,14 @@ export default function Home() {
                                       <Button size="sm" variant="ghost" onClick={() => handleRenameFolder(folder.id)}>保存</Button>
                                     </div>
                                   ) : (
-                                    <div className="group flex items-center gap-1">
+                                    <div
+                                      className="group flex items-center gap-1"
+                                      draggable
+                                      onDragStart={(event) => handleSavedPhraseDragStart(event, { type: "folder", id: folder.id })}
+                                      onDragEnd={handleSavedPhraseDragEnd}
+                                    >
                                       <button type="button" onClick={() => setExpandedFolderIds((prev) => isExpanded ? prev.filter((id) => id !== folder.id) : [...prev, folder.id])} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm font-medium">
+                                        <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-muted-foreground opacity-60 group-hover:opacity-100" aria-hidden="true" />
                                         <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
                                         <Folder className="h-4 w-4 text-blue-500" />
                                         <span className="min-w-0 flex-1 truncate">{folder.name}</span>
@@ -1189,9 +1310,7 @@ export default function Home() {
                                   )}
                                   {isExpanded && (
                                     <div className="space-y-1 border-t p-2">
-                                      {folderPhrases.length > 0 ? folderPhrases.map((phrase) => (
-                                        <PhraseListItem key={phrase.id} phrase={phrase} editingPhraseId={editingPhraseId} editingPhraseName={editingPhraseName} onOpen={setSelectedPhrase} onStartEdit={(item) => { setEditingPhraseId(item.id); setEditingPhraseName(item.name); }} onChangeEditName={setEditingPhraseName} onSaveEdit={handleRenamePhrase} onDelete={handleDeletePhrase} />
-                                      )) : <p className="px-2 py-3 text-xs text-muted-foreground">文件夹暂无话术</p>}
+                                      {folderPhrases.length > 0 ? folderPhrases.map(renderSavedPhraseItem) : <p className="px-2 py-3 text-xs text-muted-foreground">文件夹暂无话术</p>}
                                     </div>
                                   )}
                                 </div>
@@ -1286,16 +1405,16 @@ export default function Home() {
           setCopiedSavedPhraseLanguage(null);
         }
       }}>
-        <DialogContent className="sm:max-w-[520px]">
+        <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-[520px]">
           <DialogHeader>
             <DialogTitle className="truncate">{selectedPhrase?.name || "话术详情"}</DialogTitle>
             <DialogDescription>查看完整话术，点击语种即可复制已储存的翻译内容。</DialogDescription>
           </DialogHeader>
           {selectedPhrase && (
-            <div className="space-y-4 py-4">
-              <div>
+            <div className="min-w-0 space-y-4 overflow-y-auto py-4 pr-1">
+              <div className="min-w-0">
                 <div className="mb-2 text-sm font-medium">完整内容</div>
-                <div className="max-h-40 overflow-y-auto rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap">{selectedPhrase.sourceText}</div>
+                <div className="max-h-40 overflow-auto rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{selectedPhrase.sourceText}</div>
               </div>
               <div className="space-y-2">
                 <div className="text-sm font-medium">所属文件夹</div>
@@ -1311,7 +1430,7 @@ export default function Home() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3">
                 {PHRASE_TRANSLATION_LANGUAGES.map((language) => {
                   const isCopied = copiedSavedPhraseLanguage === language.value;
 
@@ -1319,6 +1438,7 @@ export default function Home() {
                     <Button
                       key={language.value}
                       variant={isCopied ? "default" : "outline"}
+                      className="min-w-0 whitespace-normal break-words"
                       onClick={() => handleCopySavedPhrase(selectedPhrase, language.value)}
                     >
                       {isCopied ? (
@@ -1331,7 +1451,7 @@ export default function Home() {
                   );
                 })}
               </div>
-              <Button variant="outline" className="w-full text-red-500 hover:text-red-600" onClick={() => handleDeletePhrase(selectedPhrase.id)}>
+              <Button variant="outline" className="w-full min-w-0 whitespace-normal text-red-500 hover:text-red-600" onClick={() => handleDeletePhrase(selectedPhrase.id)}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 删除话术
               </Button>

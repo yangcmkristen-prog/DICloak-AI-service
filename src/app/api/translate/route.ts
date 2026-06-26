@@ -149,10 +149,10 @@ function detectSourceLanguage(text: string): string | null {
   if (/[가-힯]/.test(text)) return "ko";
   if (/[\u0e00-\u0e7f]/.test(text)) return "th";
   if (/[\u0600-\u06ff]/.test(text)) return "ar";
-  if (/\b(he|has|ha|hemos|desactivar|agregar|entre|otros|hola|gracias|usted|puedo|necesito|cuenta|equipo)\b/.test(lower) || /[¿¡ñáéíóúü]/.test(lower)) return "es";
+  if (/\b(the|and|you|your|have|has|hello|regarding|failure|issue|methods|network|settings|computer|installed|please|account|team)\b/.test(lower)) return "en";
+  if (/\b(hemos|desactivar|agregar|entre|otros|hola|gracias|usted|puedo|necesito|cuenta|equipo|configuración|configuracion|contraseña|contrasena|archivo|carpeta|problema)\b/.test(lower) || /[¿¡ñáéíóúü]/.test(lower)) return "es";
   if (/\b(você|voce|obrigado|obrigada|não|nao|estou|preciso|conta|equipe|configurações|configuracoes)\b/.test(lower)) return "pt-BR";
   if (/\b(tu|estás|estas|ficheiro|telemóvel|telemovel|factura|fatura)\b/.test(lower)) return "pt-PT";
-  if (/\b(the|and|you|your|have|with|please|account|team|settings)\b/.test(lower)) return "en";
   if (/\b(bạn|tôi|không|cần|tài khoản|nhóm)\b/.test(lower)) return "vi";
   if (/\b(saya|anda|tidak|akun|tim|pengaturan)\b/.test(lower)) return "id";
   if (/[а-яё]/i.test(text)) return "ru";
@@ -200,7 +200,9 @@ export async function POST(request: NextRequest) {
       ].join("\n");
 
       return callExtensionTranslateModel(systemPrompt, text, 0.1, {
-        sourceLang: detectedSourceLanguage ? QWEN_MT_LANGUAGE_NAMES[detectedSourceLanguage] : "auto",
+        sourceLang: normalizedSourceLanguage === "auto"
+          ? "auto"
+          : QWEN_MT_LANGUAGE_NAMES[normalizedSourceLanguage],
         targetLang: QWEN_MT_LANGUAGE_NAMES[normalizedTargetLanguage],
         terms: glossaryTerms,
       });
