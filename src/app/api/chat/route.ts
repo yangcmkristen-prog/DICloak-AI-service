@@ -3,13 +3,126 @@ import { LLMClient, Config } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import type { KnowledgeBase } from '@/lib/types';
 
-function sanitizeCustomerFacingContent(content: string): string {
-  return content
+function sanitizeCustomerFacingContent(content: string, language: string = 'zh'): string {
+  let sanitized = content
     .replace(/根据(?:当前)?(?:价格功能表|Pricing Feature Comparison Table|pricing table)(?:中的)?(?:信息|数据)?[，,：:]?/gi, '')
     .replace(/(?:当前)?(?:价格功能表|Pricing Feature Comparison Table|pricing table)(?:显示|中显示|记录|中记录)[，,：:]?/gi, '')
     .replace(/(?:FAQ|价格功能表|Pricing Feature Comparison Table|pricing table|检索结果|表格显示)[：:]/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+
+  if (language !== 'zh' && language !== 'mixed') {
+    sanitized = sanitized
+      .replace(/(Free)\s*[（(]免费版[）)]/gi, '$1')
+      .replace(/(Base)\s*[（(]基础版[）)]/gi, '$1')
+      .replace(/(Plus)\s*[（(]高阶版[）)]/gi, '$1')
+      .replace(/(Share\+)\s*[（(]共享版\+[）)]/gi, '$1')
+      .replace(/免费版\s*[（(](Free)[）)]/gi, '$1')
+      .replace(/基础版\s*[（(](Base)[）)]/gi, '$1')
+      .replace(/高阶版\s*[（(](Plus)[）)]/gi, '$1')
+      .replace(/共享版\+\s*[（(](Share\+)[）)]/gi, '$1');
+  }
+
+  return sanitized;
+}
+
+function extractActualUserCount(message: string): number | null {
+  const normalized = message.toLowerCase();
+  const userCountPatterns = [
+    /\b(\d{1,5})\s*(?:users?|members?|people|persons?|seats?|devices?)\b/i,
+    /\b(?:team|команд[аыеу]?|пользовател[ьяей]*|человек|участник[а-я]*|成员|用户|人|设备)\D{0,20}(\d{1,5})\b/i,
+    /\b(\d{1,5})\D{0,20}(?:users?|members?|people|persons?|seats?|devices?|команд[аыеу]?|пользовател[ьяей]*|человек|участник[а-я]*|成员|用户|人|设备)\b/i,
+  ];
+  for (const pattern of userCountPatterns) {
+    const match = normalized.match(pattern);
+    if (match) {
+      const parsed = Number.parseInt(match[1], 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+  }
+
+  const digitMatches = Array.from(normalized.matchAll(/\b(\d{1,5})\b/g))
+    .map((match) => Number.parseInt(match[1], 10))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  if (digitMatches.length > 0) {
+    return digitMatches[0];
+  }
+
+  const textualNumbers: Array<[RegExp, number]> = [
+    [/(?:^|\s)(?:ten|десять|десяти|десятерых)(?:\s|$)/i, 10],
+    [/(?:^|\s)(?:nine|девять|девяти)(?:\s|$)/i, 9],
+    [/(?:^|\s)(?:eight|восемь|восьми)(?:\s|$)/i, 8],
+    [/(?:^|\s)(?:seven|семь|семи)(?:\s|$)/i, 7],
+    [/(?:^|\s)(?:six|шесть|шести)(?:\s|$)/i, 6],
+    [/(?:^|\s)(?:five|пять|пяти)(?:\s|$)/i, 5],
+    [/(?:^|\s)(?:four|четыре|четырех|четырёх)(?:\s|$)/i, 4],
+    [/(?:^|\s)(?:three|три|трех|трёх)(?:\s|$)/i, 3],
+    [/(?:^|\s)(?:two|два|двух)(?:\s|$)/i, 2],
+    [/(?:^|\s)(?:one|один|одного)(?:\s|$)/i, 1],
+    [/十(?:个|位|名|人)?/, 10],
+  ];
+
+  const matchedNumber = textualNumbers.find(([pattern]) => pattern.test(normalized));
+  return matchedNumber ? matchedNumber[1] : null;
+}
+
+function buildSeatCalculationFacts(userCount: number | null): string {
+  if (!userCount) {
+    return "";
+  }
+
+  const plusSeats = 1 + Math.ceil(Math.max(userCount - 1, 0) / 100);
+
+  return `## Deterministic Seat Calculation Facts (HIGHEST PRIORITY)
+The customer provided ${userCount} actual user(s)/team member(s)/device(s). These facts are calculated by backend code and MUST NOT be changed by the model:
+- Base required member seats: ${userCount}.
+- Plus required member seats: ${plusSeats}. Formula: 1 + ceil((${userCount} - 1) / 100).
+- Share+ member seats: unlimited.
+- If recommending Plus, do NOT say the customer needs ${Math.max(userCount - plusSeats, 0)} additional member seat(s). For ${userCount} user(s), Plus requires ${plusSeats} member seat(s) under the configured rule.
+- You may mention that multiple users sharing one internal member account can be less convenient for management/supervision than Base or Share+.
+`;
+}
+
+function enforceSeatCalculationCorrections(content: string, userCount: number | null, language: string): string {
+  if (!userCount) {
+    return content;
+  }
+
+  const plusSeats = 1 + Math.ceil(Math.max(userCount - 1, 0) / 100);
+  const forbiddenAdditionalSeats = Math.max(userCount - plusSeats, 0);
+  if (forbiddenAdditionalSeats <= 0) {
+    return content;
+  }
+
+  const normalized = content.toLowerCase();
+  const mentionsPlus = normalized.includes('plus');
+  const mentionsForbiddenAdditionalSeats = new RegExp(`\\b${forbiddenAdditionalSeats}\\b`).test(normalized) &&
+    /(additional|extra|дополнительн|добавочн|额外|доп购|加购|докуп)/i.test(content);
+
+  if (!mentionsPlus || !mentionsForbiddenAdditionalSeats) {
+    return content;
+  }
+
+  const correctionByLanguage: Record<string, string> = {
+    zh: `更正：按当前成员席位规则，${userCount} 个实际用户使用 Plus 时需要 ${plusSeats} 个成员席位，不需要额外购买 ${forbiddenAdditionalSeats} 个成员席位。`,
+    ru: `Исправление: по текущему правилу расчёта мест для ${userCount} фактических пользователей на Plus требуется ${plusSeats} место участника; покупать ещё ${forbiddenAdditionalSeats} дополнительных мест не нужно.`,
+    en: `Correction: under the current member-seat rule, ${userCount} actual users on Plus require ${plusSeats} member seat(s); they do not need to buy ${forbiddenAdditionalSeats} additional seat(s).`,
+  };
+  const correction = correctionByLanguage[language] || correctionByLanguage.en;
+
+  return `${content}\n\n${correction}`;
+}
+
+function hasStepByStepRequest(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return [
+    '步骤', '教程', '逐步', '怎么设置', '如何设置', '怎么配置', '如何配置',
+    'step by step', 'step-by-step', 'instructions', 'setup guide',
+    'инструкция', 'инструкции', 'поэтап', 'по этап', 'настроить', 'настройка',
+  ].some((signal) => normalized.includes(signal));
 }
 
 
@@ -849,7 +962,11 @@ export async function POST(request: NextRequest) {
 
     // 调试知识库数据
     const effectiveLanguage = detectRequestLanguage(message, detectedLanguage);
+    const actualUserCount = extractActualUserCount(message);
+    const stepByStepRequested = hasStepByStepRequest(message);
     console.log('[DEBUG] 后端接收语言:', detectedLanguage, '=>', effectiveLanguage);
+    console.log('[DEBUG] 解析到实际用户数:', actualUserCount);
+    console.log('[DEBUG] 是否请求步骤说明:', stepByStepRequested);
     console.log('[DEBUG] AI 关键词:', aiKeywords);
     if (knowledge) {
       console.log('[DEBUG] FAQ数量:', knowledge.faqItems?.length || 0);
@@ -933,7 +1050,27 @@ export async function POST(request: NextRequest) {
     7. 套餐问题必须优先使用内部价格数据；除免费版外，成员和环境额度是否可调整、是否可购买额外额度，以内部价格数据为准，不得沿用旧结论。
     8. 可以提供官网或操作指南链接，帮助客户自行核对具体信息。
     9. 面向客户的正文不得透露内部具体文件/表名称或工作流，例如“FAQ 文件/价格功能表/Pricing Feature Comparison Table/表格显示”；但在未检索到相关信息时，可以说“知识库未检索到相关知识，此回复来源为 AI 生成”。
-    10. 如果客户说要给团队/成员分配、分享、发放 Claude/ChatGPT 等第三方工具账号或订阅，必须理解为“通过 DICloak 管理/共享已有第三方工具账号”的客户场景；不要回复 DICloak 无法协助分配订阅。可以说明 DICloak 不销售或代购第三方订阅，但可以协助进行账号管理、环境/profile 配置、成员使用安排。`;
+    10. 如果客户说要给团队/成员分配、分享、发放 Claude/ChatGPT 等第三方工具账号或订阅，必须理解为“通过 DICloak 管理/共享已有第三方工具账号”的客户场景；不要回复 DICloak 无法协助分配订阅。可以说明 DICloak 不销售或代购第三方订阅，但可以协助进行账号管理、环境/profile 配置、成员使用安排。
+    11. 客户要求“步骤/教程/怎么设置/по этапной инструкции”等操作说明时，只能输出内部资料明确提供的 Steps、EntryPath、UIPosition、标准答案步骤或官方帮助链接；如果资料没有明确步骤，必须说明“当前知识库未提供完整逐步配置说明”，不要自行编造按钮、菜单路径、权限设置、扩展设置、账号导入方式或分享流程。
+    12. 如果必须给出下一步，只能给安全的高层建议（例如确认账号数量、准备代理、参考已提供的官方链接、联系人工客服核对），不得伪造具体 UI 操作路径。`;
+
+    const pricingGuardrail = `## 套餐/成员席位计算硬性要求
+    1. 计划名称是产品专有名词。中文回复可写“Plus（高阶版）”；非中文回复必须只使用英文计划名 Free、Base、Plus、Share+，不得输出“高阶版/基础版/共享版+/免费版”等中文版本名称。
+    2. 客户提供用户数量、团队成员或设备数量时，视为实际用户数。
+    3. Base: 每个实际用户需要 1 个成员席位，所需成员席位 = 实际用户数。
+    4. Plus: 超管占用 1 个成员席位；每个内部成员席位最多支持 100 个实际用户/设备；所需成员席位 = 1 + 向上取整((实际用户数 - 1) / 100)。例如 10 个用户使用 Plus 时，需要 1 个成员席位，不是 10 个成员席位，也不需要额外购买 9 个成员席位；但要提醒多个用户共用同一成员账户时，管理和监督不如 Base 和 Share+。
+    5. Share+: 成员席位无限制，每个用户使用独立成员账户，更便于管理和监管。
+    6. 如果内部价格数据与旧 FAQ 或历史回复冲突，以本段计算规则和内部价格数据为准；禁止输出“Plus 10 人需要购买 9 个额外席位”这类结论。`;
+
+    const deterministicSeatFacts = buildSeatCalculationFacts(actualUserCount);
+
+    const stepEvidenceGuardrail = stepByStepRequested
+      ? `## Step-by-step Evidence Gate (HIGHEST PRIORITY)
+The customer requested step-by-step setup instructions. Before giving any numbered setup workflow, verify that Function Knowledge, Troubleshooting, FAQ StandardAnswer, or an official help link in the provided context explicitly contains those steps.
+- If explicit steps are absent, say that the current knowledge base does not provide complete step-by-step setup instructions and offer to verify with a human agent.
+- Do NOT invent UI menu paths, button names, permission toggles, extension settings, profile-sharing steps, or account-import methods.
+`
+      : "";
   
     const intentGuardrail = (classification?.intents && classification.intents.length > 0)
       ? `
@@ -949,7 +1086,7 @@ export async function POST(request: NextRequest) {
     `
       : "";
 
-    const finalPromptWithCoverage = `${finalSystemPrompt}\n${intentGuardrail}\n${outputFormatGuardrail}\n${evidenceGuardrail}\n${languageRule}`;
+    const finalPromptWithCoverage = `${finalSystemPrompt}\n${intentGuardrail}\n${outputFormatGuardrail}\n${evidenceGuardrail}\n${pricingGuardrail}\n${deterministicSeatFacts}\n${stepEvidenceGuardrail}\n${languageRule}`;
 
     // 构建知识库上下文（只传递最相关的知识库项）
     let knowledgeContext = "";
@@ -1254,12 +1391,13 @@ export async function POST(request: NextRequest) {
         return score;
       };
 
-      // FAQ 匹配过滤（只过滤，不排序，由 AI 判断相关度）
+      // FAQ 匹配过滤并排序，避免弱相关 FAQ 排在前面干扰模型
       type FaqItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; functionId?: string; termIds?: string[]; faqId?: string };
       const faqItems = (knowledge.faqItems || []) as FaqItem[];
       const matchedFaq = faqItems
         .map((item: FaqItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
-        .filter(m => m.score > 0); // 只过滤匹配到的，不排序不限制数量，由 AI 判断相关度
+        .filter(m => m.score > 0)
+        .sort((a, b) => b.score - a.score); // 按相关度排序，避免弱相关 FAQ 排在前面干扰模型
 
       // 功能知识库匹配过滤
       const functionKnowledgeItems = (knowledge.functionKnowledge || []) as FunctionKnowledgeItem[];
@@ -1273,14 +1411,16 @@ export async function POST(request: NextRequest) {
       const tsItems = (knowledge.troubleshootingItems || []) as TsItem[];
       const matchedTs = tsItems
         .map((item: TsItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
-        .filter(m => m.score > 0);
+        .filter(m => m.score > 0)
+        .sort((a, b) => b.score - a.score);
 
       // Out of Scope 匹配过滤
       type OosItem = { questionCN: string; questionEN?: string; userPhrases?: string; tags?: string[]; answer: string; answerClient?: string; answerEndUser?: string; faqId?: string };
       const oosItems = (knowledge.outOfScopeItems || []) as OosItem[];
       const matchedOos = oosItems
         .map((item: OosItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
-        .filter(m => m.score > 0);
+        .filter(m => m.score > 0)
+        .sort((a, b) => b.score - a.score);
 
       // ==================== 问题类型与身份识别 ====================
       const topFaqScore = matchedFaq.length > 0 ? Math.max(...matchedFaq.map(m => m.score)) : 0;
@@ -1406,6 +1546,12 @@ export async function POST(request: NextRequest) {
 
       // 使用临时变量存储优先上下文
       let priorityContext = "";
+      if (deterministicSeatFacts) {
+        priorityContext += deterministicSeatFacts + "\n";
+      }
+      if (stepEvidenceGuardrail) {
+        priorityContext += stepEvidenceGuardrail + "\n";
+      }
       
       // 优先构建 API 端点上下文（如果是 API 问题）
       if (apiSearchResult && apiSearchResult.found) {
@@ -1537,16 +1683,37 @@ export async function POST(request: NextRequest) {
 
       // 构建 FAQ 上下文
       const faqContextLabel = finalIsApiQuestion || finalIsPricingQuestion ? "FAQ Knowledge Base (SUPPLEMENTARY)" : "FAQ Knowledge Base (sorted by relevance score)";
+      const isRelevantSupplementaryFaq = (item: FaqItem): boolean => {
+        const searchableText = normalizeForMatch([
+          item.questionCN,
+          item.questionEN,
+          item.userPhrases,
+          item.answer,
+          ...(item.tags || []),
+        ].filter(Boolean).join(" "));
+        const relevantSignals = [
+          "subscription", "pricing", "price", "plan", "billing", "member", "seat",
+          "team", "account", "share", "profile", "environment", "claude", "chatgpt",
+          "订阅", "套餐", "价格", "成员", "席位", "团队", "账号", "共享", "环境",
+        ];
+        return relevantSignals.some((signal) => searchableText.includes(normalizeForMatch(signal)));
+      };
+      const faqForContext = matchedFaq
+        .filter((m) => {
+          if (!finalIsPricingQuestion) return true;
+          return m.score >= 10 && isRelevantSupplementaryFaq(m.item);
+        })
+        .slice(0, finalIsPricingQuestion ? 8 : 20);
       
-      if (matchedFaq.length > 0) {
+      if (faqForContext.length > 0) {
         knowledgeContext += `## ${faqContextLabel}\n`;
         if (finalIsApiQuestion || finalIsPricingQuestion) {
-          knowledgeContext += "NOTE: This is SUPPLEMENTARY information. Priority data (API/Pricing) is provided above.\n";
+          knowledgeContext += "NOTE: This is SUPPLEMENTARY information. Priority data and deterministic backend facts above override FAQ content when there is any conflict.\n";
         }
         knowledgeContext += "IMPORTANT: You MUST start your reply with [FAQ_ID: xxx] where xxx is the FAQ ID you used.\n";
         knowledgeContext += "STRICT: For FAQ answers, use StandardAnswer as the factual boundary. Do NOT add buttons, paths, permissions, password/expiry settings, quota details, or extra steps that are not explicitly in StandardAnswer or another provided context item.\n";
         knowledgeContext += "HINT: Higher score = more relevant. Prefer FAQs with score >= 10.\n\n";
-        matchedFaq.slice(0, 20).forEach((m, index) => {
+        faqForContext.forEach((m, index) => {
           const item = m.item;
           // 翻译术语：根据 term_id 在术语库中查找对应语言的翻译
           const translatedAnswer = translateTerms(
@@ -1693,6 +1860,12 @@ export async function POST(request: NextRequest) {
 
     ${evidenceGuardrail}
 
+    ${pricingGuardrail}
+
+    ${deterministicSeatFacts}
+
+    ${stepEvidenceGuardrail}
+
     ${historyContext}
 
     ${knowledgeContext}
@@ -1836,7 +2009,8 @@ export async function POST(request: NextRequest) {
         console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
       }
       if (fullContent) {
-        controller.enqueue(encoder.encode(sanitizeCustomerFacingContent(fullContent)));
+        const correctedContent = enforceSeatCalculationCorrections(fullContent, actualUserCount, effectiveLanguage);
+        controller.enqueue(encoder.encode(sanitizeCustomerFacingContent(correctedContent, effectiveLanguage)));
       }
       controller.close();
     };
