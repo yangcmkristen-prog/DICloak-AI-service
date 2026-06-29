@@ -8,6 +8,9 @@ function sanitizeCustomerFacingContent(content: string, language: string = 'zh')
     .replace(/根据(?:当前)?(?:价格功能表|Pricing Feature Comparison Table|pricing table)(?:中的)?(?:信息|数据)?[，,：:]?/gi, '')
     .replace(/(?:当前)?(?:价格功能表|Pricing Feature Comparison Table|pricing table)(?:显示|中显示|记录|中记录)[，,：:]?/gi, '')
     .replace(/(?:FAQ|价格功能表|Pricing Feature Comparison Table|pricing table|检索结果|表格显示)[：:]/gi, '')
+    .replace(/(?:很遗憾，?\s*)?(?:目前|当前)?DICloak的知识库中尚未提供[^。！？\n]*(?:。|！|？)?/g, '')
+    .replace(/(?:知识库|内部资料)(?:未检索到|没有检测到|尚未提供|未提供)[^。！？\n]*(?:。|！|？)?/g, '')
+    .replace(/(?:the\s+)?(?:current\s+)?(?:DICloak\s+)?knowledge base (?:does not|doesn't|has not|hasn't|doesn't currently|does not currently)[^.\n]*(?:\.)?/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
@@ -164,6 +167,21 @@ Recommendation algorithm:
    - Usually do not recommend Share+ unless the customer explicitly asks for account-sharing business, unlimited members, or each user needing an independent member account.
    - Choose between Base and Plus according to stated feature needs, with the lower-priced suitable plan first.
 6. If exact total price requires extra-seat pricing and the pricing data does not provide it, do not invent the final total; compare qualitatively and ask the customer to confirm extra-seat pricing on the official pricing page.
+`;
+}
+
+function buildAccountSharingEnvironmentRules(businessType: CustomerBusinessType): string {
+  if (businessType !== 'account_sharing') {
+    return "";
+  }
+
+  return `## Account-sharing Environment/Profile Rules (HIGHEST PRIORITY)
+For account-sharing customers, do NOT equate team member count with browser environment/profile count.
+- Required environment/profile count is based on the number of third-party tool accounts that need to be shared, not the number of DICloak members/users who will access them.
+- Example: if 10 team members share 1 Claude account, normally only 1 DICloak environment/profile is needed for that Claude account, then access can be shared/assigned according to the available plan capabilities.
+- Accounts from different platforms can usually be configured in the same environment/profile when appropriate.
+- Different accounts on the same platform should usually be placed in separate environments/profiles to reduce account-association risk.
+- Do NOT tell the customer to create one environment/profile per user unless the customer explicitly says each user has a separate third-party account or the provided knowledge context states that one profile per user is required.
 `;
 }
 
@@ -1089,13 +1107,13 @@ export async function POST(request: NextRequest) {
     2. 禁止编造内部资料中没有出现的套餐权益、容量、配额、限制、价格、入口路径、按钮名称、操作步骤或功能结论。
     3. 如果使用标准答案，必须只基于标准答案改写或翻译；不得添加标准答案没有的“分享按钮、权限设置、密码、有效期、团队管理路径、成员名额、超级管理员占位”等细节，除非这些细节在本次提供的内部资料中明确出现。
     4. 当用户询问“是否有限制/容量/配额/上限/limit/quota/capacity/storage”等问题时，只有内部资料明确给出具体限制，才允许回答具体数值或套餐差异。
-    5. 如果内部资料没有明确证据，可以直接说明“知识库未检索到相关知识，此回复来源为 AI 生成”，并建议进一步核实；不要自行推测确定结论。
+    5. 如果当前用户没有明确询问某个缺少证据的细节，直接忽略该细节，不要主动提及“知识库未检索到/未提供/此回复来源为 AI 生成”等内部话术；只有用户明确追问该细节时，才用对外口径说明“我需要进一步核实后再给你准确步骤/结论”。
     6. DICloak 不存在已知的云存储空间容量套餐限制；除非知识库明确提供容量上限，否则不得输出 Free/Base/Plus/Share 等套餐对应的云存储容量数值。
     7. 套餐问题必须优先使用内部价格数据；除免费版外，成员和环境额度是否可调整、是否可购买额外额度，以内部价格数据为准，不得沿用旧结论。
     8. 可以提供官网或操作指南链接，帮助客户自行核对具体信息。
-    9. 面向客户的正文不得透露内部具体文件/表名称或工作流，例如“FAQ 文件/价格功能表/Pricing Feature Comparison Table/表格显示”；但在未检索到相关信息时，可以说“知识库未检索到相关知识，此回复来源为 AI 生成”。
+    9. 面向客户的正文不得透露内部具体文件/表名称或工作流，例如“FAQ 文件/价格功能表/Pricing Feature Comparison Table/表格显示/知识库未检索到/知识库尚未提供/此回复来源为 AI 生成”。信息不足时用“我需要进一步核实后再给你准确步骤/结论”，或在聚合回复中直接省略该细节。
     10. 如果客户说要给团队/成员分配、分享、发放 Claude/ChatGPT 等第三方工具账号或订阅，必须理解为“通过 DICloak 管理/共享已有第三方工具账号”的客户场景；不要回复 DICloak 无法协助分配订阅。可以说明 DICloak 不销售或代购第三方订阅，但可以协助进行账号管理、环境/profile 配置、成员使用安排。
-    11. 客户要求“步骤/教程/怎么设置/по этапной инструкции”等操作说明时，只能输出内部资料明确提供的 Steps、EntryPath、UIPosition、标准答案步骤或官方帮助链接；如果资料没有明确步骤，必须说明“当前知识库未提供完整逐步配置说明”，不要自行编造按钮、菜单路径、权限设置、扩展设置、账号导入方式或分享流程。
+    11. 客户要求“步骤/教程/怎么设置/по этапной инструкции”等操作说明时，只能输出内部资料明确提供的 Steps、EntryPath、UIPosition、标准答案步骤或官方帮助链接；如果资料没有明确步骤，不要编造按钮、菜单路径、权限设置、扩展设置、账号导入方式或分享流程，也不要提“知识库未提供”，可改为建议客服进一步核实准确步骤。
     12. 如果必须给出下一步，只能给安全的高层建议（例如确认账号数量、准备代理、参考已提供的官方链接、联系人工客服核对），不得伪造具体 UI 操作路径。`;
 
     const pricingGuardrail = `## 套餐/成员席位计算硬性要求
@@ -1108,11 +1126,12 @@ export async function POST(request: NextRequest) {
 
     const deterministicSeatFacts = buildSeatCalculationFacts(actualUserCount);
     const planRecommendationRules = buildPlanRecommendationRules(customerBusinessType, actualUserCount);
+    const accountSharingEnvironmentRules = buildAccountSharingEnvironmentRules(customerBusinessType);
 
     const stepEvidenceGuardrail = stepByStepRequested
       ? `## Step-by-step Evidence Gate (HIGHEST PRIORITY)
 The customer requested step-by-step setup instructions. Before giving any numbered setup workflow, verify that Function Knowledge, Troubleshooting, FAQ StandardAnswer, or an official help link in the provided context explicitly contains those steps.
-- If explicit steps are absent, say that the current knowledge base does not provide complete step-by-step setup instructions and offer to verify with a human agent.
+- If explicit steps are absent, do not mention knowledge base/internal data. Either omit the unsupported detailed workflow in an aggregated answer, or say that the exact steps should be verified before giving a precise operation guide.
 - Do NOT invent UI menu paths, button names, permission toggles, extension settings, profile-sharing steps, or account-import methods.
 `
       : "";
@@ -1131,8 +1150,7 @@ The customer requested step-by-step setup instructions. Before giving any number
     `
       : "";
 
-    const finalPromptWithCoverage = `${finalSystemPrompt}\n${intentGuardrail}\n${outputFormatGuardrail}\n${evidenceGuardrail}\n${pricingGuardrail}\n${deterministicSeatFacts}\n${planRecommendationRules}\n${stepEvidenceGuardrail}\n${languageRule}`;
-
+    const finalPromptWithCoverage = `${finalSystemPrompt}\n${intentGuardrail}\n${outputFormatGuardrail}\n${evidenceGuardrail}\n${pricingGuardrail}\n${deterministicSeatFacts}\n${planRecommendationRules}\n${accountSharingEnvironmentRules}\n${stepEvidenceGuardrail}\n${languageRule}`;
     // 构建知识库上下文（只传递最相关的知识库项）
     let knowledgeContext = "";
     let responseShouldUsePricingTable = false;
@@ -1595,6 +1613,9 @@ The customer requested step-by-step setup instructions. Before giving any number
         priorityContext += deterministicSeatFacts + "\n";
       }
       priorityContext += planRecommendationRules + "\n";
+      if (accountSharingEnvironmentRules) {
+        priorityContext += accountSharingEnvironmentRules + "\n";
+      }
       if (stepEvidenceGuardrail) {
         priorityContext += stepEvidenceGuardrail + "\n";
       }
@@ -1911,6 +1932,8 @@ The customer requested step-by-step setup instructions. Before giving any number
     ${deterministicSeatFacts}
 
     ${planRecommendationRules}
+
+    ${accountSharingEnvironmentRules}
 
     ${stepEvidenceGuardrail}
 
