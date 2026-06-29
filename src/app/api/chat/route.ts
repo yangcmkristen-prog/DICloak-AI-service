@@ -10,6 +10,9 @@ function sanitizeCustomerFacingContent(content: string, language: string = 'zh')
     .replace(/(?:FAQ|价格功能表|Pricing Feature Comparison Table|pricing table|检索结果|表格显示)[：:]/gi, '')
     .replace(/(?:很遗憾，?\s*)?(?:目前|当前)?DICloak的知识库中尚未提供[^。！？\n]*(?:。|！|？)?/g, '')
     .replace(/(?:知识库|内部资料)(?:未检索到|没有检测到|尚未提供|未提供)[^。！？\n]*(?:。|！|？)?/g, '')
+    .replace(/[^。！？\n]*(?:建议|推荐|可以)?(?:您|你)?(?:联系|咨询|询问|求助)(?:我们|我们的)?(?:技术支持|客服|人工客服|支持团队)[^。！？\n]*(?:。|！|？)?/g, '')
+    .replace(/[^.\n]*(?:contact|consult|ask|reach out to) (?:our )?(?:technical support|support team|customer support)[^.\n]*(?:\.)?/gi, '')
+    .replace(/[^.\n]*(?:уточнить|обратиться|связаться)[^.\n]*(?:техподдержк|служб[а-я]* поддержки)[^.\n]*(?:\.)?/gi, '')
     .replace(/(?:the\s+)?(?:current\s+)?(?:DICloak\s+)?knowledge base (?:does not|doesn't|has not|hasn't|doesn't currently|does not currently)[^.\n]*(?:\.)?/gi, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -184,7 +187,6 @@ For account-sharing customers, do NOT equate team member count with browser envi
 - Do NOT tell the customer to create one environment/profile per user unless the customer explicitly says each user has a separate third-party account or the provided knowledge context states that one profile per user is required.
 `;
 }
-
 
 function detectRequestLanguage(text: string, provided?: string): string {
   if (provided && provided !== 'other') {
@@ -1071,6 +1073,7 @@ export async function POST(request: NextRequest) {
 5. Tool names such as ChatGPT or Claude do not by themselves mean end-user or out-of-scope; account management/sharing/distribution questions are DICloak client questions
 6. If the customer says they want to distribute/share/provide access to Claude/ChatGPT subscriptions or accounts for their team, interpret it as sharing/managing existing third-party tool accounts through DICloak. Do not say DICloak cannot help distribute the subscription; only clarify that DICloak does not sell or purchase the third-party subscription itself.
 7. Client = person managing/sharing AI or other tool accounts; end user = person using an account sold or assigned by the client; if role is uncertain, ask for the role before giving role-specific steps
+8. You ARE DICloak technical support in this conversation. Do NOT tell the customer to contact/consult/ask our technical support, customer support, or a human agent. If details are missing, ask the customer for the missing details directly.
 
 ## FAQ Selection
 - Choose the FAQ with HIGHEST Score
@@ -1107,14 +1110,15 @@ export async function POST(request: NextRequest) {
     2. 禁止编造内部资料中没有出现的套餐权益、容量、配额、限制、价格、入口路径、按钮名称、操作步骤或功能结论。
     3. 如果使用标准答案，必须只基于标准答案改写或翻译；不得添加标准答案没有的“分享按钮、权限设置、密码、有效期、团队管理路径、成员名额、超级管理员占位”等细节，除非这些细节在本次提供的内部资料中明确出现。
     4. 当用户询问“是否有限制/容量/配额/上限/limit/quota/capacity/storage”等问题时，只有内部资料明确给出具体限制，才允许回答具体数值或套餐差异。
-    5. 如果当前用户没有明确询问某个缺少证据的细节，直接忽略该细节，不要主动提及“知识库未检索到/未提供/此回复来源为 AI 生成”等内部话术；只有用户明确追问该细节时，才用对外口径说明“我需要进一步核实后再给你准确步骤/结论”。
+    5. 如果当前用户没有明确询问某个缺少证据的细节，直接忽略该细节，不要主动提及“知识库未检索到/未提供/此回复来源为 AI 生成”等内部话术；只有用户明确追问该细节时，才用对外口径直接追问客户缺失信息或说明“我需要你补充具体配置后再给你准确步骤/结论”。
     6. DICloak 不存在已知的云存储空间容量套餐限制；除非知识库明确提供容量上限，否则不得输出 Free/Base/Plus/Share 等套餐对应的云存储容量数值。
     7. 套餐问题必须优先使用内部价格数据；除免费版外，成员和环境额度是否可调整、是否可购买额外额度，以内部价格数据为准，不得沿用旧结论。
     8. 可以提供官网或操作指南链接，帮助客户自行核对具体信息。
-    9. 面向客户的正文不得透露内部具体文件/表名称或工作流，例如“FAQ 文件/价格功能表/Pricing Feature Comparison Table/表格显示/知识库未检索到/知识库尚未提供/此回复来源为 AI 生成”。信息不足时用“我需要进一步核实后再给你准确步骤/结论”，或在聚合回复中直接省略该细节。
+    9. 面向客户的正文不得透露内部具体文件/表名称或工作流，例如“FAQ 文件/价格功能表/Pricing Feature Comparison Table/表格显示/知识库未检索到/知识库尚未提供/此回复来源为 AI 生成”。信息不足时直接向客户追问缺失信息，或在聚合回复中直接省略该细节。
     10. 如果客户说要给团队/成员分配、分享、发放 Claude/ChatGPT 等第三方工具账号或订阅，必须理解为“通过 DICloak 管理/共享已有第三方工具账号”的客户场景；不要回复 DICloak 无法协助分配订阅。可以说明 DICloak 不销售或代购第三方订阅，但可以协助进行账号管理、环境/profile 配置、成员使用安排。
-    11. 客户要求“步骤/教程/怎么设置/по этапной инструкции”等操作说明时，只能输出内部资料明确提供的 Steps、EntryPath、UIPosition、标准答案步骤或官方帮助链接；如果资料没有明确步骤，不要编造按钮、菜单路径、权限设置、扩展设置、账号导入方式或分享流程，也不要提“知识库未提供”，可改为建议客服进一步核实准确步骤。
-    12. 如果必须给出下一步，只能给安全的高层建议（例如确认账号数量、准备代理、参考已提供的官方链接、联系人工客服核对），不得伪造具体 UI 操作路径。`;
+    11. 客户要求“步骤/教程/怎么设置/по этапной инструкции”等操作说明时，只能输出内部资料明确提供的 Steps、EntryPath、UIPosition、标准答案步骤或官方帮助链接；如果资料没有明确步骤，不要编造按钮、菜单路径、权限设置、扩展设置、账号导入方式或分享流程，也不要提“知识库未提供”，应直接追问客户缺失配置或给出已有资料中的高层建议。
+    12. 如果必须给出下一步，只能给安全的高层建议（例如确认要共享的第三方账号数量、是否每个用户独立账号、是否需要代理、参考已提供的官方链接），不得伪造具体 UI 操作路径。
+    13. 你就是 DICloak 技术支持/客服助手。禁止建议客户“咨询我们的技术支持/联系客服/询问人工客服/support team/техподдержка”。如果信息不足，直接向客户追问。`;
 
     const pricingGuardrail = `## 套餐/成员席位计算硬性要求
     1. 计划名称是产品专有名词。中文回复可写“Plus（高阶版）”；非中文回复必须只使用英文计划名 Free、Base、Plus、Share+，不得输出“高阶版/基础版/共享版+/免费版”等中文版本名称。
@@ -1131,8 +1135,9 @@ export async function POST(request: NextRequest) {
     const stepEvidenceGuardrail = stepByStepRequested
       ? `## Step-by-step Evidence Gate (HIGHEST PRIORITY)
 The customer requested step-by-step setup instructions. Before giving any numbered setup workflow, verify that Function Knowledge, Troubleshooting, FAQ StandardAnswer, or an official help link in the provided context explicitly contains those steps.
-- If explicit steps are absent, do not mention knowledge base/internal data. Either omit the unsupported detailed workflow in an aggregated answer, or say that the exact steps should be verified before giving a precise operation guide.
+- If explicit steps are absent, do not mention knowledge base/internal data and do not redirect the customer to support. Either omit the unsupported detailed workflow in an aggregated answer, or directly ask the customer for the missing configuration details needed to give precise steps.
 - Do NOT invent UI menu paths, button names, permission toggles, extension settings, profile-sharing steps, or account-import methods.
+- You are the support assistant; never say "consult our technical support" or similar.
 `
       : "";
   
@@ -1211,6 +1216,80 @@ The customer requested step-by-step setup instructions. Before giving any number
           "窗口同步",
           "多环境同步",
           "多窗口同步",
+        ].forEach((keyword) => expanded.add(keyword));
+      }
+
+      const accountSharingSignals = [
+        "раздать",
+        "подписк",
+        "команда",
+        "команде",
+        "доступ",
+        "поделиться",
+        "share account",
+        "account sharing",
+        "shared account",
+        "team share",
+        "team access",
+        "shared subscription",
+        "platform account",
+        "tool account",
+        "compartir cuenta",
+        "cuenta compartida",
+        "equipo",
+        "suscripción",
+        "compartilhar conta",
+        "conta compartilhada",
+        "equipe",
+        "assinatura",
+        "chia sẻ tài khoản",
+        "nhóm",
+        "đăng ký",
+        "berbagi akun",
+        "akun bersama",
+        "tim",
+        "langganan",
+        "บัญชี",
+        "ทีม",
+        "اشتراك",
+        "حساب",
+        "فريق",
+        "アカウント共有",
+        "チーム",
+        "サブスクリプション",
+        "계정 공유",
+        "팀",
+        "구독",
+        "账号共享",
+        "共享账号",
+        "分享账号",
+        "团队共享",
+        "分发账号",
+      ];
+
+      if (accountSharingSignals.some((signal) => text.includes(signal))) {
+        [
+          "account_sharing",
+          "shared_account",
+          "multi_open_mode",
+          "team_collaboration",
+          "member_account",
+          "setting",
+          "share account",
+          "shared account",
+          "platform account",
+          "tool account",
+          "team share",
+          "account sharing",
+          "multi-open mode",
+          "member account",
+          "data sync",
+          "账号共享",
+          "共享账号",
+          "团队协作",
+          "成员账号",
+          "多开模式",
+          "数据同步",
         ].forEach((keyword) => expanded.add(keyword));
       }
 

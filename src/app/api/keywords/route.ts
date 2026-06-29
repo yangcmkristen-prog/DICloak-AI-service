@@ -142,6 +142,9 @@ Your task is to extract keywords from the user's question AND translate them to 
 2. Focus on: nouns, verbs, technical terms, error messages
 3. Ignore: common words like "how", "what", "is", "the", "我", "如何", "什么"
 4. Translate ALL keywords to English (even if original is already English)
+5. When the user describes sharing/distributing/providing access to a tool/platform/subscription/account for a team in ANY language, include these canonical DICloak matching keywords in english_keywords when applicable: "account_sharing", "shared_account", "multi_open_mode", "team_collaboration", "member_account", "share account", "platform account", "tool account", "data sync".
+6. When the user describes multiple members opening or using the same browser profile/account at the same time, include "multi_open_mode" and "shared_account".
+7. Preserve third-party tool names such as Claude or ChatGPT, but do not let them replace the DICloak account-sharing intent keywords.
 
 ## Examples:
 
@@ -153,6 +156,9 @@ Output: {"original_keywords": ["ambiente", "mostra", "extensão", "anormal"], "e
 
 Input (Russian): "Как добавить расширение?"
 Output: {"original_keywords": ["добавить", "расширение"], "english_keywords": ["add", "extension"]}
+
+Input (Russian): "у меня команда из десяти человек и я хочу раздать подписку Claude"
+Output: {"original_keywords": ["команда", "десять человек", "раздать", "подписка", "Claude"], "english_keywords": ["team", "ten users", "distribute", "subscription", "Claude", "account_sharing", "shared_account", "team_collaboration", "member_account", "share account", "platform account", "tool account"]}
 
 Input (Mixed): "为什么打开环境时显示检测到扩展有异常"
 Output: {"original_keywords": ["打开", "环境", "显示", "检测", "扩展", "异常"], "english_keywords": ["open", "environment", "show", "detect", "extension", "error"]}
