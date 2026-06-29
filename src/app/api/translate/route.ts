@@ -86,12 +86,30 @@ function normalizeEnglishTermCasing(target: string): string {
     .join("");
 }
 
-function normalizeTermTargetForTranslation(target: string, targetLanguage: string): string {
-  if (targetLanguage !== "en") return target;
+type TermRecord = Record<string, unknown>;
+
+function readStringField(term: TermRecord, fields: string[]): string {
+  for (const field of fields) {
+    const value = term[field];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+
+  return "";
+}
+
+function readTermType(term: TermRecord): string {
+  return readStringField(term, ["termType", "术语类型", "type", "category"]);
+}
+
+function isFeatureSettingTerm(term: TermRecord): boolean {
+  return readTermType(term).trim() === "功能设置";
+}
+
+function normalizeTermTargetForTranslation(target: string, targetLanguage: string, term: TermRecord): string {
+  if (targetLanguage !== "en" || isFeatureSettingTerm(term)) return target;
   return normalizeEnglishTermCasing(target);
 }
 
-type TermRecord = Record<string, unknown>;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -112,20 +130,21 @@ function textContainsTerm(text: string, source: string): boolean {
   return text.toLowerCase().includes(source.toLowerCase());
 }
 
-function readStringField(term: TermRecord, fields: string[]): string {
-  for (const field of fields) {
-    const value = term[field];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-
-  return "";
-}
-
 function isLikelyCategoryTerm(source: string, target: string, term: TermRecord): boolean {
-  const termType = readStringField(term, ["termType", "术语类型", "type", "category"]).toLowerCase();
+  const termType = readTermType(term).toLowerCase();
   if (/category|分类|类别|分组|标签|topic|section/.test(termType)) return true;
 
   return /^profiles?$/i.test(source.trim()) && /相关$/.test(target.trim());
+}
+
+function isProfilesModuleOperationPath(text: string): boolean {
+  return /\b(enter|go to|open|click|navigate to)\s+(the\s+)?Profiles\b/.test(text);
+}
+
+function shouldSkipProfileModuleTerm(source: string, target: string, text: string): boolean {
+  return /^profiles?$/i.test(source.trim())
+    && target.trim() === "环境管理"
+    && (source.trim() !== "Profiles" || !isProfilesModuleOperationPath(text));
 }
 
 function addTranslationTerm(result: TranslationTerm[], seen: Set<string>, source: string, target: string): void {
@@ -141,6 +160,20 @@ function addDICloakContextTerms(result: TranslationTerm[], seen: Set<string>, te
   if (targetLanguage !== "zh" || (sourceLanguage && sourceLanguage !== "auto" && sourceLanguage !== "en")) return;
 
   const profileTerms: TranslationTerm[] = [
+    { source: "enter the Profiles", target: "进入环境管理" },
+    { source: "enter Profiles", target: "进入环境管理" },
+    { source: "go to the Profiles", target: "前往环境管理" },
+    { source: "go to Profiles", target: "前往环境管理" },
+    { source: "open the Profiles", target: "打开环境管理" },
+    { source: "open Profiles", target: "打开环境管理" },
+    { source: "click the Profiles", target: "点击环境管理" },
+    { source: "click Profiles", target: "点击环境管理" },
+    { source: "navigate to the Profiles", target: "导航至环境管理" },
+    { source: "navigate to Profiles", target: "导航至环境管理" },
+    { source: "create new profiles", target: "新建环境" },
+    { source: "create new profile", target: "新建环境" },
+    { source: "create profiles", target: "创建环境" },
+    { source: "create profile", target: "创建环境" },
     { source: "new profiles", target: "新建环境" },
     { source: "new profile", target: "新建环境" },
     { source: "profiles", target: "环境" },
@@ -207,7 +240,7 @@ function buildTranslationTerms(terms: TermRecord[], text: string, sourceLanguage
   for (const term of terms) {
     const rawTarget = readTermField(term, targetLanguage);
     if (!rawTarget) continue;
-    const target = normalizeTermTargetForTranslation(rawTarget, targetLanguage);
+    const target = normalizeTermTargetForTranslation(rawTarget, targetLanguage, term);
 
     for (const language of sourceLanguages) {
       const source = readTermField(term, language);
@@ -215,6 +248,7 @@ function buildTranslationTerms(terms: TermRecord[], text: string, sourceLanguage
 
       if (!textContainsTerm(normalizedText, source)) continue;
       if (isLikelyCategoryTerm(source, target, term)) continue;
+      if (shouldSkipProfileModuleTerm(source, target, text)) continue;
 
       addTranslationTerm(result, seen, source, target);
       break;
@@ -305,7 +339,7 @@ export async function POST(request: NextRequest) {
           "DICloak customer support translation for browser profile, proxy, account, team, and troubleshooting scenarios.",
           "Translate faithfully without omissions or meaning drift. Keep a polite support tone.",
           "When using terminology, treat term targets as preferred lexical choices rather than fixed capitalization; use natural in-sentence casing for common nouns, while preserving proper nouns and acronyms.",
-          "In DICloak context, translate profile/profiles as 环境 in Chinese. Translate new profile/new profiles in create-or-try contexts as 新建环境, not 环境相关.",
+          "In DICloak context, only capitalized plural Profiles can mean the 环境管理 module in operation-path phrases such as enter/go to/open/click/navigate to Profiles. Singular profile/Profile never means 环境管理; translate create/new profile(s) as 创建环境/新建环境, not 环境管理 or 环境相关.",
         ].join(" "),
       });
     };
