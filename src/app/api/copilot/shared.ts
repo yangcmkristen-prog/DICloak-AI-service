@@ -142,6 +142,7 @@ type TranslationOptions = {
   sourceLang: string;
   targetLang: string;
   terms?: TranslationTerm[];
+  domains?: string;
 };
 
 async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: string, userPrompt: string, temperature: number, translationOptions?: TranslationOptions): Promise<string> {
@@ -175,6 +176,7 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
       source_lang: translationOptions.sourceLang,
       target_lang: translationOptions.targetLang,
       ...(translationOptions.terms && translationOptions.terms.length > 0 ? { terms: translationOptions.terms } : {}),
+      ...(translationOptions.domains ? { domains: translationOptions.domains } : {}),
     };
   }
 

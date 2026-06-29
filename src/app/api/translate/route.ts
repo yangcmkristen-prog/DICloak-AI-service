@@ -60,7 +60,99 @@ type TranslationTerm = {
   target: string;
 };
 
+const ENGLISH_TERMS_KEEP_CASE = new Set(["DICloak", "API", "IP", "ID", "SDK", "FAQ", "URL", "UI"]);
+
+function isAllCapsTerm(value: string): boolean {
+  return /[A-Z]/.test(value) && value === value.toUpperCase();
+}
+
+function normalizeEnglishTermCasing(target: string): string {
+  const trimmed = target.trim();
+  if (!trimmed || ENGLISH_TERMS_KEEP_CASE.has(trimmed) || isAllCapsTerm(trimmed)) {
+    return trimmed;
+  }
+
+  return trimmed
+    .split(/(\s+)/)
+    .map((part) => {
+      if (/^\s+$/.test(part) || ENGLISH_TERMS_KEEP_CASE.has(part) || isAllCapsTerm(part)) {
+        return part;
+      }
+
+      return /^[A-Z][a-z]+s?$/.test(part)
+        ? part.charAt(0).toLowerCase() + part.slice(1)
+        : part;
+    })
+    .join("");
+}
+
+function normalizeTermTargetForTranslation(target: string, targetLanguage: string): string {
+  if (targetLanguage !== "en") return target;
+  return normalizeEnglishTermCasing(target);
+}
+
 type TermRecord = Record<string, unknown>;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function containsLatinLetter(value: string): boolean {
+  return /[A-Za-z]/.test(value);
+}
+
+function textContainsTerm(text: string, source: string): boolean {
+  const escapedSource = escapeRegExp(source.trim());
+  if (!escapedSource) return false;
+
+  if (containsLatinLetter(source)) {
+    return new RegExp(`(?<![A-Za-z0-9_])${escapedSource}(?![A-Za-z0-9_])`, "iu").test(text);
+  }
+
+  return text.toLowerCase().includes(source.toLowerCase());
+}
+
+function readStringField(term: TermRecord, fields: string[]): string {
+  for (const field of fields) {
+    const value = term[field];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+
+  return "";
+}
+
+function isLikelyCategoryTerm(source: string, target: string, term: TermRecord): boolean {
+  const termType = readStringField(term, ["termType", "术语类型", "type", "category"]).toLowerCase();
+  if (/category|分类|类别|分组|标签|topic|section/.test(termType)) return true;
+
+  return /^profiles?$/i.test(source.trim()) && /相关$/.test(target.trim());
+}
+
+function addTranslationTerm(result: TranslationTerm[], seen: Set<string>, source: string, target: string): void {
+  const sourceLower = source.toLowerCase();
+  const key = `${sourceLower}->${target.toLowerCase()}`;
+  if (seen.has(key)) return;
+
+  seen.add(key);
+  result.push({ source, target });
+}
+
+function addDICloakContextTerms(result: TranslationTerm[], seen: Set<string>, text: string, sourceLanguage: string | null, targetLanguage: string): void {
+  if (targetLanguage !== "zh" || (sourceLanguage && sourceLanguage !== "auto" && sourceLanguage !== "en")) return;
+
+  const profileTerms: TranslationTerm[] = [
+    { source: "new profiles", target: "新建环境" },
+    { source: "new profile", target: "新建环境" },
+    { source: "profiles", target: "环境" },
+    { source: "profile", target: "环境" },
+  ];
+
+  for (const term of profileTerms) {
+    if (textContainsTerm(text, term.source)) {
+      addTranslationTerm(result, seen, term.source, term.target);
+    }
+  }
+}
 
 function readTermField(term: TermRecord, language: string): string {
   const fieldMap: Record<string, string[]> = {
@@ -110,22 +202,21 @@ function buildTranslationTerms(terms: TermRecord[], text: string, sourceLanguage
   const result: TranslationTerm[] = [];
   const seen = new Set<string>();
 
+  addDICloakContextTerms(result, seen, text, sourceLanguage, targetLanguage);
+
   for (const term of terms) {
-    const target = readTermField(term, targetLanguage);
-    if (!target) continue;
+    const rawTarget = readTermField(term, targetLanguage);
+    if (!rawTarget) continue;
+    const target = normalizeTermTargetForTranslation(rawTarget, targetLanguage);
 
     for (const language of sourceLanguages) {
       const source = readTermField(term, language);
       if (!source || source === target) continue;
 
-      const sourceLower = source.toLowerCase();
-      if (!normalizedText.includes(sourceLower)) continue;
+      if (!textContainsTerm(normalizedText, source)) continue;
+      if (isLikelyCategoryTerm(source, target, term)) continue;
 
-      const key = `${sourceLower}->${target.toLowerCase()}`;
-      if (seen.has(key)) continue;
-
-      seen.add(key);
-      result.push({ source, target });
+      addTranslationTerm(result, seen, source, target);
       break;
     }
 
@@ -195,8 +286,13 @@ export async function POST(request: NextRequest) {
         `Target language: ${targetLanguageName}.`,
         `You MUST output only in ${targetLanguageName}. Do not output English unless the target language is English.`,
         "Preserve tone, line breaks, numbers, emails, URLs, product names, account information, proper nouns, and contextual meaning.",
+        "Translate faithfully: do not omit, add, weaken, or change the meaning of any clause.",
+        "Keep the final wording polite and suitable for customer support.",
         "Output only the translated text. Do not add explanations, prefixes, suffixes, quotes, or language labels.",
-        ...(glossaryTerms.length > 0 ? [`Use this terminology exactly: ${glossaryTerms.map((term) => `${term.source} => ${term.target}`).join("; ")}.`] : []),
+        ...(glossaryTerms.length > 0 ? [
+          `Terminology choices: ${glossaryTerms.map((term) => `${term.source} => ${term.target}`).join("; ")}.`,
+          "Use the terminology for lexical consistency, but inflect it and adjust capitalization to fit normal sentence grammar. Do not force title case or uppercase for common nouns inside a sentence; keep proper nouns and acronyms unchanged.",
+        ] : []),
       ].join("\n");
 
       return callExtensionTranslateModel(systemPrompt, text, 0.1, {
@@ -205,6 +301,12 @@ export async function POST(request: NextRequest) {
           : QWEN_MT_LANGUAGE_NAMES[normalizedSourceLanguage],
         targetLang: QWEN_MT_LANGUAGE_NAMES[normalizedTargetLanguage],
         terms: glossaryTerms,
+        domains: [
+          "DICloak customer support translation for browser profile, proxy, account, team, and troubleshooting scenarios.",
+          "Translate faithfully without omissions or meaning drift. Keep a polite support tone.",
+          "When using terminology, treat term targets as preferred lexical choices rather than fixed capitalization; use natural in-sentence casing for common nouns, while preserving proper nouns and acronyms.",
+          "In DICloak context, translate profile/profiles as 环境 in Chinese. Translate new profile/new profiles in create-or-try contexts as 新建环境, not 环境相关.",
+        ].join(" "),
       });
     };
 
