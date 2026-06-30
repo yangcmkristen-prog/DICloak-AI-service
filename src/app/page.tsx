@@ -1479,9 +1479,9 @@ export default function Home() {
           setCopiedSavedPhraseLanguage(null);
         }
       }}>
-        <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-[520px]">
-          <DialogHeader>
-            <DialogTitle className="truncate">{selectedPhrase?.name || "话术详情"}</DialogTitle>
+        <DialogContent className="min-w-0 max-h-[90vh] overflow-hidden sm:max-w-[520px]">
+          <DialogHeader className="min-w-0 pr-8">
+            <DialogTitle className="max-w-full truncate" title={selectedPhrase?.name || "话术详情"}>{selectedPhrase?.name || "话术详情"}</DialogTitle>
             <DialogDescription>查看完整话术，点击语种即可复制已储存的翻译内容。</DialogDescription>
           </DialogHeader>
           {selectedPhrase && (
