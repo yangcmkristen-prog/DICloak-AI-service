@@ -27,6 +27,10 @@ kill_port_if_listening() {
     fi
 }
 
+# 启动 GitHub 自动拉取后台脚本
+echo "Starting GitHub auto-pull background service..."
+(mkdir -p /app/work/logs/bypass && nohup bash "${COZE_WORKSPACE_PATH}/scripts/auto-pull.sh" > /dev/null 2>&1 &) || true
+
 echo "Clearing port ${PORT} before start."
 kill_port_if_listening
 echo "Starting HTTP service on port ${PORT} for dev..."
