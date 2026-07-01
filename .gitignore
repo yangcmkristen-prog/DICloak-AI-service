@@ -109,3 +109,4 @@ Desktop.ini
 .agents/
 worktrees/
 .gitconfig.local
+.codegraph

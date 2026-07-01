@@ -6,10 +6,6 @@ LOG_FILE="/app/work/logs/bypass/auto-pull.log"
 REPO_DIR="${COZE_WORKSPACE_PATH:-/workspace/projects}"
 INTERVAL=300  # 5 分钟
 
-# 沙箱环境特有的文件列表，拉取前自动暂存，拉取后恢复
-# 这些文件在沙箱环境中可能与仓库版本不同，不影响代码逻辑
-SANDBOX_FILES=".coze .codegraph/ .preview scripts/validate.sh"
-
 mkdir -p "$(dirname "$LOG_FILE")"
 
 log() {
@@ -38,38 +34,44 @@ while true; do
     if [ "$LOCAL" != "$REMOTE" ]; then
         log "[UPDATE] 检测到新代码，本地: ${LOCAL:0:7} 远程: ${REMOTE:0:7}"
 
-        # 暂存沙箱环境相关的本地修改（避免触发保护机制）
-        STASH_MSG="sandbox-auto-stash-$(date +%s)"
+        # 检查是否有本地改动（包括已跟踪文件修改和未跟踪新文件）
+        HAS_CHANGES=0
+        if ! git diff --quiet HEAD 2>/dev/null; then
+            HAS_CHANGES=1
+        elif [ -n "$(git ls-files --others --exclude-standard 2>/dev/null)" ]; then
+            HAS_CHANGES=1
+        fi
+
+        # 如果有本地改动，先全部暂存
         STASHED=0
-        if ! git diff --quiet HEAD; then
-            git stash push -m "$STASH_MSG" -- $SANDBOX_FILES 2>/dev/null
+        if [ "$HAS_CHANGES" -eq 1 ]; then
+            STASH_MSG="sandbox-auto-stash-$(date +%s)"
+            git stash push -u -m "$STASH_MSG" --quiet 2>/dev/null
             if git stash list | grep -q "$STASH_MSG"; then
                 STASHED=1
-                log "[INFO] 已暂存沙箱本地修改"
+                log "[INFO] 已暂存所有本地修改（包括未跟踪文件）"
+            else
+                log "[WARN] 暂存失败，跳过本次拉取"
+                sleep "$INTERVAL"
+                continue
             fi
         fi
 
-        # 如果仍有其他非沙箱文件的修改，跳过拉取（保护用户修改）
-        if ! git diff --quiet HEAD; then
-            log "[WARN] 存在非沙箱文件的本地修改，暂不自动拉取"
-            if [ "$STASHED" -eq 1 ]; then
-                git stash pop --quiet 2>/dev/null
-                log "[INFO] 已恢复沙箱本地修改"
-            fi
-            sleep "$INTERVAL"
-            continue
-        fi
-
+        # 执行拉取
         git reset --hard origin/main --quiet 2>/dev/null
         NEW_COMMIT=$(git rev-parse --short HEAD 2>/dev/null)
         SUBJECT=$(git log -1 --pretty=%s 2>/dev/null)
         log "[OK] 拉取完成，当前 HEAD: ${NEW_COMMIT}"
         log "[OK] 提交信息: ${SUBJECT}"
 
-        # 恢复沙箱环境修改
+        # 恢复本地修改
         if [ "$STASHED" -eq 1 ]; then
-            git stash pop --quiet 2>/dev/null
-            log "[INFO] 已恢复沙箱本地修改"
+            if git stash pop --quiet 2>/dev/null; then
+                log "[INFO] 已恢复本地修改"
+            else
+                log "[WARN] 恢复本地修改时出现冲突，已保留在 stash 中"
+                log "[WARN] 可手动执行 'git stash pop' 恢复"
+            fi
         fi
     fi
 
