@@ -29,6 +29,20 @@ type CacheRecord = {
   results: CopilotResult[];
 };
 
+type ParsedReplySection = {
+  type: "question" | "main" | "supplement" | "info" | "common" | "client" | "end_user" | "identity" | "other";
+  title: string;
+  content: string;
+};
+
+type ReplyMetaData = {
+  problemType?: string;
+  userRole?: string;
+  outputFormatType?: string;
+  problemTypeLabel?: string;
+  userRoleLabel?: string;
+};
+
 const SIDEBAR_ID = "dicloak-ai-copilot-sidebar";
 const CONTENT_ROOT_ID = "dicloak-ai-copilot-root";
 const STORAGE_PREFIX = "dicloak_copilot_cache:";
@@ -222,6 +236,163 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#039;");
 }
 
+function parseMetaData(content: string): { metaData: ReplyMetaData | null; cleanContent: string } {
+  const metaMatch = content.match(/\[META\]([\s\S]*?)\[\/META\]/);
+  if (!metaMatch) return { metaData: null, cleanContent: content };
+
+  try {
+    const metaData = JSON.parse(metaMatch[1].trim()) as ReplyMetaData;
+    return {
+      metaData,
+      cleanContent: content.replace(/\[META\][\s\S]*?\[\/META\]/, "").trim(),
+    };
+  } catch (error) {
+    console.warn("[DICloak Copilot] Failed to parse reply metadata", error);
+    return { metaData: null, cleanContent: content.replace(/\[META\][\s\S]*?\[\/META\]/, "").trim() };
+  }
+}
+
+function normalizeHeaderText(header: string): string {
+  return header
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[【】〖〗\[\]{}()（）:：|｜\-_]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function getSectionType(header: string): ParsedReplySection["type"] | null {
+  const normalizedHeader = normalizeHeaderText(header);
+  if (/问题类型|回复类型|tipo de problema|problem type|loai van de|jenis masalah|ประเภทปัญหา|نوع المشكلة|問題タイプ|문제 유형/i.test(normalizedHeader)) return "question";
+  if (/身份状态|身份识别|estado de identidad|identity status|trang thai danh tinh|status identitas|สถานะตัวตน|حالة الهوية|本人確認|신원 상태/i.test(normalizedHeader)) return "identity";
+  if (/主回复|主要回复|优先发送|回复\s*1|respuesta general|main reply|primary reply|cau tra loi chinh|balasan utama|คำตอบหลัก|الرد الرئيسي|主な返信|주요 답변/i.test(normalizedHeader)) return "main";
+  if (/通用回复|respuesta general|general reply|cau tra loi chung|balasan umum|คำตอบทั่วไป|رد عام|一般的な返信|일반 답변/i.test(normalizedHeader)) return "common";
+  if (/客户回复|respuesta para cliente|client reply|customer reply|cau tra loi cho khach hang|balasan klien|คำตอบสำหรับลูกค้า|رد العميل|顧客向け返信|고객 답변/i.test(normalizedHeader)) return "client";
+  if (/终端用户回复|最终用户回复|respuesta para usuario final|end user reply|final user reply|cau tra loi cho nguoi dung cuoi|balasan pengguna akhir|คำตอบสำหรับผู้ใช้ปลายทาง|رد المستخدم النهائي|エンドユーザー向け返信|최종 사용자 답변/i.test(normalizedHeader)) return "end_user";
+  if (/补充建议|补充说明|回复\s*2|sugerencia complementaria|suggestion|supplement|additional advice|goi y bo sung|saran tambahan|ข้อเสนอแนะเพิ่มเติม|اقتراحات اضافية|補足提案|추가 제안/i.test(normalizedHeader)) return "supplement";
+  if (/需要补充的信息|需补充信息|回复\s*3|informacion que necesitamos|informacion necesaria|need.*information|additional information|thong tin can bo sung|informasi yang diperlukan|ข้อมูลที่ต้องการเพิ่มเติม|معلومات مطلوبة|必要な追加情報|필요한追加情報|필요한 추가 정보/i.test(normalizedHeader)) return "info";
+  return null;
+}
+
+function getSectionTypeFromIcon(icon: string): ParsedReplySection["type"] | null {
+  const iconMap: Record<string, ParsedReplySection["type"]> = {
+    "📌": "question",
+    "🛠️": "question",
+    "⚠️": "identity",
+    "✅": "main",
+    "🟡": "common",
+    "🔵": "client",
+    "🟣": "end_user",
+    "💡": "supplement",
+    "📝": "info",
+    "📎": "info",
+  };
+
+  return iconMap[icon] || null;
+}
+
+function sanitizeAssistantText(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,，。]|$)/g, "$1$2")
+    .replace(/\{\{\s*([^{}]+?)\s*\}\}/g, "$1")
+    .replace(/\{\{\s*([^{}\n]+?)(?=(?:[。！？；;,.，、]|\s|$))/g, "$1")
+    .replace(/[{}]/g, "")
+    .trim();
+}
+
+function getReplySectionTitle(type: ParsedReplySection["type"], fallback: string, index: number): string {
+  const titles: Record<ParsedReplySection["type"], string> = {
+    question: "📌 问题类型",
+    identity: "⚠️ 身份状态",
+    main: "✅ 主回复 | 优先发送",
+    common: "🟡 通用回复",
+    client: "🔵 客户回复",
+    end_user: "🟣 终端用户回复",
+    supplement: "💡 补充建议",
+    info: "📝 需要补充的信息",
+    other: `💬 回复 ${index + 1}`,
+  };
+
+  return titles[type] || fallback || `💬 回复 ${index + 1}`;
+}
+
+function parseReplySections(content: string): ParsedReplySection[] {
+  const { cleanContent } = parseMetaData(content);
+  if (!cleanContent) return [];
+
+  const sectionHeaderRegex =
+    /(?:^|\n)\s*(📌|⚠️|✅|🟡|🔵|🟣|💡|📝|🛠️|👤|☑️|📎)?\s*(?:【|〖|\[)?\s*([^\n【】〖〗\[\]]{1,120}?)\s*(?:】|〗|\])\s*(?=\n|$)/gu;
+
+  const matches = [...cleanContent.matchAll(sectionHeaderRegex)]
+    .map((match) => ({
+      fullText: match[0],
+      index: match.index ?? 0,
+      icon: match[1] || "",
+      header: match[2] || "",
+    }))
+    .filter((match) => getSectionType(match.header) || getSectionTypeFromIcon(match.icon));
+
+  if (matches.length === 0) {
+    const contentOnly = sanitizeAssistantText(cleanContent);
+    return contentOnly ? [{ type: "other", title: "💬 推荐回复", content: contentOnly }] : [];
+  }
+
+  return matches.flatMap((match, index): ParsedReplySection[] => {
+    const type = getSectionType(match.header) || getSectionTypeFromIcon(match.icon) || "other";
+    const nextMatch = matches[index + 1];
+    const contentStart = match.index + match.fullText.length;
+    const contentEnd = nextMatch?.index ?? cleanContent.length;
+    const sectionText = sanitizeAssistantText(cleanContent.slice(contentStart, contentEnd));
+    if (!sectionText) return [];
+
+    return [{
+      type,
+      title: getReplySectionTitle(type, match.header, index),
+      content: sectionText,
+    }];
+  });
+}
+
+function renderResultDetail(result: CopilotResult): string {
+  const { cleanContent } = parseMetaData(result.content);
+
+  if (result.type !== "reply") {
+    return `
+      <section class="dc-card dc-result-detail" data-active-result-id="${escapeHtml(result.id)}">
+        <div class="dc-result-head">
+          <div class="dc-section-title">${escapeHtml(result.title)}</div>
+          <button class="dc-copy" data-action="copy">复制</button>
+        </div>
+        <pre>${escapeHtml(cleanContent)}</pre>
+      </section>
+    `;
+  }
+
+  const sections = parseReplySections(result.content);
+  return `
+    <section class="dc-card dc-result-detail" data-active-result-id="${escapeHtml(result.id)}">
+      <div class="dc-result-head">
+        <div class="dc-section-title">${escapeHtml(result.title)}</div>
+        <button class="dc-copy" data-action="copy">复制全部</button>
+      </div>
+      <div class="dc-reply-sections">
+        ${sections.map((section, index) => `
+          <article class="dc-reply-section">
+            <div class="dc-reply-section-head">
+              <div class="dc-reply-section-title">${escapeHtml(section.title)}</div>
+              <button class="dc-copy dc-copy-small" data-action="copy-section" data-section-index="${index}">复制</button>
+            </div>
+            <pre>${escapeHtml(section.content)}</pre>
+          </article>
+        `).join("") || `<pre>${escapeHtml(cleanContent)}</pre>`}
+      </div>
+    </section>
+  `;
+}
+
 function getCacheStatus(): { label: string; className: string; detail: string } {
   if (!state.snapshot) return { label: "🔴 未识别", className: "empty", detail: "请先打开一个 WhatsApp 聊天" };
   if (!state.cache) return { label: "🔴 未生成", className: "empty", detail: "点击下方能力开始生成" };
@@ -251,11 +422,13 @@ function render(): void {
   const status = getCacheStatus();
   const results = state.cache?.results ?? [];
   const activeResult = getActiveResult();
+  const activeResultDetail = activeResult ? renderResultDetail(activeResult) : "";
   const messageCount = snapshot?.messages.length ?? 0;
   const previousBodyScrollTop = root.querySelector<HTMLElement>(".dc-body")?.scrollTop ?? 0;
   const previousResultScrollTop = root.querySelector<HTMLElement>(".dc-result-detail pre")?.scrollTop ?? 0;
   const previousActiveResultId = root.querySelector<HTMLElement>("[data-active-result-id]")?.dataset.activeResultId ?? null;
   document.getElementById(SIDEBAR_ID)?.classList.toggle("dc-hidden", state.hidden);
+  document.documentElement.classList.toggle("dc-copilot-open", !state.hidden);
 
   root.innerHTML = `
     <div class="dc-shell ${state.collapsed ? "dc-collapsed" : ""}">
@@ -308,15 +481,7 @@ function render(): void {
           `).join("")}
         </section>
 
-        ${activeResult ? `
-          <section class="dc-card dc-result-detail" data-active-result-id="${escapeHtml(activeResult.id)}">
-            <div class="dc-result-head">
-              <div class="dc-section-title">${escapeHtml(activeResult.title)}</div>
-              <button class="dc-copy" data-action="copy">复制</button>
-            </div>
-            <pre>${escapeHtml(activeResult.content)}</pre>
-          </section>
-        ` : ""}
+        ${activeResultDetail}
       </div>
       <div class="dc-footer">
         <span>知识库/Prompt/模型配置沿用网页端</span>
@@ -421,8 +586,10 @@ async function callCopilot(action: "translate-clean" | "reply"): Promise<void> {
 function injectStyles(): void {
   const style = document.createElement("style");
   style.textContent = `
+    :root { --dc-copilot-sidebar-width: 380px; }
+    html.dc-copilot-open body #app { width: calc(100vw - var(--dc-copilot-sidebar-width)) !important; max-width: calc(100vw - var(--dc-copilot-sidebar-width)) !important; transition: width .2s ease, max-width .2s ease; }
     #${SIDEBAR_ID}.dc-hidden { display: none; }
-    #${SIDEBAR_ID} { position: fixed; z-index: 2147483647; top: 0; right: 0; width: 380px; height: 100vh; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #e5eefb; box-shadow: -16px 0 40px rgba(0,0,0,.3); }
+    #${SIDEBAR_ID} { position: fixed; z-index: 2147483647; top: 0; right: 0; width: var(--dc-copilot-sidebar-width); height: 100vh; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #e5eefb; box-shadow: -16px 0 40px rgba(0,0,0,.3); }
     #${CONTENT_ROOT_ID} { height: 100%; }
     .dc-shell { height: 100%; display: flex; flex-direction: column; background: radial-gradient(circle at top left, #17243a, #07111d 42%, #020817); border-left: 1px solid rgba(148,163,184,.22); }
     .dc-collapsed { width: 72px; overflow: hidden; }
@@ -456,6 +623,11 @@ function injectStyles(): void {
     .dc-result-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
     .dc-result-detail, .dc-result-detail pre { user-select: text; -webkit-user-select: text; }
     .dc-result-detail pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: inherit; color: #dbeafe; font-size: 13px; line-height: 1.55; max-height: 260px; overflow: auto; cursor: text; }
+    .dc-reply-sections { display: flex; flex-direction: column; gap: 10px; }
+    .dc-reply-section { border: 1px solid rgba(148,163,184,.14); border-radius: 12px; background: rgba(2,8,23,.26); padding: 10px; }
+    .dc-reply-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    .dc-reply-section-title { color: #f8fafc; font-size: 13px; font-weight: 700; }
+    .dc-copy-small { padding: 4px 8px; font-size: 12px; }
     .dc-footer { height: 54px; padding: 0 14px; border-top: 1px solid rgba(148,163,184,.18); display: flex; align-items: center; justify-content: space-between; color: #94a3b8; font-size: 11px; }
   `;
   document.documentElement.appendChild(style);
@@ -492,7 +664,15 @@ function injectSidebar(): void {
     } else if (action === "copy") {
       const activeResult = getActiveResult();
       if (activeResult) {
-        void navigator.clipboard.writeText(activeResult.content);
+        void navigator.clipboard.writeText(parseMetaData(activeResult.content).cleanContent);
+        clearWindowSelection();
+      }
+    } else if (action === "copy-section") {
+      const activeResult = getActiveResult();
+      const sectionIndex = Number(actionElement?.dataset.sectionIndex);
+      const section = activeResult?.type === "reply" ? parseReplySections(activeResult.content)[sectionIndex] : undefined;
+      if (section) {
+        void navigator.clipboard.writeText(section.content);
         clearWindowSelection();
       }
     }
