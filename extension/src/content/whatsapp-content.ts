@@ -5,6 +5,7 @@ type ChromeStorageItems = Record<string, unknown>;
 
 declare const chrome: {
   runtime: {
+    id?: string;
     onMessage: {
       addListener(callback: (message: { type?: string }) => void): void;
     };
@@ -75,18 +76,44 @@ function getStorageKey(chatId: string): string {
   return `${STORAGE_PREFIX}${chatId}`;
 }
 
+function isExtensionContextValid(): boolean {
+  try {
+    return Boolean(chrome.runtime.id);
+  } catch {
+    return false;
+  }
+}
+
 function readCache(chatId: string): Promise<CacheRecord | null> {
   return new Promise((resolve) => {
-    chrome.storage.local.get(getStorageKey(chatId), (items) => {
-      const value = items[getStorageKey(chatId)] as CacheRecord | undefined;
-      resolve(value ?? null);
-    });
+    if (!isExtensionContextValid()) {
+      resolve(null);
+      return;
+    }
+
+    try {
+      chrome.storage.local.get(getStorageKey(chatId), (items) => {
+        const value = items[getStorageKey(chatId)] as CacheRecord | undefined;
+        resolve(value ?? null);
+      });
+    } catch {
+      resolve(null);
+    }
   });
 }
 
 function writeCache(chatId: string, cache: CacheRecord): Promise<void> {
   return new Promise((resolve) => {
-    chrome.storage.local.set({ [getStorageKey(chatId)]: cache }, () => resolve());
+    if (!isExtensionContextValid()) {
+      resolve();
+      return;
+    }
+
+    try {
+      chrome.storage.local.set({ [getStorageKey(chatId)]: cache }, () => resolve());
+    } catch {
+      resolve();
+    }
   });
 }
 
@@ -533,13 +560,22 @@ async function refreshSnapshot(): Promise<void> {
 
 function sendCopilotRequest(endpoint: string, action: "translate-clean" | "reply", payload: ChatSnapshot): Promise<{ content?: string; error?: string }> {
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: "dicloak:copilot-request", endpoint, action, payload }, (response) => {
-      if (chrome.runtime.lastError) {
-        resolve({ error: chrome.runtime.lastError.message || "AI 请求失败" });
-        return;
-      }
-      resolve(response ?? { error: "AI 请求失败" });
-    });
+    if (!isExtensionContextValid()) {
+      resolve({ error: "扩展已重新加载，请刷新 WhatsApp 页面后重试" });
+      return;
+    }
+
+    try {
+      chrome.runtime.sendMessage({ type: "dicloak:copilot-request", endpoint, action, payload }, (response) => {
+        if (chrome.runtime.lastError) {
+          resolve({ error: chrome.runtime.lastError.message || "AI 请求失败" });
+          return;
+        }
+        resolve(response ?? { error: "AI 请求失败" });
+      });
+    } catch {
+      resolve({ error: "扩展已重新加载，请刷新 WhatsApp 页面后重试" });
+    }
   });
 }
 
@@ -701,22 +737,31 @@ function injectSidebar(): void {
   render();
 }
 
+function runRefreshSnapshot(): void {
+  void refreshSnapshot().catch(() => {
+    // The extension context can be invalidated when the extension is reloaded
+    // while WhatsApp remains open. Ignore stale content-script refreshes.
+  });
+}
+
 function scheduleRefresh(): void {
-  window.setTimeout(() => void refreshSnapshot(), 350);
+  window.setTimeout(runRefreshSnapshot, 350);
 }
 
 
-chrome.runtime.onMessage.addListener((message) => {
-  if (message.type !== "dicloak:toggle-sidebar") return;
-  state.hidden = !state.hidden;
-  if (!state.hidden) {
-    state.collapsed = false;
-    void refreshSnapshot();
-  }
-  render();
-});
+if (isExtensionContextValid()) {
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message.type !== "dicloak:toggle-sidebar") return;
+    state.hidden = !state.hidden;
+    if (!state.hidden) {
+      state.collapsed = false;
+      runRefreshSnapshot();
+    }
+    render();
+  });
+}
 
 injectSidebar();
-void refreshSnapshot();
-window.setInterval(() => void refreshSnapshot(), 3000);
+runRefreshSnapshot();
+window.setInterval(runRefreshSnapshot, 3000);
 new MutationObserver(scheduleRefresh).observe(document.body, { childList: true, subtree: true });
