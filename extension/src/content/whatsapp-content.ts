@@ -235,9 +235,23 @@ function getActiveResult(): CopilotResult | null {
   return results.find((result) => result.id === state.activeResultId) ?? null;
 }
 
+function hasActiveSelectionInside(element: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
+
+  const anchorNode = selection.anchorNode;
+  const focusNode = selection.focusNode;
+  return Boolean(
+    (anchorNode && element.contains(anchorNode))
+    || (focusNode && element.contains(focusNode)),
+  );
+}
+
 function render(): void {
   const root = document.getElementById(CONTENT_ROOT_ID);
   if (!root) return;
+
+  if (hasActiveSelectionInside(root)) return;
 
   const snapshot = state.snapshot;
   const status = getCacheStatus();
@@ -446,7 +460,8 @@ function injectStyles(): void {
     .dc-result-item.active { border-color: rgba(99,102,241,.6); background: rgba(67,56,202,.22); }
     .dc-result-item small { color: #94a3b8; }
     .dc-result-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-    .dc-result-detail pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: inherit; color: #dbeafe; font-size: 13px; line-height: 1.55; max-height: 260px; overflow: auto; }
+    .dc-result-detail, .dc-result-detail pre { user-select: text; -webkit-user-select: text; }
+    .dc-result-detail pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: inherit; color: #dbeafe; font-size: 13px; line-height: 1.55; max-height: 260px; overflow: auto; cursor: text; }
     .dc-footer { height: 54px; padding: 0 14px; border-top: 1px solid rgba(148,163,184,.18); display: flex; align-items: center; justify-content: space-between; color: #94a3b8; font-size: 11px; }
   `;
   document.documentElement.appendChild(style);
