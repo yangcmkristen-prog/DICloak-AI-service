@@ -41,6 +41,7 @@ const state: {
   error: string | null;
   collapsed: boolean;
   hidden: boolean;
+  selectingResultText: boolean;
 } = {
   snapshot: null,
   cache: null,
@@ -49,6 +50,7 @@ const state: {
   error: null,
   collapsed: false,
   hidden: false,
+  selectingResultText: false,
 };
 
 function textOf(element: Element | null): string {
@@ -235,23 +237,15 @@ function getActiveResult(): CopilotResult | null {
   return results.find((result) => result.id === state.activeResultId) ?? null;
 }
 
-function hasActiveSelectionInside(element: HTMLElement): boolean {
-  const selection = window.getSelection();
-  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
-
-  const anchorNode = selection.anchorNode;
-  const focusNode = selection.focusNode;
-  return Boolean(
-    (anchorNode && element.contains(anchorNode))
-    || (focusNode && element.contains(focusNode)),
-  );
+function clearWindowSelection(): void {
+  window.getSelection()?.removeAllRanges();
 }
 
 function render(): void {
   const root = document.getElementById(CONTENT_ROOT_ID);
   if (!root) return;
 
-  if (hasActiveSelectionInside(root)) return;
+  if (state.selectingResultText) return;
 
   const snapshot = state.snapshot;
   const status = getCacheStatus();
@@ -497,8 +491,31 @@ function injectSidebar(): void {
       void callCopilot("reply");
     } else if (action === "copy") {
       const activeResult = getActiveResult();
-      if (activeResult) void navigator.clipboard.writeText(activeResult.content);
+      if (activeResult) {
+        void navigator.clipboard.writeText(activeResult.content);
+        clearWindowSelection();
+      }
     }
+  });
+
+  sidebar.addEventListener("pointerdown", (event) => {
+    const target = event.target as HTMLElement | null;
+    if (!target?.closest(".dc-result-detail pre")) return;
+    state.selectingResultText = true;
+  });
+
+  document.addEventListener("pointerup", () => {
+    window.setTimeout(() => {
+      state.selectingResultText = false;
+    }, 150);
+  });
+
+  document.addEventListener("pointercancel", () => {
+    state.selectingResultText = false;
+  });
+
+  sidebar.addEventListener("copy", () => {
+    window.setTimeout(clearWindowSelection, 0);
   });
 
   render();
