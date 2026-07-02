@@ -388,8 +388,10 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
   const [expandedTranslations, setExpandedTranslations] = useState<Record<string, boolean>>({});
   const [translations, setTranslations] = useState<Record<string, string>>({});
   const [translatingIds, setTranslatingIds] = useState<Record<string, boolean>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     // 自动滚动到底部
@@ -432,14 +434,27 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
   };
 
   const handleSend = async () => {
-    if ((input.trim() || attachments.length > 0) && !isGenerating) {
-      try {
-        await onSendMessage(input.trim(), attachments);
-        setInput("");
-        setAttachments([]);
-      } catch {
-        // 发送失败时保留输入内容和图片，便于用户重试。
-      }
+    if (submittingRef.current || isGenerating || (!input.trim() && attachments.length === 0)) {
+      return;
+    }
+
+    const nextInput = input.trim();
+    const nextAttachments = attachments;
+
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    setInput("");
+    setAttachments([]);
+
+    try {
+      await onSendMessage(nextInput, nextAttachments);
+    } catch {
+      // 发送失败时恢复输入内容和图片，便于用户重试。
+      setInput(nextInput);
+      setAttachments(nextAttachments);
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -635,7 +650,7 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
               variant="outline"
               className="h-[56px] w-[44px] md:h-[60px] md:w-[48px] shrink-0 touch-manipulation"
               onClick={() => fileInputRef.current?.click()}
-              disabled={isGenerating}
+              disabled={isGenerating || isSubmitting}
               aria-label="上传图片"
             >
               <Plus className="w-5 h-5" />
@@ -647,15 +662,15 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
               onPaste={handlePaste}
               placeholder="输入客户问题，或粘贴截图..."
               className="min-h-[56px] md:min-h-[60px] max-h-[150px] md:max-h-[120px] resize-none text-base md:text-sm"
-              disabled={isGenerating}
+              disabled={isGenerating || isSubmitting}
             />
           <Button
             size="icon"
             className="h-[56px] w-[56px] md:h-[60px] md:w-[60px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shrink-0 touch-manipulation"
             onClick={handleSend}
-            disabled={(!input.trim() && attachments.length === 0) || isGenerating}
+            disabled={(!input.trim() && attachments.length === 0) || isGenerating || isSubmitting}
           >
-            {isGenerating ? (
+            {isGenerating || isSubmitting ? (
               <Loader2 className="w-5 h-5 md:w-6 md:h-6" />
             ) : (
               <Send className="w-5 h-5 md:w-6 md:h-6" />

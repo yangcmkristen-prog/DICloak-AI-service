@@ -564,33 +564,7 @@ export default function Home() {
     let imageOcrResults: Array<{ id: string; name: string; text: string }> = [];
     let messageAttachments = attachments;
 
-    if (attachments.length > 0) {
-      try {
-        toast.info("正在识别图片内容...");
-        const ocrResponse = await fetch("/api/image-ocr", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ images: attachments }),
-        });
-
-        const ocrData = await ocrResponse.json() as { results?: Array<{ id: string; name: string; text: string }>; error?: string };
-        if (!ocrResponse.ok) {
-          throw new Error(ocrData.error || "图片识别失败");
-        }
-
-        imageOcrResults = ocrData.results || [];
-        messageAttachments = attachments.map((attachment) => ({
-          ...attachment,
-          ocrText: imageOcrResults.find((result) => result.id === attachment.id)?.text || "",
-        }));
-      } catch (error) {
-        console.error("图片识别失败:", error);
-        toast.error(error instanceof Error ? error.message : "图片识别失败");
-        throw error;
-      }
-    }
-
-    // 添加用户消息
+    // 先添加用户消息，让点击 Enter/发送按钮后立即显示已发送状态；OCR 和回复生成在后台继续。
     const userMessage: Message = {
       id: generateId(),
       role: "user",
@@ -613,6 +587,42 @@ export default function Home() {
     setIsGenerating(true);
 
     try {
+      if (attachments.length > 0) {
+        toast.info("正在识别图片内容...");
+        const ocrResponse = await fetch("/api/image-ocr", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ images: attachments }),
+        });
+
+        const ocrData = await ocrResponse.json() as { results?: Array<{ id: string; name: string; text: string }>; error?: string };
+        if (!ocrResponse.ok) {
+          throw new Error(ocrData.error || "图片识别失败");
+        }
+
+        imageOcrResults = ocrData.results || [];
+        messageAttachments = attachments.map((attachment) => ({
+          ...attachment,
+          ocrText: imageOcrResults.find((result) => result.id === attachment.id)?.text || "",
+        }));
+
+        setConversations((prev) => {
+          const updated = prev.map((c) => {
+            if (c.id === currentConversationId) {
+              return {
+                ...c,
+                messages: c.messages.map((message) => (
+                  message.id === userMessage.id ? { ...message, attachments: messageAttachments } : message
+                )),
+              };
+            }
+            return c;
+          });
+          saveConversations(updated);
+          return updated;
+        });
+      }
+
       // 直接从数据库获取最新配置，确保切换标签页后数据同步
       const [knowledgeRes, systemRes] = await Promise.all([
         fetch("/api/config/knowledge"),
