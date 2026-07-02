@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import type { ApiConfig } from "@/lib/types";
 
-const CONFIG_KEY = "system_config";
+const CONFIG_KEY = "default";
 
 type ImagePayload = {
   id: string;
