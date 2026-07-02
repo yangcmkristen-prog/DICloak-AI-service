@@ -1,9 +1,18 @@
 // 对话和消息类型定义
+export interface ImageAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+  ocrText?: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  attachments?: ImageAttachment[];
   // 消息级别的元数据
   detectedLanguage?: string;      // 检测到的语言
   problemType?: string;           // 问题类型

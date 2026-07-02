@@ -1,16 +1,17 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, Copy, Check, ChevronUp } from "lucide-react";
+import Image from "next/image";
+import { Send, Loader2, Copy, Check, ChevronUp, Plus, X, ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { Message } from "@/lib/types";
+import { ImageAttachment, Message, generateId } from "@/lib/types";
 import { toast } from "sonner";
 
 interface ChatAreaProps {
   messages: Message[];
-  onSendMessage: (content: string) => Promise<void>;
+  onSendMessage: (content: string, attachments?: ImageAttachment[]) => Promise<void>;
   isGenerating: boolean;
 }
 
@@ -388,6 +389,7 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
   const [translations, setTranslations] = useState<Record<string, string>>({});
   const [translatingIds, setTranslatingIds] = useState<Record<string, boolean>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     // 自动滚动到底部
@@ -396,10 +398,55 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
     }
   }, [messages]);
 
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
+
+  const fileToImageAttachment = (file: File): Promise<ImageAttachment> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        reject(new Error("图片读取失败"));
+        return;
+      }
+      resolve({
+        id: generateId(),
+        name: file.name || "clipboard-image.png",
+        mimeType: file.type || "image/png",
+        dataUrl: reader.result,
+      });
+    };
+    reader.onerror = () => reject(new Error("图片读取失败"));
+    reader.readAsDataURL(file);
+  });
+
+  const addImageFiles = async (files: File[]) => {
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+    if (imageFiles.length === 0) return;
+
+    try {
+      const nextAttachments = await Promise.all(imageFiles.map(fileToImageAttachment));
+      setAttachments(prev => [...prev, ...nextAttachments].slice(0, 4));
+      toast.success(`已添加 ${nextAttachments.length} 张图片`);
+    } catch {
+      toast.error("图片读取失败，请重试");
+    }
+  };
+
   const handleSend = async () => {
-    if (input.trim() && !isGenerating) {
-      await onSendMessage(input.trim());
-      setInput("");
+    if ((input.trim() || attachments.length > 0) && !isGenerating) {
+      try {
+        await onSendMessage(input.trim(), attachments);
+        setInput("");
+        setAttachments([]);
+      } catch {
+        // 发送失败时保留输入内容和图片，便于用户重试。
+      }
+    }
+  };
+
+  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(event.clipboardData.files);
+    if (files.some((file) => file.type.startsWith("image/"))) {
+      void addImageFiles(files);
     }
   };
 
@@ -491,7 +538,24 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                   }`}
                 >
                   {message.role === "user" ? (
-                    <p className="whitespace-pre-wrap">{message.content}</p>
+                    <div className="space-y-3">
+                      {message.attachments && message.attachments.length > 0 && (
+                        <div className="grid grid-cols-2 gap-2">
+                          {message.attachments.map((attachment) => (
+                            <Image
+                              key={attachment.id}
+                              src={attachment.dataUrl}
+                              alt={attachment.name}
+                              width={160}
+                              height={160}
+                              unoptimized
+                              className="max-h-40 w-auto rounded-md border border-white/30 object-contain"
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {message.content ? <p className="whitespace-pre-wrap">{message.content}</p> : <p className="text-sm opacity-80">已上传图片</p>}
+                    </div>
                   ) : (
                     <AIReplies
                       content={message.content}
@@ -526,20 +590,70 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
 
       {/* 输入区域 */}
       <div className="border-t p-3 md:p-4 bg-background safe-bottom">
-        <div className="flex gap-2 md:gap-3 max-w-3xl mx-auto">
-          <Textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="输入客户问题..."
-            className="min-h-[56px] md:min-h-[60px] max-h-[150px] md:max-h-[120px] resize-none text-base md:text-sm"
-            disabled={isGenerating}
-          />
+        <div className="max-w-3xl mx-auto space-y-2">
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 rounded-lg border bg-muted/40 p-2">
+              {attachments.map((attachment) => (
+                <div key={attachment.id} className="relative">
+                  <Image
+                    src={attachment.dataUrl}
+                    alt={attachment.name}
+                    width={64}
+                    height={64}
+                    unoptimized
+                    className="h-16 w-16 rounded-md object-cover"
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="destructive"
+                    className="absolute -right-2 -top-2 h-5 w-5"
+                    onClick={() => setAttachments(prev => prev.filter(item => item.id !== attachment.id))}
+                    aria-label="移除图片"
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2 md:gap-3">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                void addImageFiles(Array.from(event.target.files || []));
+                event.target.value = "";
+              }}
+            />
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="h-[56px] w-[44px] md:h-[60px] md:w-[48px] shrink-0 touch-manipulation"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isGenerating}
+              aria-label="上传图片"
+            >
+              <Plus className="w-5 h-5" />
+            </Button>
+            <Textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              placeholder="输入客户问题，或粘贴截图..."
+              className="min-h-[56px] md:min-h-[60px] max-h-[150px] md:max-h-[120px] resize-none text-base md:text-sm"
+              disabled={isGenerating}
+            />
           <Button
             size="icon"
             className="h-[56px] w-[56px] md:h-[60px] md:w-[60px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shrink-0 touch-manipulation"
             onClick={handleSend}
-            disabled={!input.trim() || isGenerating}
+            disabled={(!input.trim() && attachments.length === 0) || isGenerating}
           >
             {isGenerating ? (
               <Loader2 className="w-5 h-5 md:w-6 md:h-6" />
@@ -548,9 +662,11 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
             )}
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground text-center mt-2 hidden md:block">
-          按 Enter 发送，Shift + Enter 换行
-        </p>
+          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+            <ImageIcon className="h-3.5 w-3.5" />
+            支持点击加号上传图片，或直接粘贴剪贴板中的截图（最多 4 张）。按 Enter 发送，Shift + Enter 换行。
+          </p>
+        </div>
       </div>
     </div>
   );

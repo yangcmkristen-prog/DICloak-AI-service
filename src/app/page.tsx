@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Conversation, FAQItem, KnowledgeBase, Message, TroubleshootingItem, generateId } from "@/lib/types";
+import { Conversation, FAQItem, ImageAttachment, KnowledgeBase, Message, TroubleshootingItem, generateId } from "@/lib/types";
 import {
   getConversations,
   saveConversations,
@@ -410,6 +410,10 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeTab, setActiveTab] = useState("chat");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSettingsAuthOpen, setIsSettingsAuthOpen] = useState(false);
+  const [settingsPassword, setSettingsPassword] = useState("");
+  const [isSettingsUnlocked, setIsSettingsUnlocked] = useState(false);
+  const [isCheckingSettingsPassword, setIsCheckingSettingsPassword] = useState(false);
   const [sourceLanguage, setSourceLanguage] = useState("auto");
   const [targetLanguage, setTargetLanguage] = useState("zh");
   const [translationInput, setTranslationInput] = useState("");
@@ -510,11 +514,80 @@ export default function Home() {
     toast.success("对话已删除");
   };
 
+  const openSettings = () => {
+    if (isSettingsUnlocked) {
+      setIsSettingsOpen(true);
+      return;
+    }
+    setSettingsPassword("");
+    setIsSettingsAuthOpen(true);
+  };
+
+  const handleSettingsAuth = async () => {
+    setIsCheckingSettingsPassword(true);
+    try {
+      const response = await fetch("/api/settings-auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: settingsPassword }),
+      });
+
+      if (!response.ok) {
+        toast.error("设置访问密码错误");
+        return;
+      }
+
+      setIsSettingsUnlocked(true);
+      setIsSettingsAuthOpen(false);
+      setIsSettingsOpen(true);
+      toast.success("已解锁设置");
+    } catch (error) {
+      console.error("设置访问密码校验失败:", error);
+      toast.error("设置访问密码校验失败");
+    } finally {
+      setIsCheckingSettingsPassword(false);
+    }
+  };
+
   // 发送消息并生成推荐回复
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (content: string, attachments: ImageAttachment[] = []) => {
     if (!currentConversationId) {
       toast.error("请先选择一个对话");
       return;
+    }
+
+    if (!content.trim() && attachments.length === 0) {
+      toast.error("请输入客户问题或上传图片");
+      return;
+    }
+
+    let imageOcrResults: Array<{ id: string; name: string; text: string }> = [];
+    let messageAttachments = attachments;
+
+    if (attachments.length > 0) {
+      try {
+        toast.info("正在识别图片内容...");
+        const ocrResponse = await fetch("/api/image-ocr", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ images: attachments }),
+        });
+
+        const ocrData = await ocrResponse.json() as { results?: Array<{ id: string; name: string; text: string }>; error?: string };
+        if (!ocrResponse.ok) {
+          throw new Error(ocrData.error || "图片识别失败");
+        }
+
+        imageOcrResults = ocrData.results || [];
+        messageAttachments = attachments.map((attachment) => ({
+          ...attachment,
+          ocrText: imageOcrResults.find((result) => result.id === attachment.id)?.text || "",
+        }));
+      } catch (error) {
+        console.error("图片识别失败:", error);
+        toast.error(error instanceof Error ? error.message : "图片识别失败");
+        throw error;
+      }
     }
 
     // 添加用户消息
@@ -523,6 +596,7 @@ export default function Home() {
       role: "user",
       content,
       timestamp: Date.now(),
+      ...(messageAttachments.length > 0 ? { attachments: messageAttachments } : {}),
     };
 
     setConversations((prev) => {
@@ -565,13 +639,16 @@ export default function Home() {
         ? systemDataResult.data.apiConfig
         : getApiConfig();
 
+      const ocrTextForModel = imageOcrResults.map((result) => `${result.name}: ${result.text}`).join("\n");
+      const contentForAnalysis = ocrTextForModel ? `${content}\n\n图片识别结果：\n${ocrTextForModel}` : content;
+
       // Step 1: AI 提取关键词
       console.log('[DEBUG] 正在提取关键词...');
       const keywordsRes = await fetch("/api/keywords", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: content,
+          message: contentForAnalysis,
           apiConfig: currentApiConfig,
         }),
       });
@@ -595,10 +672,12 @@ export default function Home() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            message: content,
+            message: contentForAnalysis,
             history: currentConversation?.messages.map((m) => ({
               role: m.role,
-              content: m.content,
+              content: m.attachments?.length
+                ? `${m.content}\n[图片识别结果]\n${m.attachments.map((attachment) => `${attachment.name}: ${attachment.ocrText || "未识别"}`).join("\n")}`
+                : m.content,
             })) || [],
           }),
         });
@@ -611,12 +690,12 @@ export default function Home() {
       }
 
       // Step 3: 前端用关键词匹配 FAQ
-      const matchedFaqs = matchFaqsByKeywords(knowledgeData, aiKeywords, content);
+      const matchedFaqs = matchFaqsByKeywords(knowledgeData, aiKeywords, contentForAnalysis);
       console.log('[DEBUG] 匹配到 FAQ 数量:', matchedFaqs.faqs.length);
       console.log('[DEBUG] 匹配到 TS 数量:', matchedFaqs.troubleshooting.length);
 
       // 构建请求
-      const detectedLang = detectLanguage(content);
+      const detectedLang = detectLanguage(content || ocrTextForModel);
       console.log('[DEBUG] 检测语言:', detectedLang, '原文:', content);
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -625,7 +704,9 @@ export default function Home() {
           message: content,
           history: currentConversation?.messages.map((m) => ({
             role: m.role,
-            content: m.content,
+            content: m.attachments?.length
+              ? `${m.content}\n[图片识别结果]\n${m.attachments.map((attachment) => `${attachment.name}: ${attachment.ocrText || "未识别"}`).join("\n")}`
+              : m.content,
           })),
           knowledge: {
             ...knowledgeData,
@@ -638,6 +719,7 @@ export default function Home() {
           detectedLanguage: detectedLang,
           aiKeywords: aiKeywords, // 传递 AI 提取的关键词给后端
           classification,
+          imageOcrResults,
         }),
       });
 
@@ -1096,7 +1178,7 @@ export default function Home() {
                   <Button
                     variant="ghost"
                     className="w-full justify-start text-muted-foreground hover:text-foreground"
-                    onClick={() => setIsSettingsOpen(true)}
+                    onClick={openSettings}
                   >
                     <Settings className="w-4 h-4 mr-2" />
                     设置
@@ -1160,7 +1242,7 @@ export default function Home() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setIsSettingsOpen(true)}
+                      onClick={openSettings}
                     >
                       <Settings className="w-4 h-4" />
                     </Button>
@@ -1402,7 +1484,7 @@ export default function Home() {
                 <Button
                   variant="ghost"
                   className="justify-start text-muted-foreground hover:text-foreground"
-                  onClick={() => setIsSettingsOpen(true)}
+                  onClick={openSettings}
                 >
                   <Settings className="w-4 h-4 mr-2" />
                   设置
@@ -1531,6 +1613,37 @@ export default function Home() {
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isSettingsAuthOpen} onOpenChange={setIsSettingsAuthOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>设置访问验证</DialogTitle>
+            <DialogDescription>请输入设置访问密码。密码由服务端环境变量 SETTINGS_ACCESS_PASSWORD 配置。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input
+              type="password"
+              value={settingsPassword}
+              onChange={(event) => setSettingsPassword(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void handleSettingsAuth();
+                }
+              }}
+              placeholder="请输入密码"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsSettingsAuthOpen(false)} disabled={isCheckingSettingsPassword}>取消</Button>
+            <Button onClick={handleSettingsAuth} disabled={isCheckingSettingsPassword}>
+              {isCheckingSettingsPassword ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              解锁
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

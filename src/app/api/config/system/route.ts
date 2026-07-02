@@ -46,7 +46,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { systemPrompt, apiConfig, extensionTranslateApiConfig } = body;
+    const { systemPrompt, apiConfig, extensionTranslateApiConfig, imageOcrApiConfig } = body;
 
     const client = getSupabaseClient();
 
@@ -77,6 +77,10 @@ export async function POST(request: NextRequest) {
               extensionTranslateApiConfig === undefined
                 ? currentValue.extensionTranslateApiConfig || null
                 : extensionTranslateApiConfig || null,
+            imageOcrApiConfig:
+              imageOcrApiConfig === undefined
+                ? currentValue.imageOcrApiConfig || null
+                : imageOcrApiConfig || null,
           },
           version: newVersion,
           updated_at: new Date().toISOString(),

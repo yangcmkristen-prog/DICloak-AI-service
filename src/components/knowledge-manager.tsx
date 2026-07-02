@@ -36,7 +36,12 @@ function getModelOptionsForProvider(provider: string): ModelOption[] {
   if (options.length > 0) return options;
 
   if (normalizedProvider === 'aliyun' || normalizedProvider === 'bailian' || provider.includes('百炼')) {
-    return [{ value: 'qwen-mt-flash', label: 'Qwen MT Flash（翻译）', provider: 'aliyun' }];
+    return [
+      { value: 'qwen-mt-flash', label: 'Qwen MT Flash（翻译）', provider: 'aliyun' },
+      { value: 'qwen-mt-lite', label: 'Qwen MT Lite（翻译）', provider: 'aliyun' },
+      { value: 'qwen-mt-plus', label: 'Qwen MT Plus（翻译）', provider: 'aliyun' },
+      { value: 'qwen-mt-turbo', label: 'Qwen MT Turbo（翻译）', provider: 'aliyun' },
+    ];
   }
 
   return [];
@@ -52,6 +57,15 @@ function withSelectableModel(config: ApiConfig): ApiConfig {
   return {
     ...config,
     model: getSelectableModelValue(config.provider, config.model),
+  };
+}
+
+function createDefaultImageOcrConfig(): ApiConfig {
+  return {
+    provider: 'aliyun',
+    apiKey: '',
+    model: 'qwen-vl-ocr',
+    baseUrl: PROVIDER_INFO.aliyun.baseUrl,
   };
 }
 
@@ -129,6 +143,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   const [showApiConfig, setShowApiConfig] = useState(false);
   const [extensionTranslateApiConfig, setExtensionTranslateApiConfig] = useState<ApiConfig | null>(null);
   const [showExtensionTranslateConfig, setShowExtensionTranslateConfig] = useState(false);
+  const [imageOcrApiConfig, setImageOcrApiConfig] = useState<ApiConfig | null>(null);
+  const [showImageOcrConfig, setShowImageOcrConfig] = useState(false);
   // 自定义 HTTP 配置
   const [customEndpoint, setCustomEndpoint] = useState("");
   const [customModelName, setCustomModelName] = useState("");
@@ -220,6 +236,13 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
           const savedExtensionConfig = localStorage.getItem("diclok_extension_translate_api_config");
           setExtensionTranslateApiConfig(savedExtensionConfig ? JSON.parse(savedExtensionConfig) : { ...DEFAULT_API_CONFIG });
         }
+        if (config.imageOcrApiConfig) {
+          setImageOcrApiConfig(config.imageOcrApiConfig);
+          localStorage.setItem("diclok_image_ocr_api_config", JSON.stringify(config.imageOcrApiConfig));
+        } else {
+          const savedImageOcrConfig = localStorage.getItem("diclok_image_ocr_api_config");
+          setImageOcrApiConfig(savedImageOcrConfig ? JSON.parse(savedImageOcrConfig) : createDefaultImageOcrConfig());
+        }
       } else {
         // 使用 localStorage
         const savedPrompt = localStorage.getItem("diclok_system_prompt");
@@ -234,6 +257,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
         }
         const savedExtensionConfig = localStorage.getItem("diclok_extension_translate_api_config");
         setExtensionTranslateApiConfig(savedExtensionConfig ? JSON.parse(savedExtensionConfig) : { ...DEFAULT_API_CONFIG });
+        const savedImageOcrConfig = localStorage.getItem("diclok_image_ocr_api_config");
+        setImageOcrApiConfig(savedImageOcrConfig ? JSON.parse(savedImageOcrConfig) : createDefaultImageOcrConfig());
       }
     } catch (error) {
       console.error('从数据库加载配置失败:', error);
@@ -246,6 +271,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
       setApiConfig(savedApiConfig);
       const savedExtensionConfig = localStorage.getItem("diclok_extension_translate_api_config");
       setExtensionTranslateApiConfig(savedExtensionConfig ? JSON.parse(savedExtensionConfig) : { ...DEFAULT_API_CONFIG });
+      const savedImageOcrConfig = localStorage.getItem("diclok_image_ocr_api_config");
+      setImageOcrApiConfig(savedImageOcrConfig ? JSON.parse(savedImageOcrConfig) : createDefaultImageOcrConfig());
       updateStats();
     }
   };
@@ -278,6 +305,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     prompt: string,
     apiCfg: ApiConfig | null,
     extensionTranslateCfg: ApiConfig | null = extensionTranslateApiConfig,
+    imageOcrCfg: ApiConfig | null = imageOcrApiConfig,
   ) => {
     try {
       const response = await fetch('/api/config/system', {
@@ -287,6 +315,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
           systemPrompt: prompt,
           apiConfig: apiCfg,
           extensionTranslateApiConfig: extensionTranslateCfg,
+          imageOcrApiConfig: imageOcrCfg,
         }),
       });
       if (!response.ok) {
@@ -527,6 +556,23 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     await syncSystemConfigToDatabase(systemPrompt, apiConfig, configToSave);
     toast.success("翻译模型配置已保存");
     setShowExtensionTranslateConfig(false);
+  };
+
+  const handleSaveImageOcrApiConfig = async () => {
+    if (!imageOcrApiConfig) return;
+
+    const configToSave: ApiConfig = {
+      ...imageOcrApiConfig,
+      provider: 'aliyun',
+      model: imageOcrApiConfig.model || 'qwen-vl-ocr',
+      baseUrl: imageOcrApiConfig.baseUrl || PROVIDER_INFO.aliyun.baseUrl,
+    };
+
+    setImageOcrApiConfig(configToSave);
+    localStorage.setItem("diclok_image_ocr_api_config", JSON.stringify(configToSave));
+    await syncSystemConfigToDatabase(systemPrompt, apiConfig, extensionTranslateApiConfig, configToSave);
+    toast.success("图片识别模型配置已保存");
+    setShowImageOcrConfig(false);
   };
 
   // 处理 provider 切换
@@ -1074,6 +1120,97 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
 
                   <Button onClick={handleSaveExtensionTranslateApiConfig} className="w-full bg-emerald-600 hover:bg-emerald-700">
                     保存翻译模型配置
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 图片识别模型配置 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="w-5 h-5" />
+            图片识别模型配置
+          </CardTitle>
+          <CardDescription>
+            用于网页端对话上传图片后的 OCR 识别。识别结果会和客户文字一起发送给回复生成模型。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!imageOcrApiConfig ? (
+            <div className="text-center py-4 text-muted-foreground">加载中...</div>
+          ) : (
+            <>
+              <div className="bg-cyan-50 dark:bg-cyan-950/30 border border-cyan-200 dark:border-cyan-800 rounded-lg p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm text-cyan-800 dark:text-cyan-200 font-medium mb-1">
+                      当前图片识别模型配置
+                    </p>
+                    <p className="text-sm text-cyan-700 dark:text-cyan-300">
+                      阿里百炼 - {imageOcrApiConfig.model}
+                      {!imageOcrApiConfig.apiKey && ' (未填写 API Key)'}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowImageOcrConfig(!showImageOcrConfig)}
+                    className="shrink-0"
+                  >
+                    {showImageOcrConfig ? "收起" : "配置"}
+                  </Button>
+                </div>
+              </div>
+
+              {showImageOcrConfig && (
+                <div className="space-y-4 border-t pt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="imageOcrProvider">AI 提供商</Label>
+                    <Input id="imageOcrProvider" value="阿里百炼" disabled />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="imageOcrModel">模型</Label>
+                    <select
+                      id="imageOcrModel"
+                      value={imageOcrApiConfig.model || 'qwen-vl-ocr'}
+                      onChange={(e) => setImageOcrApiConfig(prev => prev ? { ...prev, model: e.target.value } : prev)}
+                      className="w-full p-2 rounded-md border border-input bg-background text-sm"
+                    >
+                      <option value="qwen-vl-ocr">Qwen VL OCR（图片识别）</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="imageOcrApiKey">API Key</Label>
+                    <Input
+                      id="imageOcrApiKey"
+                      type="password"
+                      value={imageOcrApiConfig.apiKey}
+                      onChange={(e) => setImageOcrApiConfig(prev => prev ? { ...prev, apiKey: e.target.value } : prev)}
+                      placeholder={PROVIDER_INFO.aliyun.keyPlaceholder}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="imageOcrBaseUrl">API 地址（可选）</Label>
+                    <Input
+                      id="imageOcrBaseUrl"
+                      value={imageOcrApiConfig.baseUrl || ''}
+                      onChange={(e) => setImageOcrApiConfig(prev => prev ? { ...prev, baseUrl: e.target.value } : prev)}
+                      placeholder={PROVIDER_INFO.aliyun.baseUrl}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      使用默认阿里百炼兼容模式地址可不填，如需代理请填写代理地址。
+                    </p>
+                  </div>
+
+                  <Button onClick={handleSaveImageOcrApiConfig} className="w-full bg-cyan-600 hover:bg-cyan-700">
+                    保存图片识别模型配置
                   </Button>
                 </div>
               )}

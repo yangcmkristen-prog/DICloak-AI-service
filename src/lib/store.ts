@@ -55,6 +55,10 @@ export const MODEL_OPTIONS = [
   { value: 'qwen-3-5-plus-260215', label: 'Qwen 3.5', provider: 'coze' },
   // 阿里百炼模型
   { value: 'qwen-mt-flash', label: 'Qwen MT Flash（翻译）', provider: 'aliyun' },
+  { value: 'qwen-vl-ocr', label: 'Qwen VL OCR（图片识别）', provider: 'aliyun' },
+  { value: 'qwen-mt-lite', label: 'Qwen MT Lite（翻译）', provider: 'aliyun' },
+  { value: 'qwen-mt-plus', label: 'Qwen MT Plus（翻译）', provider: 'aliyun' },
+  { value: 'qwen-mt-turbo', label: 'Qwen MT Turbo（翻译）', provider: 'aliyun' },
   // DeepSeek 直连模型 (v4 版本)
   { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash (快速)', provider: 'deepseek' },
   { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro (增强)', provider: 'deepseek' },

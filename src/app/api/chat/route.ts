@@ -997,7 +997,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     console.log(`[PERF][CHAT] body_parsed_ms=${Date.now() - t0}`);
-    const { message, history, knowledge, systemPrompt, detectedLanguage, aiKeywords, classification } = body as {
+    const { message, history, knowledge, systemPrompt, detectedLanguage, aiKeywords, classification, imageOcrResults } = body as {
       message?: string;
       history?: Array<{ role: string; content: string }>;
       knowledge?: Partial<KnowledgeBase>;
@@ -1005,6 +1005,7 @@ export async function POST(request: NextRequest) {
       detectedLanguage?: string;
       aiKeywords?: string[];
       classification?: ClassificationResult;
+      imageOcrResults?: Array<{ id: string; name: string; text: string }>;
     };
     
     
@@ -1018,15 +1019,17 @@ export async function POST(request: NextRequest) {
       console.log('[DEBUG] knowledge.faqItems 数量:', knowledge.faqItems?.length || 0);
     }
 
-    if (!message) {
+    if (!message && (!imageOcrResults || imageOcrResults.length === 0)) {
       return NextResponse.json({ error: "消息不能为空" }, { status: 400 });
     }
 
+    const currentMessageText = message || imageOcrResults?.map((item) => item.text).join("\n") || "";
+
     // 调试知识库数据
-    const effectiveLanguage = detectRequestLanguage(message, detectedLanguage);
-    const actualUserCount = extractActualUserCount(message);
-    const stepByStepRequested = hasStepByStepRequest(message);
-    const customerBusinessType = detectCustomerBusinessType(message);
+    const effectiveLanguage = detectRequestLanguage(currentMessageText, detectedLanguage);
+    const actualUserCount = extractActualUserCount(`${message || ""}\n${imageOcrResults?.map((item) => item.text).join("\n") || ""}`);
+    const stepByStepRequested = hasStepByStepRequest(message || "");
+    const customerBusinessType = detectCustomerBusinessType(message || "");
     console.log('[DEBUG] 后端接收语言:', detectedLanguage, '=>', effectiveLanguage);
     console.log('[DEBUG] 解析到实际用户数:', actualUserCount);
     console.log('[DEBUG] 是否请求步骤说明:', stepByStepRequested);
@@ -1299,11 +1302,11 @@ The customer requested step-by-step setup instructions. Before giving any number
     const normalizeForMatch = (value: string): string => value.toLowerCase().replace(/[\s_\-]+/g, " ").trim();
     
     // 同时使用 AI 提取关键词和原始问题关键词，避免中文功能知识库被英文关键词覆盖而无法命中
-    const messageKeywords = extractKeywords(message);
+    const messageKeywords = extractKeywords(currentMessageText);
     const baseKeywords: string[] = aiKeywords && aiKeywords.length > 0
       ? [...new Set([...aiKeywords.map((k: string) => k.toLowerCase()), ...messageKeywords])]
       : messageKeywords;
-    const userKeywords = expandDomainKeywords(baseKeywords, message);
+    const userKeywords = expandDomainKeywords(baseKeywords, currentMessageText);
     
     console.log('[DEBUG] 使用的关键词（英语）:', userKeywords);
 
@@ -1537,14 +1540,14 @@ The customer requested step-by-step setup instructions. Before giving any number
       type FaqItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; functionId?: string; termIds?: string[]; faqId?: string };
       const faqItems = (knowledge.faqItems || []) as FaqItem[];
       const matchedFaq = faqItems
-        .map((item: FaqItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
+        .map((item: FaqItem) => ({ item, score: calculateMatchScore(currentMessageText, item, userKeywords) }))
         .filter(m => m.score > 0)
         .sort((a, b) => b.score - a.score); // 按相关度排序，避免弱相关 FAQ 排在前面干扰模型
 
       // 功能知识库匹配过滤
       const functionKnowledgeItems = (knowledge.functionKnowledge || []) as FunctionKnowledgeItem[];
       const matchedFunctionKnowledge = functionKnowledgeItems
-        .map((item: FunctionKnowledgeItem) => ({ item, score: calculateFunctionKnowledgeScore(message, item, userKeywords) }))
+        .map((item: FunctionKnowledgeItem) => ({ item, score: calculateFunctionKnowledgeScore(currentMessageText, item, userKeywords) }))
         .filter((m) => m.score > 0)
         .sort((a, b) => b.score - a.score);
 
@@ -1552,7 +1555,7 @@ The customer requested step-by-step setup instructions. Before giving any number
       type TsItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; answerClient?: string; answerEndUser?: string; functionId?: string; termIds?: string[]; faqId?: string };
       const tsItems = (knowledge.troubleshootingItems || []) as TsItem[];
       const matchedTs = tsItems
-        .map((item: TsItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
+        .map((item: TsItem) => ({ item, score: calculateMatchScore(currentMessageText, item, userKeywords) }))
         .filter(m => m.score > 0)
         .sort((a, b) => b.score - a.score);
 
@@ -1560,7 +1563,7 @@ The customer requested step-by-step setup instructions. Before giving any number
       type OosItem = { questionCN: string; questionEN?: string; userPhrases?: string; tags?: string[]; answer: string; answerClient?: string; answerEndUser?: string; faqId?: string };
       const oosItems = (knowledge.outOfScopeItems || []) as OosItem[];
       const matchedOos = oosItems
-        .map((item: OosItem) => ({ item, score: calculateMatchScore(message, item, userKeywords) }))
+        .map((item: OosItem) => ({ item, score: calculateMatchScore(currentMessageText, item, userKeywords) }))
         .filter(m => m.score > 0)
         .sort((a, b) => b.score - a.score);
 
@@ -1570,8 +1573,8 @@ The customer requested step-by-step setup instructions. Before giving any number
       const topOosScore = matchedOos.length > 0 ? Math.max(...matchedOos.map(m => m.score)) : 0;
       const topFunctionKnowledgeScore = matchedFunctionKnowledge.length > 0 ? Math.max(...matchedFunctionKnowledge.map(m => m.score)) : 0;
       
-      const problemTypeResult = identifyProblemType(message, Math.max(topFaqScore, topFunctionKnowledgeScore), topTsScore, topOosScore);
-      const userRoleResult = identifyUserRole(message, history);
+      const problemTypeResult = identifyProblemType(currentMessageText, Math.max(topFaqScore, topFunctionKnowledgeScore), topTsScore, topOosScore);
+      const userRoleResult = identifyUserRole(currentMessageText, history);
 
       const intents = classification?.intents || [];
       const selectedTables = new Set<TableId>(
@@ -1579,7 +1582,7 @@ The customer requested step-by-step setup instructions. Before giving any number
       );
 
       // API + 套餐共现强规则：强制双表
-      const lowerMessage = message.toLowerCase();
+      const lowerMessage = currentMessageText.toLowerCase();
       const apiSignals = ["api", "endpoint", "key", "create", "post", "member", "成员"];
       const planSignals = ["plan", "tier", "subscription", "pricing", "upgrade", "套餐", "权限"];
       const hasApiSignal = apiSignals.some((k) => lowerMessage.includes(k));
@@ -1643,7 +1646,7 @@ The customer requested step-by-step setup instructions. Before giving any number
       if (isPricingQuestion) {
         // 套餐推荐类问题，不使用关键词过滤，直接返回所有套餐供 AI 参考
         const subscriptionKeywords = ['推荐', '哪个', '适合', '选择', '比较', 'difference', 'compare', 'recommend', 'which', '支持', '能否', '可以', '功能', 'subscription', 'tier', 'plan', '套餐', '订阅'];
-        const isRecommendQuestion = subscriptionKeywords.some(k => message.toLowerCase().includes(k));
+        const isRecommendQuestion = subscriptionKeywords.some(k => currentMessageText.toLowerCase().includes(k));
         
         // 当检测为价格/套餐问题时，始终返回所有套餐供 AI 判断（不做关键词过滤）
         // 因为用户问题通常是自然语言句子，很难精确匹配 planName/features
@@ -1992,9 +1995,15 @@ The customer requested step-by-step setup instructions. Before giving any number
     `;
     }
 
+    const imageOcrContext = imageOcrResults && imageOcrResults.length > 0
+      ? `## Uploaded Image OCR Results\n${imageOcrResults.map((item, index) => `Image ${index + 1} (${item.name}):\n${item.text || 'No text recognized'}`).join("\n\n")}\n`
+      : "";
+
     // 构建用户消息
     const userMessage = `## Current User Question
-    ${message}
+    ${message || "（用户仅上传了图片，请结合图片识别结果回复）"}
+
+    ${imageOcrContext}
 
     ${languageRule}
 
