@@ -119,6 +119,39 @@ function enforceSeatCalculationCorrections(content: string, userCount: number | 
   return `${content}\n\n${correction}`;
 }
 
+function getSubscriptionSourceClarificationReply(language: string): string {
+  if (language === 'zh' || language === 'mixed') {
+    return '你之前是在 DICloak 软件中的费用中心订阅的，还是在其他经销商或平台订阅的？';
+  }
+
+  return 'Did you subscribe through the Billing Center in the DICloak software, or through another reseller or platform?';
+}
+
+function replaceSectionContent(content: string, sectionType: string, sectionContent: string): string {
+  const sectionRegex = new RegExp(
+    `<<<DICLOAK_SECTION:${sectionType}>>>[\\s\\S]*?<<<END_DICLOAK_SECTION:${sectionType}>>>`,
+    'i'
+  );
+  const replacement = `<<<DICLOAK_SECTION:${sectionType}>>>\n${sectionContent}\n<<<END_DICLOAK_SECTION:${sectionType}>>>`;
+
+  if (sectionRegex.test(content)) {
+    return content.replace(sectionRegex, replacement);
+  }
+
+  return `${content.trim()}\n\n${replacement}`;
+}
+
+function enforceSubscriptionSourceClarificationContent(content: string, language: string): string {
+  let normalized = replaceSectionContent(content, 'question', '意图不明确');
+  normalized = replaceSectionContent(
+    normalized,
+    'main',
+    getSubscriptionSourceClarificationReply(language)
+  );
+
+  return normalized;
+}
+
 function hasStepByStepRequest(message: string): boolean {
   const normalized = message.toLowerCase();
   return [
@@ -655,9 +688,18 @@ function searchPricingPlans(
 
 const SUBSCRIPTION_KEYWORDS = [
   '订阅', '套餐', '价格', '购买', 'plan', 'price', 
-  'billing', 'upgrade', '付费', '订阅', '续费', '续订',
-  'subscription', 'pricing', '多少钱', '收费', 'renew', 'renewal', 'renovar', 'renovación',
+  'billing', 'upgrade', '付费', '订阅', '续费', '续订', '取消订阅', '退订',
+  'subscription', 'pricing', '多少钱', '收费', 'renew', 'renewal', 'cancel', 'unsubscribe', 'cancellation', 'renovar', 'renovación',
   'подписка', 'подписку', 'подписки', 'тариф', 'тарифы', 'цена', 'стоимость', 'купить', 'продлить',
+];
+
+const DICLOAK_OWN_SUBSCRIPTION_ACTION_SIGNALS = [
+  '账单', 'billing center', 'my billing',
+];
+
+const SUBSCRIPTION_SOURCE_CLARIFICATION_SIGNALS = [
+  '取消订阅', '取消套餐', '退订', 'cancel my subscription', 'cancel subscription',
+  'unsubscribe', 'cancellation',
 ];
 
 // 套餐名称关键词（用于识别套餐功能对比问题）
@@ -706,6 +748,13 @@ function isExternalToolAccountManagementRequest(text: string): boolean {
   return hasExternalToolMention(text) && hasAnySignal(text, ACCOUNT_MANAGEMENT_SIGNALS);
 }
 
+function needsSubscriptionSourceClarification(message: string): boolean {
+  const msgLower = message.toLowerCase();
+  return hasAnySignal(msgLower, SUBSCRIPTION_SOURCE_CLARIFICATION_SIGNALS) &&
+    !hasAnySignal(msgLower, DICLOAK_CONTEXT_SIGNALS) &&
+    !hasExternalToolMention(msgLower);
+}
+
 function checkSubscriptionProblem(message: string): { 
   isSubscriptionProblem: boolean; 
   isDicloak: boolean | null;  // true=明确是DICloak, false=明确不是, null=不明确
@@ -728,6 +777,16 @@ function checkSubscriptionProblem(message: string): {
   const externalToolMention = hasExternalToolMention(msgLower);
 
   if (hasDicloakContext || hasAccountManagementContext) {
+    return { isSubscriptionProblem: true, isDicloak: true };
+  }
+
+  if (needsSubscriptionSourceClarification(message)) {
+    return { isSubscriptionProblem: true, isDicloak: null };
+  }
+
+  // 用户在 DICloak 客服场景中询问“账单/费用中心”等自身订阅操作时，
+  // 默认按 DICloak 订阅问题处理；只有明确提到第三方工具订阅时才继续澄清。
+  if (!externalToolMention && hasAnySignal(msgLower, DICLOAK_OWN_SUBSCRIPTION_ACTION_SIGNALS)) {
     return { isSubscriptionProblem: true, isDicloak: true };
   }
 
@@ -910,7 +969,7 @@ function getOutputFormatType(problemType: ProblemType, userRole: UserRole): 'A' 
 function getProblemTypeOutputLabel(problemType: ProblemType): string {
   const labels: Record<ProblemType, string> = {
     api_problem: '功能咨询',
-    subscription_problem: '功能咨询',
+    subscription_problem: '套餐/订阅问题',
     troubleshooting: '故障排查',
     feature_faq: '功能咨询',
     info_insufficient: '信息不足',
@@ -2067,10 +2126,7 @@ The customer requested step-by-step setup instructions. Before giving any number
       problemType,
       userRole,
       outputFormatType,
-      problemTypeLabel: problemType === 'feature_faq' ? '功能咨询' :
-                        problemType === 'troubleshooting' ? '故障排查' :
-                        problemType === 'out_of_scope' ? '超出支持范围' :
-                        problemType === 'intent_unclear' ? '意图不明确' : '信息不足',
+      problemTypeLabel: getProblemTypeOutputLabel(problemType),
       userRoleLabel: userRole === 'client' ? 'DICloak 客户/管理员' :
                      userRole === 'end_user' ? '终端用户' : '身份不明确',
       roleSource: lockedRole ? (roleSource || 'manual') : (userRole === 'unknown' ? null : 'ai'),
@@ -2187,7 +2243,10 @@ The customer requested step-by-step setup instructions. Before giving any number
         console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
       }
       if (fullContent) {
-        const correctedContent = enforceSeatCalculationCorrections(fullContent, actualUserCount, effectiveLanguage);
+        const intentCorrectedContent = problemType === 'intent_unclear' && needsSubscriptionSourceClarification(currentMessageText)
+          ? enforceSubscriptionSourceClarificationContent(fullContent, effectiveLanguage)
+          : fullContent;
+        const correctedContent = enforceSeatCalculationCorrections(intentCorrectedContent, actualUserCount, effectiveLanguage);
         controller.enqueue(encoder.encode(sanitizeCustomerFacingContent(correctedContent, effectiveLanguage)));
       }
       controller.close();
