@@ -1,5 +1,5 @@
 import { createHash } from "../shared/hash";
-import type { ChatSnapshot, CopilotResult, ExternalChatInfo, ExternalChatMessage } from "../shared/types";
+import type { ChatSnapshot, ConversationRole, ConversationRoleSource, CopilotReplyResponse, CopilotResult, ExternalChatInfo, ExternalChatMessage } from "../shared/types";
 
 type ChromeStorageItems = Record<string, unknown>;
 
@@ -11,7 +11,7 @@ declare const chrome: {
     };
     sendMessage(
       message: { type: string; endpoint: string; action: "translate-clean" | "reply"; payload: ChatSnapshot },
-      callback: (response?: { content?: string; error?: string }) => void,
+      callback: (response?: CopilotReplyResponse) => void,
     ): void;
     lastError?: { message?: string };
   };
@@ -30,6 +30,12 @@ type CacheRecord = {
   results: CopilotResult[];
 };
 
+type RoleRecord = {
+  role: ConversationRole | null;
+  source: ConversationRoleSource;
+  updatedAt: number;
+};
+
 type ParsedReplySection = {
   type: "question" | "main" | "supplement" | "info" | "common" | "client" | "end_user" | "identity" | "other";
   title: string;
@@ -42,15 +48,18 @@ type ReplyMetaData = {
   outputFormatType?: string;
   problemTypeLabel?: string;
   userRoleLabel?: string;
+  roleSource?: ConversationRoleSource;
 };
 
 const SIDEBAR_ID = "dicloak-ai-copilot-sidebar";
 const CONTENT_ROOT_ID = "dicloak-ai-copilot-root";
 const STORAGE_PREFIX = "dicloak_copilot_cache:";
+const ROLE_STORAGE_PREFIX = "dicloak_copilot_role:";
 
 const state: {
   snapshot: ChatSnapshot | null;
   cache: CacheRecord | null;
+  roleRecord: RoleRecord | null;
   activeResultId: string | null;
   loadingAction: "translate-clean" | "reply" | null;
   error: string | null;
@@ -60,6 +69,7 @@ const state: {
 } = {
   snapshot: null,
   cache: null,
+  roleRecord: null,
   activeResultId: null,
   loadingAction: null,
   error: null,
@@ -74,6 +84,10 @@ function textOf(element: Element | null): string {
 
 function getStorageKey(chatId: string): string {
   return `${STORAGE_PREFIX}${chatId}`;
+}
+
+function getRoleStorageKey(chatId: string): string {
+  return `${ROLE_STORAGE_PREFIX}${chatId}`;
 }
 
 function isExtensionContextValid(): boolean {
@@ -115,6 +129,61 @@ function writeCache(chatId: string, cache: CacheRecord): Promise<void> {
       resolve();
     }
   });
+}
+
+function normalizeRoleRecord(value: unknown): RoleRecord | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Partial<RoleRecord>;
+  const role = record.role === "client" || record.role === "end_user" ? record.role : null;
+  const source = record.source === "manual" || record.source === "ai" ? record.source : null;
+  const updatedAt = typeof record.updatedAt === "number" ? record.updatedAt : Date.now();
+
+  if (!role || !source) return null;
+  return { role, source, updatedAt };
+}
+
+function readRoleRecord(chatId: string): Promise<RoleRecord | null> {
+  return new Promise((resolve) => {
+    if (!isExtensionContextValid()) {
+      resolve(null);
+      return;
+    }
+
+    try {
+      chrome.storage.local.get(getRoleStorageKey(chatId), (items) => {
+        resolve(normalizeRoleRecord(items[getRoleStorageKey(chatId)]));
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+function writeRoleRecord(chatId: string, roleRecord: RoleRecord | null): Promise<void> {
+  return new Promise((resolve) => {
+    if (!isExtensionContextValid()) {
+      resolve();
+      return;
+    }
+
+    try {
+      chrome.storage.local.set({ [getRoleStorageKey(chatId)]: roleRecord }, () => resolve());
+    } catch {
+      resolve();
+    }
+  });
+}
+
+function getRoleLabel(role: ConversationRole | null | undefined): string {
+  if (role === "client") return "客户";
+  if (role === "end_user") return "终端用户";
+  return "";
+}
+
+function getRoleEmoji(role: ConversationRole | null | undefined): string {
+  if (role === "client") return "👤";
+  if (role === "end_user") return "🙋";
+  return "👥";
 }
 
 function getCurrentChatInfo(): ExternalChatInfo | null {
@@ -244,6 +313,18 @@ function createSnapshot(): ChatSnapshot | null {
   return { chat, messages, sourceMessageHash };
 }
 
+function getSnapshotForRequest(): ChatSnapshot | null {
+  if (!state.snapshot) return null;
+  const confirmedRole = state.roleRecord?.role || undefined;
+  return {
+    ...state.snapshot,
+    chat: {
+      ...state.snapshot.chat,
+      confirmedRole,
+    },
+  };
+}
+
 function formatTime(timestamp?: number): string {
   if (!timestamp) return "暂无";
   return new Intl.DateTimeFormat("zh-CN", {
@@ -347,7 +428,7 @@ function getReplySectionTitle(type: ParsedReplySection["type"], fallback: string
 }
 
 function parseReplySections(content: string): ParsedReplySection[] {
-  const { cleanContent } = parseMetaData(content);
+  const { metaData, cleanContent } = parseMetaData(content);
   if (!cleanContent) return [];
 
   const sectionHeaderRegex =
@@ -367,7 +448,7 @@ function parseReplySections(content: string): ParsedReplySection[] {
     return contentOnly ? [{ type: "other", title: "💬 推荐回复", content: contentOnly }] : [];
   }
 
-  return matches.flatMap((match, index): ParsedReplySection[] => {
+  const sections = matches.flatMap((match, index): ParsedReplySection[] => {
     const type = getSectionType(match.header) || getSectionTypeFromIcon(match.icon) || "other";
     const nextMatch = matches[index + 1];
     const contentStart = match.index + match.fullText.length;
@@ -381,6 +462,12 @@ function parseReplySections(content: string): ParsedReplySection[] {
       content: sectionText,
     }];
   });
+
+  if (metaData?.problemType === "troubleshooting" && (metaData.userRole === "client" || metaData.userRole === "end_user")) {
+    return sections.filter((section) => !["common", "client", "end_user"].includes(section.type));
+  }
+
+  return sections;
 }
 
 function renderResultDetail(result: CopilotResult): string {
@@ -451,6 +538,9 @@ function render(): void {
   const activeResult = getActiveResult();
   const activeResultDetail = activeResult ? renderResultDetail(activeResult) : "";
   const messageCount = snapshot?.messages.length ?? 0;
+  const currentRole = state.roleRecord?.role ?? null;
+  const currentRoleLabel = getRoleLabel(currentRole);
+  const currentRoleSourceLabel = state.roleRecord?.source === "manual" ? "人工选择" : state.roleRecord?.source === "ai" ? "AI 推测" : "";
   const previousBodyScrollTop = root.querySelector<HTMLElement>(".dc-body")?.scrollTop ?? 0;
   const previousResultScrollTop = root.querySelector<HTMLElement>(".dc-result-detail pre")?.scrollTop ?? 0;
   const previousActiveResultId = root.querySelector<HTMLElement>("[data-active-result-id]")?.dataset.activeResultId ?? null;
@@ -472,7 +562,13 @@ function render(): void {
               <div class="dc-chat-meta">
                 <div class="dc-chat-name">${escapeHtml(snapshot.chat.displayName)}</div>
                 <div class="dc-chat-status">${escapeHtml(snapshot.chat.onlineStatus || "WhatsApp 当前聊天")}</div>
+                ${currentRole ? `<div class="dc-chat-role">${escapeHtml(getRoleEmoji(currentRole))} ${escapeHtml(currentRoleLabel)} · ${escapeHtml(currentRoleSourceLabel)}</div>` : ""}
               </div>
+            </div>
+            <div class="dc-role-picker" role="group" aria-label="选择当前对话角色">
+              <button class="dc-role-button ${currentRole === "client" ? "active" : ""}" data-action="role-client" title="设置为客户">👤 客户</button>
+              <button class="dc-role-button ${currentRole === "end_user" ? "active" : ""}" data-action="role-end-user" title="设置为终端用户">🙋 终端用户</button>
+              <button class="dc-role-button" data-action="role-clear" title="清除角色">不确认</button>
             </div>
           ` : `<div class="dc-muted">请打开一个 WhatsApp 聊天。</div>`}
         </section>
@@ -536,6 +632,7 @@ async function refreshSnapshot(): Promise<void> {
     const shouldRender = state.snapshot !== null || state.cache !== null || state.activeResultId !== null;
     state.snapshot = null;
     state.cache = null;
+    state.roleRecord = null;
     state.activeResultId = null;
     if (shouldRender) render();
     return;
@@ -546,7 +643,12 @@ async function refreshSnapshot(): Promise<void> {
   state.snapshot = snapshot;
 
   if (!isSameChat || !state.cache) {
-    state.cache = await readCache(snapshot.chat.externalChatId);
+    const [cache, roleRecord] = await Promise.all([
+      readCache(snapshot.chat.externalChatId),
+      readRoleRecord(snapshot.chat.externalChatId),
+    ]);
+    state.cache = cache;
+    state.roleRecord = roleRecord;
     state.activeResultId = null;
     render();
     return;
@@ -558,7 +660,7 @@ async function refreshSnapshot(): Promise<void> {
 }
 
 
-function sendCopilotRequest(endpoint: string, action: "translate-clean" | "reply", payload: ChatSnapshot): Promise<{ content?: string; error?: string }> {
+function sendCopilotRequest(endpoint: string, action: "translate-clean" | "reply", payload: ChatSnapshot): Promise<CopilotReplyResponse> {
   return new Promise((resolve) => {
     if (!isExtensionContextValid()) {
       resolve({ error: "扩展已重新加载，请刷新 WhatsApp 页面后重试" });
@@ -579,8 +681,23 @@ function sendCopilotRequest(endpoint: string, action: "translate-clean" | "reply
   });
 }
 
+async function setConversationRole(role: ConversationRole | null): Promise<void> {
+  if (!state.snapshot) return;
+
+  const nextRoleRecord: RoleRecord | null = role
+    ? { role, source: "manual", updatedAt: Date.now() }
+    : null;
+
+  state.roleRecord = nextRoleRecord;
+  await writeRoleRecord(state.snapshot.chat.externalChatId, nextRoleRecord);
+  render();
+}
+
 async function callCopilot(action: "translate-clean" | "reply"): Promise<void> {
   if (!state.snapshot) return;
+
+  const requestSnapshot = getSnapshotForRequest();
+  if (!requestSnapshot) return;
 
   state.loadingAction = action;
   state.error = null;
@@ -588,9 +705,19 @@ async function callCopilot(action: "translate-clean" | "reply"): Promise<void> {
 
   try {
     const endpoint = action === "reply" ? "/api/copilot/reply" : "/api/copilot/translate-clean";
-    const payload = await sendCopilotRequest(endpoint, action, state.snapshot);
+    const payload = await sendCopilotRequest(endpoint, action, requestSnapshot);
     if (!payload.content) {
       throw new Error(payload.error || "AI 请求失败");
+    }
+
+    if (action === "reply" && !state.roleRecord && (payload.detectedRole === "client" || payload.detectedRole === "end_user")) {
+      const nextRoleRecord: RoleRecord = {
+        role: payload.detectedRole,
+        source: payload.roleSource === "manual" ? "manual" : "ai",
+        updatedAt: Date.now(),
+      };
+      state.roleRecord = nextRoleRecord;
+      await writeRoleRecord(state.snapshot.chat.externalChatId, nextRoleRecord);
     }
 
     const result: CopilotResult = {
@@ -641,7 +768,11 @@ function injectStyles(): void {
     .dc-avatar { width: 42px; height: 42px; border-radius: 999px; object-fit: cover; background: #1e293b; }
     .dc-avatar-fallback { display: flex; align-items: center; justify-content: center; font-weight: 700; }
     .dc-chat-name { font-size: 16px; font-weight: 700; color: #f8fafc; }
+    .dc-chat-role { display: inline-flex; align-items: center; width: fit-content; margin-top: 5px; border: 1px solid rgba(96,165,250,.35); border-radius: 999px; background: rgba(37,99,235,.16); color: #bfdbfe; padding: 2px 8px; font-size: 12px; font-weight: 700; }
     .dc-chat-status, .dc-muted, .dc-cache-detail { font-size: 12px; color: #94a3b8; line-height: 1.6; }
+    .dc-role-picker { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-top: 12px; }
+    .dc-role-button { border: 1px solid rgba(148,163,184,.2); color: #dbeafe; background: rgba(15,23,42,.72); border-radius: 999px; padding: 7px 9px; cursor: pointer; font-size: 12px; font-weight: 700; }
+    .dc-role-button.active { border-color: rgba(96,165,250,.72); background: rgba(37,99,235,.36); color: #eff6ff; }
     .dc-cache-main { font-weight: 700; margin-bottom: 4px; }
     .dc-cache-cached { border-color: rgba(34,197,94,.35); background: rgba(21,128,61,.13); }
     .dc-cache-stale { border-color: rgba(234,179,8,.38); background: rgba(113,63,18,.18); }
@@ -697,6 +828,12 @@ function injectSidebar(): void {
       void callCopilot("translate-clean");
     } else if (action === "reply") {
       void callCopilot("reply");
+    } else if (action === "role-client") {
+      void setConversationRole("client");
+    } else if (action === "role-end-user") {
+      void setConversationRole("end_user");
+    } else if (action === "role-clear") {
+      void setConversationRole(null);
     } else if (action === "copy") {
       const activeResult = getActiveResult();
       if (activeResult) {
