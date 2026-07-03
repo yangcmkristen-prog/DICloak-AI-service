@@ -765,6 +765,7 @@ export default function Home() {
           if (done) break;
           fullContent += decoder.decode(value, { stream: true });
         }
+        fullContent += decoder.decode();
       }
 
       const metaMatch = fullContent.match(/\[META\]([\s\S]*?)\[\/META\]/);

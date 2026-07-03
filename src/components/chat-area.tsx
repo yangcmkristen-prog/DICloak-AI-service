@@ -46,6 +46,21 @@ interface ParsedReply {
   content: string;
 }
 
+const SECTION_TYPES: ParsedReply["type"][] = [
+  "question",
+  "identity",
+  "main",
+  "common",
+  "client",
+  "end_user",
+  "supplement",
+  "info",
+];
+
+function isSectionType(value: string): value is ParsedReply["type"] {
+  return SECTION_TYPES.includes(value as ParsedReply["type"]);
+}
+
 function normalizeHeaderText(header: string): string {
   return header
     .normalize("NFD")
@@ -65,8 +80,8 @@ function getSectionType(header: string): ParsedReply["type"] | null {
   if (/通用回复|respuesta general|general reply|cau tra loi chung|balasan umum|คำตอบทั่วไป|رد عام|一般的な返信|일반 답변/i.test(normalizedHeader)) return "common";
   if (/客户回复|respuesta para cliente|client reply|customer reply|cau tra loi cho khach hang|balasan klien|คำตอบสำหรับลูกค้า|رد العميل|顧客向け返信|고객 답변/i.test(normalizedHeader)) return "client";
   if (/终端用户回复|最终用户回复|respuesta para usuario final|end user reply|final user reply|cau tra loi cho nguoi dung cuoi|balasan pengguna akhir|คำตอบสำหรับผู้ใช้ปลายทาง|رد المستخدم النهائي|エンドユーザー向け返信|최종 사용자 답변/i.test(normalizedHeader)) return "end_user";
-  if (/补充建议|补充说明|回复\s*2|sugerencia complementaria|suggestion|supplement|additional advice|goi y bo sung|saran tambahan|ข้อเสนอแนะเพิ่มเติม|اقتراحات اضافية|補足提案|추가 제안/i.test(normalizedHeader)) return "supplement";
-  if (/需要补充的信息|需补充信息|回复\s*3|informacion que necesitamos|informacion necesaria|need.*information|additional information|thong tin can bo sung|informasi yang diperlukan|ข้อมูลที่ต้องการเพิ่มเติม|معلومات مطلوبة|必要な追加情報|필요한 추가 정보/i.test(normalizedHeader)) return "info";
+  if (/补充建议|补充说明|建议|可选发送|回复\s*2|sugerencia complementaria|sugerencia|suggestion|supplement|additional advice|goi y bo sung|saran tambahan|ข้อเสนอแนะเพิ่มเติม|اقتراحات اضافية|補足提案|추가 제안/i.test(normalizedHeader)) return "supplement";
+  if (/需要补充的信息|需补充信息|补充信息|回复\s*3|informacion que necesitamos|informacion necesaria|need.*information|required information|additional information|thong tin can bo sung|informasi yang diperlukan|ข้อมูลที่ต้องการเพิ่มเติม|معلومات مطلوبة|必要な追加情報|필요한 추가 정보/i.test(normalizedHeader)) return "info";
   return null;
 }
 
@@ -122,6 +137,33 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
     console.log(`[FUNCTION Used] ${functionId}`);
   }
 
+  const markerRegex =
+    /<<<DICLOAK_SECTION:(question|identity|main|common|client|end_user|supplement|info)>>>\s*([\s\S]*?)\s*<<<END_DICLOAK_SECTION:\1>>>/gi;
+  const markerMatches = [...cleanContent.matchAll(markerRegex)];
+
+  if (markerMatches.length > 0) {
+    const foundTypes = new Set<ParsedReply["type"]>();
+
+    for (const match of markerMatches) {
+      const type = match[1].toLowerCase();
+      if (!isSectionType(type) || foundTypes.has(type)) continue;
+
+      const sectionText = sanitizeAssistantText(match[2] || "");
+      if (!sectionText) continue;
+
+      foundTypes.add(type);
+      result.push({ type, content: sectionText });
+    }
+
+    if (result.length > 0) {
+      if (finalMeta?.problemType === "troubleshooting" && (finalMeta.userRole === "client" || finalMeta.userRole === "end_user")) {
+        return result.filter((section) => !["common", "client", "end_user"].includes(section.type));
+      }
+
+      return result;
+    }
+  }
+
   /**
    * 直接扫描整段文本中的板块标题，而不是按行判断。
    *
@@ -134,10 +176,18 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
    *
    * 注意：不能使用 (?|...)，JS 正则不支持，会导致 Runtime SyntaxError。
    */
-  const sectionHeaderRegex =
-    /(?:^|\n)\s*(📌|⚠️|✅|🟡|🔵|🟣|💡|📝|🛠️|👤|☑️|📎)?\s*(?:【|〖|\[)?\s*([^\n【】〖〗\[\]]{1,120}?)\s*(?:】|〗|\])\s*(?=\n|$)/gu;
+  const normalizedContent = cleanContent
+    // Some models put the next section header immediately after “无/None”.
+    // Split it so the parser does not merge multiple cards into the previous card.
+    .replace(
+      /([^\n])\s*(?=(?:📌|⚠️|✅|🟡|🔵|🟣|💡|📝|🛠️|👤|☑️|📎)?\s*(?:【|〖|\[)\s*(?:问题类型|身份状态|身份识别|主回复|主要回复|通用回复|客户回复|终端用户回复|最终用户回复|补充建议|补充说明|建议|需要补充的信息|需补充信息|补充信息|Main reply|Primary reply|Suggestion|Additional advice|Required information|Need(?:ed)? information))/giu,
+      '$1\n'
+    );
 
-  const matches = [...cleanContent.matchAll(sectionHeaderRegex)]
+  const sectionHeaderRegex =
+    /(?:^|\n)\s*(📌|⚠️|✅|🟡|🔵|🟣|💡|📝|🛠️|👤|☑️|📎)?\s*(?:【|〖|\[)\s*([^\n【】〖〗\[\]]{1,120}?)\s*(?:】|〗|\])\s*(?=\n|$)/gu;
+
+  const matches = [...normalizedContent.matchAll(sectionHeaderRegex)]
     .map((match) => ({
       fullText: match[0],
       index: match.index ?? 0,
@@ -166,8 +216,8 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
 
     const contentStart = match.index + match.fullText.length;
     const nextMatch = matches[index + 1];
-    const contentEnd = nextMatch?.index ?? cleanContent.length;
-    const sectionText = cleanContent.slice(contentStart, contentEnd).trim();
+    const contentEnd = nextMatch?.index ?? normalizedContent.length;
+    const sectionText = normalizedContent.slice(contentStart, contentEnd).trim();
 
     if (sectionText) {
       result.push({ type, content: sectionText });

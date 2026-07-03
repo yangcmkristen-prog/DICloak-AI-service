@@ -192,14 +192,20 @@
 - 标准答案中的术语必须按术语库翻译，禁止保留英文原文
 
 【输出格式】
-[问题类型]
-xxx
+必须使用以下 DICLOAK_SECTION 机器标识包裹正文；标识原样保留，不翻译、不改写，前端会隐藏标识并显示固定标题。
 
-[回复1]
+<<<DICLOAK_SECTION:question>>>
 xxx
+<<<END_DICLOAK_SECTION:question>>>
 
-[回复2]
+<<<DICLOAK_SECTION:main>>>
+xxx
+<<<END_DICLOAK_SECTION:main>>>
+
+<<<DICLOAK_SECTION:supplement>>>
 （可选，若有与回复1不同的补充知识则输出，否则省略）
+<<<END_DICLOAK_SECTION:supplement>>>
 
-[回复3]
+<<<DICLOAK_SECTION:info>>>
 （可选，若有信息收集或次优建议则输出，否则省略）
+<<<END_DICLOAK_SECTION:info>>>

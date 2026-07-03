@@ -923,7 +923,7 @@ function getProblemTypeOutputLabel(problemType: ProblemType): string {
 }
 
 /**
- * 生成 AI 输出格式要求。必须和网站系统 Prompt 的 A/B/C 标题保持一致，避免覆盖后台配置的格式。
+ * 生成 AI 输出格式要求。使用稳定机器标识承载板块归属，前端再渲染固定标题。
  */
 function generateAIOutputFormat(problemType: ProblemType, userRole: UserRole): string {
   const problemTypeLabel = getProblemTypeOutputLabel(problemType);
@@ -933,63 +933,78 @@ function generateAIOutputFormat(problemType: ProblemType, userRole: UserRole): s
       problemType === 'intent_unclear' || problemType === 'info_insufficient' ||
       problemType === 'api_problem' || problemType === 'subscription_problem' ||
       problemType === 'user_routing') {
-    return `## 输出格式要求（必须按网站系统 Prompt 的 A 格式输出）
+    return `## 输出格式要求（必须使用 DICLOAK_SECTION 机器标识输出，前端只按 type 归属显示）
 
-【问题类型】
+<<<DICLOAK_SECTION:question>>>
 ${problemTypeLabel}
+<<<END_DICLOAK_SECTION:question>>>
 
-【主回复｜优先发送】
+<<<DICLOAK_SECTION:main>>>
 完整主回复。若命中标准答案，必须严格基于标准答案改写/翻译，不得新增标准答案没有的按钮、路径、权限、密码、有效期、限制或操作步骤。主回复必须完整，不要拆分到补充建议中。
+<<<END_DICLOAK_SECTION:main>>>
 
-【补充建议｜可选发送】
+<<<DICLOAK_SECTION:supplement>>>
 独立的补充建议；不得继续补充主回复没有依据的操作步骤。没有合适补充建议时写：无。
+<<<END_DICLOAK_SECTION:supplement>>>
 
-【需要补充的信息】
-需要客户补充的信息；不需要补充信息时写：无。`;
+<<<DICLOAK_SECTION:info>>>
+需要客户补充的信息；不需要补充信息时写：无。
+<<<END_DICLOAK_SECTION:info>>>`;
   }
   
   // B 格式：故障排查 + 身份明确
   if (problemType === 'troubleshooting' && userRole !== 'unknown') {
     const identityLabel = userRole === 'client' ? 'DICloak 客户' : '终端用户';
     const roleAnswer = userRole === 'client' ? 'client' : 'end_user';
-    return `## 输出格式要求（必须按网站系统 Prompt 的 B 格式输出）
+    return `## 输出格式要求（必须使用 DICLOAK_SECTION 机器标识输出，前端只按 type 归属显示）
 
-【问题类型】
+<<<DICLOAK_SECTION:question>>>
 故障排查
+<<<END_DICLOAK_SECTION:question>>>
 
-【身份状态】
+<<<DICLOAK_SECTION:identity>>>
 ${identityLabel}
+<<<END_DICLOAK_SECTION:identity>>>
 
-【主回复｜优先发送】
+<<<DICLOAK_SECTION:main>>>
 完整输出匹配资料中的「标准答案（${roleAnswer}）」，如为空则用「标准答案（通用）」；必须严格基于标准答案改写/翻译，不得新增标准答案没有的按钮、路径、权限、密码、有效期、限制或操作步骤；主回复必须完整，不要拆分到补充建议中。
+<<<END_DICLOAK_SECTION:main>>>
 
-【补充建议｜可选发送】
+<<<DICLOAK_SECTION:supplement>>>
 独立的补充建议；不得继续补充主回复没有依据的操作步骤。没有合适补充建议时写：无。
+<<<END_DICLOAK_SECTION:supplement>>>
 
-【需要补充的信息】
-需要客户补充的信息；不需要补充信息时写：无。`;
+<<<DICLOAK_SECTION:info>>>
+需要客户补充的信息；不需要补充信息时写：无。
+<<<END_DICLOAK_SECTION:info>>>`;
   }
   
   // C 格式：故障排查 + 身份不明确
-  return `## 输出格式要求（必须按网站系统 Prompt 的 C 格式输出）
+  return `## 输出格式要求（必须使用 DICLOAK_SECTION 机器标识输出，前端只按 type 归属显示）
 
-【问题类型】
+<<<DICLOAK_SECTION:question>>>
 故障排查
+<<<END_DICLOAK_SECTION:question>>>
 
-【身份状态】
+<<<DICLOAK_SECTION:identity>>>
 身份不明确，需要客服进一步确认
+<<<END_DICLOAK_SECTION:identity>>>
 
-【通用回复｜不确定身份时优先发送】
+<<<DICLOAK_SECTION:common>>>
 完整输出匹配资料中的「标准答案（通用）」，不得新增标准答案没有的操作步骤；如为空则写：无。
+<<<END_DICLOAK_SECTION:common>>>
 
-【客户回复｜适用于 DICloak 客户 / 管理员】
+<<<DICLOAK_SECTION:client>>>
 完整输出匹配资料中的「标准答案（client）」，不得新增标准答案没有的操作步骤；如为空则写：无。
+<<<END_DICLOAK_SECTION:client>>>
 
-【终端用户回复｜简短版】
+<<<DICLOAK_SECTION:end_user>>>
 输出「标准答案（end_user）」的简短版，重点说明需联系账号/服务提供方；不得新增标准答案没有的操作步骤；如为空则写：无。
+<<<END_DICLOAK_SECTION:end_user>>>
 
-【需要补充的信息｜用于继续排查】
-生成追问，收集身份相关信息（如：账号是自己管理的还是他人提供的）。`;
+<<<DICLOAK_SECTION:info>>>
+生成追问，收集身份相关信息（如：账号是自己管理的还是他人提供的）。
+<<<END_DICLOAK_SECTION:info>>>`;
 }
 
 export async function POST(request: NextRequest) {
@@ -1009,7 +1024,6 @@ export async function POST(request: NextRequest) {
       confirmedRole?: UserRole;
       roleSource?: "manual" | "ai" | null;
     };
-    
     
     // 调试：检查接收到的 knowledge
     console.log('[DEBUG] 后端接收到的请求体字段:', Object.keys(body));
@@ -1101,12 +1115,12 @@ export async function POST(request: NextRequest) {
     const finalSystemPrompt = systemPrompt || baseSystemPrompt;
 
     const outputFormatGuardrail = `## 输出格式硬性要求
-    1. 输出格式必须以网站系统 Prompt 的 A/B/C 格式为准，并使用本次用户消息中提供的“输出格式要求”。
-    2. 每个板块标题必须独占一行，标题后必须换行再写内容。
-    3. 不要把下一个板块标题或标题图标接在上一段正文后面。
-    4. 板块标题必须只保留文字标题，不使用 emoji 图标，也不要单独输出任何标题图标。
-    5. 板块标题必须保留网站系统 Prompt 指定的中文书名号样式方括号“【】”、分隔符“｜”和中文标题，例如“【主回复｜优先发送】”；禁止改成 []、翻译标题或改写标题。
-    6. 只能翻译正文内容，禁止翻译板块标题；例如西班牙语回复也必须保留“【主回复｜优先发送】”。
+    1. 输出格式必须使用本次用户消息中提供的 DICLOAK_SECTION 机器标识；禁止使用“【主回复】”等可见标题替代机器标识。
+    2. 每个板块必须用独占一行的开始标识和结束标识包裹，例如：<<<DICLOAK_SECTION:main>>> 与 <<<END_DICLOAK_SECTION:main>>>。
+    3. type 只能使用本次输出格式要求中列出的值：question、identity、main、supplement、info、common、client、end_user；不要翻译、改写或新增 type。
+    4. 开始标识和结束标识必须一一对应；正文只能写在对应标识之间；不要把下一个板块内容写进上一个 type。
+    5. 标识行本身禁止翻译、禁止添加 emoji、禁止添加 Markdown 标题符号；前端会隐藏标识并按 type 显示固定中文标题。
+    6. 只能翻译正文内容，禁止翻译 DICLOAK_SECTION 标识。
     7. 正文必须是纯文本，不要使用 Markdown 加粗/斜体/标题符号，例如不要输出 **文本**、__文本__、# 标题。
     8. 正文不得保留术语占位符花括号；如果内部资料出现 {{Equipo}}、{{Members}}，输出时必须变成 Equipo、Members 或目标语言译文。`;
 
