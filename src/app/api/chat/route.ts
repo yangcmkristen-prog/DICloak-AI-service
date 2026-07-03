@@ -997,7 +997,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     console.log(`[PERF][CHAT] body_parsed_ms=${Date.now() - t0}`);
-    const { message, history, knowledge, systemPrompt, detectedLanguage, aiKeywords, classification, imageOcrResults } = body as {
+    const { message, history, knowledge, systemPrompt, detectedLanguage, aiKeywords, classification, imageOcrResults, confirmedRole, roleSource } = body as {
       message?: string;
       history?: Array<{ role: string; content: string }>;
       knowledge?: Partial<KnowledgeBase>;
@@ -1006,6 +1006,8 @@ export async function POST(request: NextRequest) {
       aiKeywords?: string[];
       classification?: ClassificationResult;
       imageOcrResults?: Array<{ id: string; name: string; text: string }>;
+      confirmedRole?: UserRole;
+      roleSource?: "manual" | "ai" | null;
     };
     
     
@@ -1411,7 +1413,8 @@ The customer requested step-by-step setup instructions. Before giving any number
 
     // 初始化问题类型和格式（默认值）
     let problemType: ProblemType = 'info_insufficient';
-    let userRole: UserRole = 'unknown';
+    const lockedRole: UserRole | null = confirmedRole === 'client' || confirmedRole === 'end_user' ? confirmedRole : null;
+    let userRole: UserRole = lockedRole || 'unknown';
     let outputFormatType: 'A' | 'B' | 'C' = 'A';
     let aiOutputFormat = generateAIOutputFormat(problemType, userRole);
 
@@ -1601,12 +1604,13 @@ The customer requested step-by-step setup instructions. Before giving any number
       problemType = backendRequiresClarification || classificationLooksLikeMisroutedEndUser
         ? problemTypeResult.type
         : classifiedProblemType || problemTypeResult.type;
-      userRole = classification?.identityStatus || userRoleResult.role;
+      const inferredRole = classification?.identityStatus || userRoleResult.role;
+      userRole = lockedRole || inferredRole;
       outputFormatType = getOutputFormatType(problemType, userRole);
       aiOutputFormat = generateAIOutputFormat(problemType, userRole);
       
       console.log("[TYPE DEBUG] 问题类型:", problemType, "-", problemTypeResult.reason);
-      console.log("[TYPE DEBUG] 用户身份:", userRole, "-", userRoleResult.reason);
+      console.log("[TYPE DEBUG] 用户身份:", userRole, lockedRole ? `- 已确认角色(${roleSource || "manual"})，跳过后续覆盖` : `- ${userRoleResult.reason}`);
       console.log("[TYPE DEBUG] 输出格式:", outputFormatType);
       console.log("[TYPE DEBUG] 匹配分数 - FAQ:", topFaqScore, "Function:", topFunctionKnowledgeScore, "TS:", topTsScore, "OOS:", topOosScore);
 
@@ -2055,6 +2059,7 @@ The customer requested step-by-step setup instructions. Before giving any number
                         problemType === 'intent_unclear' ? '意图不明确' : '信息不足',
       userRoleLabel: userRole === 'client' ? 'DICloak 客户/管理员' :
                      userRole === 'end_user' ? '终端用户' : '身份不明确',
+      roleSource: lockedRole ? (roleSource || 'manual') : (userRole === 'unknown' ? null : 'ai'),
       promptVersion: configVersion?.version || 1,
       promptUpdatedAt: configVersion?.updatedAt || new Date().toISOString(),
     });

@@ -6,7 +6,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Conversation } from "@/lib/types";
+import { Conversation, ConversationRole } from "@/lib/types";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+
+
+const ROLE_LABELS: Record<ConversationRole, string> = {
+  client: "客户",
+  end_user: "终端用户",
+};
+
+const ROLE_EMOJIS: Record<ConversationRole, string> = {
+  client: "👤",
+  end_user: "🙋",
+};
+
+function getConversationRole(conversation: Conversation): ConversationRole | null {
+  const identity = conversation.context?.confirmedIdentity;
+  return identity === "client" || identity === "end_user" ? identity : null;
+}
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -15,6 +32,7 @@ interface ConversationListProps {
   onCreateConversation: () => void;
   onDeleteConversation: (id: string) => void;
   onRenameConversation: (id: string, title: string) => void;
+  onUpdateConversationRole: (id: string, role: ConversationRole | null) => void;
 }
 
 export function ConversationList({
@@ -24,6 +42,7 @@ export function ConversationList({
   onCreateConversation,
   onDeleteConversation,
   onRenameConversation,
+  onUpdateConversationRole,
 }: ConversationListProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -167,12 +186,43 @@ export function ConversationList({
                   </div>
                 ) : (
                   <>
-                    <span className="flex-1 text-sm truncate">
+                    <span className="flex-1 min-w-0 text-sm truncate">
                       {conversation.title}
                     </span>
+                    {getConversationRole(conversation) ? (
+                      <span className="shrink-0 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700 dark:bg-blue-950 dark:text-blue-200">
+                        {ROLE_LABELS[getConversationRole(conversation)!]}
+                      </span>
+                    ) : null}
 
                     {/* 操作按钮 - PC端hover显示，移动端始终显示 */}
                     <div className="flex items-center gap-1 shrink-0 md:opacity-0 md:group-hover:opacity-100">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            title="选择角色"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span className="text-xs" aria-hidden="true">
+                              {getConversationRole(conversation) ? ROLE_EMOJIS[getConversationRole(conversation)!] : "👥"}
+                            </span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                          <DropdownMenuItem onClick={() => onUpdateConversationRole(conversation.id, "client")}>
+                            👤 客户
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => onUpdateConversationRole(conversation.id, "end_user")}>
+                            🙋 终端用户
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => onUpdateConversationRole(conversation.id, null)}>
+                            不确认角色
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                       <Button
                         size="icon"
                         variant="ghost"

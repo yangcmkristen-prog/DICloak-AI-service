@@ -22,12 +22,16 @@ export interface Message {
 }
 
 // 对话上下文 - 用于多轮对话记忆
+export type ConversationRole = 'client' | 'end_user';
+export type ConversationRoleSource = 'manual' | 'ai' | null;
+
 export interface ConversationContext {
   // 客户信息
   clientLanguage: string;             // 客户原始语言
   
   // 已确认的信息
   confirmedIdentity: 'client' | 'end_user' | 'unknown' | null;  // 已确认身份
+  roleSource?: ConversationRoleSource;    // 身份来源：人工选择或 AI 推测
   confirmedProblemType: string | null;  // 已确认问题类型
   confirmedFunctionModule: string | null;  // 已确认功能模块
   confirmedErrorInfo: string | null;    // 已确认报错信息

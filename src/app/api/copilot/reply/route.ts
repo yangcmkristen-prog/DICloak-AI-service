@@ -72,6 +72,8 @@ export async function POST(request: NextRequest) {
         detectedLanguage: 'mixed',
         aiKeywords: keywordsData.englishKeywords || [],
         classification,
+        confirmedRole: snapshot.chat.confirmedRole,
+        roleSource: snapshot.chat.confirmedRole ? "manual" : undefined,
       }),
     });
 
@@ -80,7 +82,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: content || '生成推荐回复失败' }, { status: response.status, headers: CORS_HEADERS });
     }
 
-    return NextResponse.json({ content, sourceMessageHash: snapshot.sourceMessageHash }, { headers: CORS_HEADERS });
+    const metaMatch = content.match(/\[META\]([\s\S]*?)\[\/META\]/);
+    let detectedRole: 'client' | 'end_user' | null = null;
+    if (metaMatch) {
+      try {
+        const meta = JSON.parse(metaMatch[1].trim()) as { userRole?: unknown };
+        detectedRole = meta.userRole === 'client' || meta.userRole === 'end_user' ? meta.userRole : null;
+      } catch (metaError) {
+        console.error('[Copilot Reply] 解析角色元数据失败:', metaError);
+      }
+    }
+
+    return NextResponse.json({
+      content,
+      sourceMessageHash: snapshot.sourceMessageHash,
+      detectedRole: snapshot.chat.confirmedRole || detectedRole,
+      roleSource: snapshot.chat.confirmedRole ? 'manual' : (detectedRole ? 'ai' : null),
+    }, { headers: CORS_HEADERS });
   } catch (error) {
     console.error('[Copilot Reply] Error:', error);
     return NextResponse.json({ error: error instanceof Error ? error.message : '生成推荐回复失败' }, { status: 500, headers: CORS_HEADERS });

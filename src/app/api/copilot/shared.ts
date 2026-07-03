@@ -13,6 +13,7 @@ export interface CopilotChatInfo {
   displayName: string;
   avatarUrl?: string;
   onlineStatus?: string;
+  confirmedRole?: 'client' | 'end_user';
 }
 
 export interface CopilotSnapshot {
@@ -68,6 +69,7 @@ export function validateSnapshot(value: unknown): CopilotSnapshot | null {
       displayName,
       avatarUrl: typeof chatRecord.avatarUrl === 'string' ? chatRecord.avatarUrl : undefined,
       onlineStatus: typeof chatRecord.onlineStatus === 'string' ? chatRecord.onlineStatus : undefined,
+      confirmedRole: chatRecord.confirmedRole === 'client' || chatRecord.confirmedRole === 'end_user' ? chatRecord.confirmedRole : undefined,
     },
     messages: normalizedMessages,
     sourceMessageHash,

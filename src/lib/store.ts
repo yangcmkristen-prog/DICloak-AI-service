@@ -105,6 +105,7 @@ export function createDefaultContext(): ConversationContext {
     clientLanguage: '',
     summary: '',
     confirmedIdentity: null,
+    roleSource: null,
     confirmedProblemType: null,
     confirmedFunctionModule: null,
     confirmedErrorInfo: null,
@@ -355,6 +356,7 @@ export function createConversation(title?: string): Conversation {
     context: {
       clientLanguage: '',
       confirmedIdentity: null,
+      roleSource: null,
       confirmedProblemType: null,
       confirmedFunctionModule: null,
       confirmedErrorInfo: null,

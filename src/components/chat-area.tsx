@@ -22,6 +22,7 @@ interface MetaData {
   outputFormatType: 'A' | 'B' | 'C';
   problemTypeLabel: string;
   userRoleLabel: string;
+  roleSource?: "manual" | "ai" | null;
 }
 
 // 解析 META 数据
@@ -106,7 +107,6 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
   // 首先解析 META 数据
   const { metaData: parsedMeta, cleanContent } = parseMetaData(content);
   const finalMeta = parsedMeta || metaData;
-  void finalMeta;
 
   // 提取并记录 FAQ ID
   const faqIdMatch = cleanContent.match(/\[FAQ_ID:\s*([^\]]+)\]/i);
@@ -176,6 +176,10 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
 
   if (result.length === 0) {
     return [{ type: "question", content: cleanContent.trim() }];
+  }
+
+  if (finalMeta?.problemType === "troubleshooting" && (finalMeta.userRole === "client" || finalMeta.userRole === "end_user")) {
+    return result.filter((section) => !["common", "client", "end_user"].includes(section.type));
   }
 
   return result;

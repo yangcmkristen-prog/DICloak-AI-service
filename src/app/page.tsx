@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Conversation, FAQItem, ImageAttachment, KnowledgeBase, Message, TroubleshootingItem, generateId } from "@/lib/types";
+import { Conversation, ConversationRole, FAQItem, ImageAttachment, KnowledgeBase, Message, TroubleshootingItem, generateId } from "@/lib/types";
 import {
   getConversations,
   saveConversations,
@@ -450,6 +450,21 @@ export default function Home() {
     setIsEditDialogOpen(false);
   }, []);
 
+  const handleUpdateConversationRole = useCallback((id: string, role: ConversationRole | null) => {
+    const target = conversations.find((conversation) => conversation.id === id);
+    if (!target) return;
+
+    updateConversation(id, {
+      context: {
+        ...target.context,
+        confirmedIdentity: role,
+        roleSource: role ? "manual" : null,
+      },
+    });
+    setConversations(getConversations());
+    toast.success(role ? `已设置角色为${role === "client" ? "客户" : "终端用户"}` : "已清除角色");
+  }, [conversations]);
+
   // 初始化加载数据
   useEffect(() => {
     const loadedConversations = getConversations();
@@ -730,6 +745,8 @@ export default function Home() {
           aiKeywords: aiKeywords, // 传递 AI 提取的关键词给后端
           classification,
           imageOcrResults,
+          confirmedRole: currentConversation?.context?.confirmedIdentity || undefined,
+          roleSource: currentConversation?.context?.roleSource || undefined,
         }),
       });
 
@@ -750,6 +767,17 @@ export default function Home() {
         }
       }
 
+      const metaMatch = fullContent.match(/\[META\]([\s\S]*?)\[\/META\]/);
+      let detectedRole: ConversationRole | null = null;
+      if (metaMatch) {
+        try {
+          const parsedMeta = JSON.parse(metaMatch[1].trim()) as { userRole?: unknown };
+          detectedRole = parsedMeta.userRole === "client" || parsedMeta.userRole === "end_user" ? parsedMeta.userRole : null;
+        } catch (metaError) {
+          console.error("解析角色元数据失败:", metaError);
+        }
+      }
+
       // 添加助手消息
       const assistantMessage: Message = {
         id: generateId(),
@@ -761,7 +789,14 @@ export default function Home() {
       setConversations((prev) => {
         const updated = prev.map((c) => {
           if (c.id === currentConversationId) {
-            return { ...c, messages: [...c.messages, assistantMessage] };
+            const shouldApplyAiRole = detectedRole && c.context?.roleSource !== "manual";
+            return {
+              ...c,
+              messages: [...c.messages, assistantMessage],
+              context: shouldApplyAiRole
+                ? { ...c.context, confirmedIdentity: detectedRole, roleSource: "ai" as const }
+                : c.context,
+            };
           }
           return c;
         });
@@ -1182,6 +1217,7 @@ export default function Home() {
                     onCreateConversation={handleCreateConversation}
                     onDeleteConversation={handleDeleteConversation}
                     onRenameConversation={handleRenameConversation}
+                    onUpdateConversationRole={handleUpdateConversationRole}
                   />
                 </div>
                 <div className="border-t p-3">
@@ -1209,7 +1245,7 @@ export default function Home() {
                     </option>
                     {conversations.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.title}
+                        {c.title}{c.context?.confirmedIdentity === "client" ? "（客户）" : c.context?.confirmedIdentity === "end_user" ? "（终端用户）" : ""}
                       </option>
                     ))}
                   </select>
