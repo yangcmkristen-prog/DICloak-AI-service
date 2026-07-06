@@ -46,6 +46,12 @@ interface ParsedReply {
   content: string;
 }
 
+interface StructuredReplyPayload {
+  sections: ParsedReply[];
+}
+
+const STRUCTURED_REPLY_REGEX = /\[STRUCTURED_REPLY\]([\s\S]*?)\[\/STRUCTURED_REPLY\]/;
+
 const SECTION_TYPES: ParsedReply["type"][] = [
   "question",
   "identity",
@@ -59,6 +65,51 @@ const SECTION_TYPES: ParsedReply["type"][] = [
 
 function isSectionType(value: string): value is ParsedReply["type"] {
   return SECTION_TYPES.includes(value as ParsedReply["type"]);
+}
+
+function normalizeMachineSectionMarkers(content: string): string {
+  return content
+    // Repair common incomplete marker variants produced by the model, for example
+    // <<<DICLOAK_S:main>>> or <<<END_DICLOAKECTION:main>>>.
+    .replace(/<<<\s*DICLOAK_(?:S|SECT(?:ION)?|SECTION)\s*:\s*([a-z_]+)\s*>>>/gi, (_, type: string) => `<<<DICLOAK_SECTION:${type.toLowerCase()}>>>`)
+    .replace(/<<<\s*END_DICLOAK_(?:S|SECT(?:ION)?|ECTION|SECTION)\s*:\s*([a-z_]+)\s*>>>/gi, (_, type: string) => `<<<END_DICLOAK_SECTION:${type.toLowerCase()}>>>`);
+}
+
+function stripStructuredReplyPayload(content: string): string {
+  return content.replace(STRUCTURED_REPLY_REGEX, "").trim();
+}
+
+function stripMachineSectionMarkers(content: string): string {
+  return stripStructuredReplyPayload(content)
+    .replace(/<<<\s*(?:END_)?DICLOAK_[A-Z_]*\s*:\s*[a-z_]+\s*>>>/gi, "")
+    .trim();
+}
+
+function parseStructuredReplyPayload(content: string): ParsedReply[] | null {
+  const match = content.match(STRUCTURED_REPLY_REGEX);
+  if (!match) return null;
+
+  try {
+    const parsed: unknown = JSON.parse(match[1].trim());
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const sections = (parsed as Partial<StructuredReplyPayload>).sections;
+    if (!Array.isArray(sections)) return null;
+
+    const normalizedSections = sections.flatMap((section): ParsedReply[] => {
+      if (!section || typeof section !== "object") return [];
+      const candidate = section as Partial<ParsedReply>;
+      if (typeof candidate.type !== "string" || !isSectionType(candidate.type)) return [];
+      if (typeof candidate.content !== "string") return [];
+      const contentText = sanitizeAssistantText(stripMachineSectionMarkers(candidate.content));
+      return contentText ? [{ type: candidate.type, content: contentText }] : [];
+    });
+
+    return normalizedSections.length > 0 ? normalizedSections : null;
+  } catch (error) {
+    console.error("[STRUCTURED_REPLY Parse Error]", error);
+    return null;
+  }
 }
 
 function normalizeHeaderText(header: string): string {
@@ -123,23 +174,35 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
   const { metaData: parsedMeta, cleanContent } = parseMetaData(content);
   const finalMeta = parsedMeta || metaData;
 
+  const structuredReplies = parseStructuredReplyPayload(cleanContent);
+  if (structuredReplies) {
+    if (finalMeta?.problemType === "troubleshooting" && (finalMeta.userRole === "client" || finalMeta.userRole === "end_user")) {
+      return structuredReplies.filter((section) => !["common", "client", "end_user"].includes(section.type));
+    }
+
+    return structuredReplies;
+  }
+
+  const displayContent = stripStructuredReplyPayload(cleanContent);
+
   // 提取并记录 FAQ ID
-  const faqIdMatch = cleanContent.match(/\[FAQ_ID:\s*([^\]]+)\]/i);
+  const faqIdMatch = displayContent.match(/\[FAQ_ID:\s*([^\]]+)\]/i);
   if (faqIdMatch) {
     const faqId = faqIdMatch[1].trim();
     console.log(`[FAQ Used] ${faqId}`);
   }
 
   // 提取并记录 function_id
-  const functionIdMatch = cleanContent.match(/\[FUNCTION_ID:\s*([^\]]+)\]/i);
+  const functionIdMatch = displayContent.match(/\[FUNCTION_ID:\s*([^\]]+)\]/i);
   if (functionIdMatch) {
     const functionId = functionIdMatch[1].trim();
     console.log(`[FUNCTION Used] ${functionId}`);
   }
 
+  const normalizedMachineContent = normalizeMachineSectionMarkers(displayContent);
   const markerRegex =
     /<<<DICLOAK_SECTION:(question|identity|main|common|client|end_user|supplement|info)>>>\s*([\s\S]*?)\s*<<<END_DICLOAK_SECTION:\1>>>/gi;
-  const markerMatches = [...cleanContent.matchAll(markerRegex)];
+  const markerMatches = [...normalizedMachineContent.matchAll(markerRegex)];
 
   if (markerMatches.length > 0) {
     const foundTypes = new Set<ParsedReply["type"]>();
@@ -176,7 +239,7 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
    *
    * 注意：不能使用 (?|...)，JS 正则不支持，会导致 Runtime SyntaxError。
    */
-  const normalizedContent = cleanContent
+  const normalizedContent = stripMachineSectionMarkers(normalizedMachineContent)
     // Some models put the next section header immediately after “无/None”.
     // Split it so the parser does not merge multiple cards into the previous card.
     .replace(
@@ -197,7 +260,7 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
     .filter((match) => getSectionType(match.header) || getSectionTypeFromIcon(match.icon));
 
   if (matches.length === 0) {
-    return [{ type: "question", content: cleanContent.trim() }];
+    return [{ type: "question", content: stripMachineSectionMarkers(displayContent) }];
   }
 
   let foundMain = false;
@@ -225,7 +288,7 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
   }
 
   if (result.length === 0) {
-    return [{ type: "question", content: cleanContent.trim() }];
+    return [{ type: "question", content: stripMachineSectionMarkers(displayContent) }];
   }
 
   if (finalMeta?.problemType === "troubleshooting" && (finalMeta.userRole === "client" || finalMeta.userRole === "end_user")) {

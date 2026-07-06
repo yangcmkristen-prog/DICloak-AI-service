@@ -127,6 +127,146 @@ function getSubscriptionSourceClarificationReply(language: string): string {
   return 'Did you subscribe through the Billing Center in the DICloak software, or through another reseller or platform?';
 }
 
+type StructuredReplySectionType = "question" | "identity" | "main" | "common" | "client" | "end_user" | "supplement" | "info";
+
+type StructuredReplySection = {
+  type: StructuredReplySectionType;
+  content: string;
+};
+
+const STRUCTURED_REPLY_SECTION_TYPES: StructuredReplySectionType[] = [
+  "question",
+  "identity",
+  "main",
+  "common",
+  "client",
+  "end_user",
+  "supplement",
+  "info",
+];
+
+function isStructuredReplySectionType(value: string): value is StructuredReplySectionType {
+  return STRUCTURED_REPLY_SECTION_TYPES.includes(value as StructuredReplySectionType);
+}
+
+function normalizeMachineSectionMarkers(content: string): string {
+  return content
+    .replace(/<<<\s*DICLOAK_(?:S|SECT(?:ION)?|SECTION)\s*:\s*([a-z_]+)\s*>>>/gi, (_, type: string) => `<<<DICLOAK_SECTION:${type.toLowerCase()}>>>`)
+    .replace(/<<<\s*END_DICLOAK_(?:S|SECT(?:ION)?|ECTION|SECTION)\s*:\s*([a-z_]+)\s*>>>/gi, (_, type: string) => `<<<END_DICLOAK_SECTION:${type.toLowerCase()}>>>`);
+}
+
+function stripMachineSectionMarkers(content: string): string {
+  return content
+    .replace(/<<<\s*(?:END_)?DICLOAK_[A-Z_]*\s*:\s*[a-z_]+\s*>>>/gi, "")
+    .trim();
+}
+
+function sanitizeStructuredReplyText(text: string): string {
+  return stripMachineSectionMarkers(text)
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,，。]|$)/g, "$1$2")
+    .replace(/\{\{\s*([^{}]+?)\s*\}\}/g, "$1")
+    .replace(/\{\{\s*([^{}\n]+?)(?=(?:[。！？；;,.，、]|\s|$))/g, "$1")
+    .replace(/[{}]/g, "")
+    .trim();
+}
+
+function normalizeReplyHeaderText(header: string): string {
+  return header
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[【】〖〗\[\]{}()（）:：|｜\-_]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function getStructuredSectionTypeFromHeader(header: string): StructuredReplySectionType | null {
+  const normalizedHeader = normalizeReplyHeaderText(header);
+  if (/问题类型|回复类型|tipo de problema|problem type|loai van de|jenis masalah|ประเภทปัญหา|نوع المشكلة|問題タイプ|문제 유형/i.test(normalizedHeader)) return "question";
+  if (/身份状态|身份识别|estado de identidad|identity status|trang thai danh tinh|status identitas|สถานะตัวตน|حالة الهوية|本人確認|신원 상태/i.test(normalizedHeader)) return "identity";
+  if (/主回复|主要回复|优先发送|回复\s*1|respuesta general|main reply|primary reply|cau tra loi chinh|balasan utama|คำตอบหลัก|الرد الرئيسي|主な返信|주요 답변/i.test(normalizedHeader)) return "main";
+  if (/通用回复|respuesta general|general reply|cau tra loi chung|balasan umum|คำตอบทั่วไป|رد عام|一般的な返信|일반 답변/i.test(normalizedHeader)) return "common";
+  if (/客户回复|respuesta para cliente|client reply|customer reply|cau tra loi cho khach hang|balasan klien|คำตอบสำหรับลูกค้า|رد العميل|顧客向け返信|고객 답변/i.test(normalizedHeader)) return "client";
+  if (/终端用户回复|最终用户回复|respuesta para usuario final|end user reply|final user reply|cau tra loi cho nguoi dung cuoi|balasan pengguna akhir|คำตอบสำหรับผู้ใช้ปลายทาง|رد المستخدم النهائي|エンドユーザー向け返信|최종 사용자 답변/i.test(normalizedHeader)) return "end_user";
+  if (/补充建议|补充说明|建议|可选发送|回复\s*2|sugerencia complementaria|sugerencia|suggestion|supplement|additional advice|goi y bo sung|saran tambahan|ข้อเสนอแนะเพิ่มเติม|اقتراحات اضافية|補足提案|추가 제안/i.test(normalizedHeader)) return "supplement";
+  if (/需要补充的信息|需补充信息|补充信息|回复\s*3|informacion que necesitamos|informacion necesaria|need.*information|required information|additional information|thong tin can bo sung|informasi yang diperlukan|ข้อมูลที่ต้องการเพิ่มเติม|معلومات مطلوبة|必要な追加情報|필요한 추가 정보/i.test(normalizedHeader)) return "info";
+  return null;
+}
+
+function getStructuredSectionTypeFromIcon(icon: string): StructuredReplySectionType | null {
+  const iconMap: Record<string, StructuredReplySectionType> = {
+    "📌": "question",
+    "🛠️": "question",
+    "⚠️": "identity",
+    "✅": "main",
+    "🟡": "common",
+    "🔵": "client",
+    "🟣": "end_user",
+    "💡": "supplement",
+    "📝": "info",
+    "📎": "info",
+  };
+
+  return iconMap[icon] || null;
+}
+
+function buildStructuredReplyPayload(content: string): string {
+  const normalizedContent = normalizeMachineSectionMarkers(content.replace(/\[META\][\s\S]*?\[\/META\]/g, "").trim());
+  const sections: StructuredReplySection[] = [];
+  const foundTypes = new Set<StructuredReplySectionType>();
+  const markerRegex = /<<<DICLOAK_SECTION:(question|identity|main|common|client|end_user|supplement|info)>>>\s*([\s\S]*?)\s*<<<END_DICLOAK_SECTION:\1>>>/gi;
+
+  for (const match of normalizedContent.matchAll(markerRegex)) {
+    const type = match[1].toLowerCase();
+    if (!isStructuredReplySectionType(type) || foundTypes.has(type)) continue;
+
+    const sectionContent = sanitizeStructuredReplyText(match[2] || "");
+    if (!sectionContent) continue;
+
+    foundTypes.add(type);
+    sections.push({ type, content: sectionContent });
+  }
+
+  if (sections.length === 0) {
+    const markerlessContent = stripMachineSectionMarkers(normalizedContent);
+    const sectionHeaderRegex = /(?:^|\n)\s*(📌|⚠️|✅|🟡|🔵|🟣|💡|📝|🛠️|👤|☑️|📎)?\s*(?:【|〖|\[)\s*([^\n【】〖〗\[\]]{1,120}?)\s*(?:】|〗|\])\s*(?=\n|$)/gu;
+    const matches = [...markerlessContent.matchAll(sectionHeaderRegex)]
+      .map((match) => ({
+        fullText: match[0],
+        index: match.index ?? 0,
+        icon: match[1] || "",
+        header: match[2] || "",
+      }))
+      .filter((match) => getStructuredSectionTypeFromHeader(match.header) || getStructuredSectionTypeFromIcon(match.icon));
+
+    for (let index = 0; index < matches.length; index++) {
+      const match = matches[index];
+      const type = getStructuredSectionTypeFromHeader(match.header) || getStructuredSectionTypeFromIcon(match.icon);
+      if (!type || foundTypes.has(type)) continue;
+
+      const contentStart = match.index + match.fullText.length;
+      const nextMatch = matches[index + 1];
+      const contentEnd = nextMatch?.index ?? markerlessContent.length;
+      const sectionContent = sanitizeStructuredReplyText(markerlessContent.slice(contentStart, contentEnd));
+      if (!sectionContent) continue;
+
+      foundTypes.add(type);
+      sections.push({ type, content: sectionContent });
+    }
+  }
+
+  if (sections.length === 0) {
+    const fallbackContent = sanitizeStructuredReplyText(normalizedContent);
+    if (fallbackContent) {
+      sections.push({ type: "question", content: fallbackContent });
+    }
+  }
+
+  return `\n[STRUCTURED_REPLY]${JSON.stringify({ sections })}[/STRUCTURED_REPLY]`;
+}
+
 function replaceSectionContent(content: string, sectionType: string, sectionContent: string): string {
   const sectionRegex = new RegExp(
     `<<<DICLOAK_SECTION:${sectionType}>>>[\\s\\S]*?<<<END_DICLOAK_SECTION:${sectionType}>>>`,
@@ -2051,6 +2191,7 @@ The customer requested step-by-step setup instructions. Before giving any number
       const cleanedHistory = history.slice(-12).map((msg: { role: string; content: string }) => {
         const cleanContent = msg.content
           .replace(/\[META\][\s\S]*?\[\/META\]/g, "")
+          .replace(/\[STRUCTURED_REPLY\][\s\S]*?\[\/STRUCTURED_REPLY\]/g, "")
           .trim();
 
         const clippedContent = cleanContent.length > 1200
@@ -2247,7 +2388,8 @@ The customer requested step-by-step setup instructions. Before giving any number
           ? enforceSubscriptionSourceClarificationContent(fullContent, effectiveLanguage)
           : fullContent;
         const correctedContent = enforceSeatCalculationCorrections(intentCorrectedContent, actualUserCount, effectiveLanguage);
-        controller.enqueue(encoder.encode(sanitizeCustomerFacingContent(correctedContent, effectiveLanguage)));
+        const sanitizedContent = sanitizeCustomerFacingContent(correctedContent, effectiveLanguage);
+        controller.enqueue(encoder.encode(`${sanitizedContent}${buildStructuredReplyPayload(sanitizedContent)}`));
       }
       controller.close();
     };
