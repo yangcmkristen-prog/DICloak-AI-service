@@ -522,6 +522,27 @@ function getActiveResult(): CopilotResult | null {
   return results.find((result) => result.id === state.activeResultId) ?? null;
 }
 
+async function deleteResult(resultId: string): Promise<void> {
+  const snapshot = state.snapshot;
+  const cache = state.cache;
+  if (!snapshot || !cache) return;
+
+  const nextResults = cache.results.filter((result) => result.id !== resultId);
+  const nextCache: CacheRecord = {
+    ...cache,
+    updatedAt: Date.now(),
+    results: nextResults,
+  };
+
+  state.cache = nextCache;
+  if (state.activeResultId === resultId) {
+    state.activeResultId = nextResults[0]?.id ?? null;
+  }
+
+  await writeCache(snapshot.chat.externalChatId, nextCache);
+  render();
+}
+
 function clearWindowSelection(): void {
   window.getSelection()?.removeAllRanges();
 }
@@ -599,7 +620,10 @@ function render(): void {
           ${results.length === 0 ? `<div class="dc-muted">暂无结果。点击上方按钮后会缓存到当前聊天。</div>` : results.map((result) => `
             <button class="dc-result-item ${activeResult?.id === result.id ? "active" : ""}" data-result-id="${escapeHtml(result.id)}">
               <span>${result.type === "reply" ? "生成推荐回复" : "翻译结果"}</span>
-              <small>${formatTime(result.createdAt)}</small>
+              <span class="dc-result-meta">
+                <small>${formatTime(result.createdAt)}</small>
+                <span class="dc-delete-result" data-action="delete-result" data-result-id="${escapeHtml(result.id)}" role="button" tabindex="0" title="删除该结果" aria-label="删除该结果">删除</span>
+              </span>
             </button>
           `).join("")}
         </section>
@@ -710,14 +734,23 @@ async function callCopilot(action: "translate-clean" | "reply"): Promise<void> {
       throw new Error(payload.error || "AI 请求失败");
     }
 
-    if (action === "reply" && !state.roleRecord && (payload.detectedRole === "client" || payload.detectedRole === "end_user")) {
+    const requestChatId = requestSnapshot.chat.externalChatId;
+    const isCurrentRequestChat = state.snapshot?.chat.externalChatId === requestChatId;
+
+    if (
+      action === "reply"
+      && !requestSnapshot.chat.confirmedRole
+      && (payload.detectedRole === "client" || payload.detectedRole === "end_user")
+    ) {
       const nextRoleRecord: RoleRecord = {
         role: payload.detectedRole,
         source: payload.roleSource === "manual" ? "manual" : "ai",
         updatedAt: Date.now(),
       };
-      state.roleRecord = nextRoleRecord;
-      await writeRoleRecord(state.snapshot.chat.externalChatId, nextRoleRecord);
+      if (isCurrentRequestChat) {
+        state.roleRecord = nextRoleRecord;
+      }
+      await writeRoleRecord(requestChatId, nextRoleRecord);
     }
 
     const result: CopilotResult = {
@@ -726,20 +759,26 @@ async function callCopilot(action: "translate-clean" | "reply"): Promise<void> {
       title: action === "reply" ? "生成推荐回复" : "翻译结果",
       content: payload.content,
       createdAt: Date.now(),
-      sourceMessageHash: state.snapshot.sourceMessageHash,
+      sourceMessageHash: requestSnapshot.sourceMessageHash,
     };
 
+    const requestCache = isCurrentRequestChat ? state.cache : await readCache(requestChatId);
     const nextCache: CacheRecord = {
-      sourceMessageHash: state.snapshot.sourceMessageHash,
+      sourceMessageHash: requestSnapshot.sourceMessageHash,
       updatedAt: Date.now(),
-      results: [result, ...(state.cache?.results ?? [])].slice(0, 10),
+      results: [result, ...(requestCache?.results ?? [])].slice(0, 10),
     };
 
-    state.cache = nextCache;
-    state.activeResultId = result.id;
-    await writeCache(state.snapshot.chat.externalChatId, nextCache);
+    await writeCache(requestChatId, nextCache);
+
+    if (isCurrentRequestChat) {
+      state.cache = nextCache;
+      state.activeResultId = result.id;
+    }
   } catch (error) {
-    state.error = error instanceof Error ? error.message : "AI 请求失败";
+    if (state.snapshot?.chat.externalChatId === requestSnapshot.chat.externalChatId) {
+      state.error = error instanceof Error ? error.message : "AI 请求失败";
+    }
   } finally {
     state.loadingAction = null;
     render();
@@ -784,9 +823,12 @@ function injectStyles(): void {
     .dc-action-icon { font-size: 24px; }
     .dc-error { border: 1px solid rgba(248,113,113,.35); background: rgba(127,29,29,.3); color: #fecaca; border-radius: 12px; padding: 10px; font-size: 12px; }
     .dc-results { display: flex; flex-direction: column; gap: 8px; }
-    .dc-result-item { border: 1px solid rgba(148,163,184,.12); background: rgba(30,41,59,.7); border-radius: 12px; color: #e2e8f0; padding: 12px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+    .dc-result-item { border: 1px solid rgba(148,163,184,.12); background: rgba(30,41,59,.7); border-radius: 12px; color: #e2e8f0; padding: 12px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
     .dc-result-item.active { border-color: rgba(99,102,241,.6); background: rgba(67,56,202,.22); }
     .dc-result-item small { color: #94a3b8; }
+    .dc-result-meta { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .dc-delete-result { border: 1px solid rgba(248,113,113,.28); border-radius: 999px; color: #fecaca; background: rgba(127,29,29,.26); padding: 2px 7px; font-size: 11px; font-weight: 700; }
+    .dc-delete-result:hover { border-color: rgba(248,113,113,.55); background: rgba(127,29,29,.42); color: #fee2e2; }
     .dc-result-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
     .dc-result-detail, .dc-result-detail pre { user-select: text; -webkit-user-select: text; }
     .dc-result-detail pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: inherit; color: #dbeafe; font-size: 13px; line-height: 1.55; max-height: 260px; overflow: auto; cursor: text; }
@@ -813,6 +855,15 @@ function injectSidebar(): void {
     const actionElement = target?.closest<HTMLElement>("[data-action]");
     const resultElement = target?.closest<HTMLElement>("[data-result-id]");
 
+    const action = actionElement?.dataset.action;
+    if (action === "delete-result") {
+      event.preventDefault();
+      event.stopPropagation();
+      const resultId = actionElement?.dataset.resultId;
+      if (resultId) void deleteResult(resultId);
+      return;
+    }
+
     if (resultElement) {
       const nextResultId = resultElement.dataset.resultId ?? null;
       state.activeResultId = state.activeResultId === nextResultId ? null : nextResultId;
@@ -820,7 +871,6 @@ function injectSidebar(): void {
       return;
     }
 
-    const action = actionElement?.dataset.action;
     if (action === "toggle") {
       state.hidden = true;
       render();
