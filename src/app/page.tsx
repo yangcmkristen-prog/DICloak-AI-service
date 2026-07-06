@@ -58,6 +58,71 @@ const PHRASE_TRANSLATION_LANGUAGES = [
 ] as const;
 const SAVED_PHRASES_STORAGE_KEY = "diclok_saved_phrases";
 
+type ReplySectionType = "question" | "identity" | "main" | "common" | "client" | "end_user" | "supplement" | "info";
+
+type StructuredReplySection = {
+  type: ReplySectionType;
+  content: string;
+};
+
+const STRUCTURED_REPLY_REGEX = /\[STRUCTURED_REPLY\]([\s\S]*?)\[\/STRUCTURED_REPLY\]/;
+
+function parseStructuredReplySections(content: string): StructuredReplySection[] {
+  const match = content.match(STRUCTURED_REPLY_REGEX);
+  if (!match) return [];
+
+  try {
+    const parsed: unknown = JSON.parse(match[1].trim());
+    if (!parsed || typeof parsed !== "object") return [];
+
+    const sections = (parsed as { sections?: unknown }).sections;
+    if (!Array.isArray(sections)) return [];
+
+    return sections.flatMap((section): StructuredReplySection[] => {
+      if (!section || typeof section !== "object") return [];
+      const candidate = section as { type?: unknown; content?: unknown };
+      const type = candidate.type;
+      if (
+        type !== "question"
+        && type !== "identity"
+        && type !== "main"
+        && type !== "common"
+        && type !== "client"
+        && type !== "end_user"
+        && type !== "supplement"
+        && type !== "info"
+      ) return [];
+      if (typeof candidate.content !== "string") return [];
+      return [{ type, content: candidate.content }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function getRoleFromAiReplySections(sections: StructuredReplySection[]): ConversationRole | null | "unknown" {
+  const identitySection = sections.find((section) => section.type === "identity")?.content.toLowerCase() ?? "";
+  const sectionTypes = new Set(sections.map((section) => section.type));
+
+  if (identitySection.includes("dicloak 客户") || identitySection.includes("客户/管理员") || identitySection.includes("client")) {
+    return "client";
+  }
+
+  if (identitySection.includes("终端用户") || identitySection.includes("end user") || identitySection.includes("end_user")) {
+    return "end_user";
+  }
+
+  if (identitySection.includes("不明确") || identitySection.includes("unclear") || identitySection.includes("unknown")) {
+    return "unknown";
+  }
+
+  if (sectionTypes.has("common") && (sectionTypes.has("client") || sectionTypes.has("end_user"))) {
+    return "unknown";
+  }
+
+  return null;
+}
+
 type PhraseLanguage = typeof PHRASE_TRANSLATION_LANGUAGES[number]["value"];
 type SavedPhraseFolder = { id: string; name: string };
 type SavedPhrase = { id: string; name: string; sourceText: string; folderId: string | null; translations: Record<PhraseLanguage, string>; createdAt: number };
@@ -745,8 +810,10 @@ export default function Home() {
           aiKeywords: aiKeywords, // 传递 AI 提取的关键词给后端
           classification,
           imageOcrResults,
-          confirmedRole: currentConversation?.context?.confirmedIdentity || undefined,
-          roleSource: currentConversation?.context?.roleSource || undefined,
+          confirmedRole: currentConversation?.context?.roleSource === "manual"
+            ? currentConversation.context.confirmedIdentity || undefined
+            : undefined,
+          roleSource: currentConversation?.context?.roleSource === "manual" ? "manual" : undefined,
         }),
       });
 
@@ -768,12 +835,22 @@ export default function Home() {
         fullContent += decoder.decode();
       }
 
+      const structuredSections = parseStructuredReplySections(fullContent);
+      const aiReplyRole = getRoleFromAiReplySections(structuredSections);
       const metaMatch = fullContent.match(/\[META\]([\s\S]*?)\[\/META\]/);
-      let detectedRole: ConversationRole | null = null;
+      let detectedRole: ConversationRole | null = aiReplyRole === "client" || aiReplyRole === "end_user" ? aiReplyRole : null;
+      let shouldClearAiRole = aiReplyRole === "unknown";
       if (metaMatch) {
         try {
-          const parsedMeta = JSON.parse(metaMatch[1].trim()) as { userRole?: unknown };
-          detectedRole = parsedMeta.userRole === "client" || parsedMeta.userRole === "end_user" ? parsedMeta.userRole : null;
+          const parsedMeta = JSON.parse(metaMatch[1].trim()) as { userRole?: unknown; outputFormatType?: unknown };
+          const outputFormatType = parsedMeta.outputFormatType === "A" || parsedMeta.outputFormatType === "B" || parsedMeta.outputFormatType === "C"
+            ? parsedMeta.outputFormatType
+            : null;
+          const metaRole = parsedMeta.userRole === "client" || parsedMeta.userRole === "end_user" ? parsedMeta.userRole : null;
+          if (!aiReplyRole) {
+            detectedRole = outputFormatType === "C" ? null : metaRole;
+            shouldClearAiRole = outputFormatType === "C" || parsedMeta.userRole === "unknown";
+          }
         } catch (metaError) {
           console.error("解析角色元数据失败:", metaError);
         }
@@ -790,13 +867,16 @@ export default function Home() {
       setConversations((prev) => {
         const updated = prev.map((c) => {
           if (c.id === currentConversationId) {
-            const shouldApplyAiRole = detectedRole && c.context?.roleSource !== "manual";
+            const canUpdateAiRole = c.context?.roleSource !== "manual";
+            const nextContext = canUpdateAiRole && detectedRole
+              ? { ...c.context, confirmedIdentity: detectedRole, roleSource: "ai" as const }
+              : canUpdateAiRole && shouldClearAiRole
+                ? { ...c.context, confirmedIdentity: "unknown" as const, roleSource: null }
+                : c.context;
             return {
               ...c,
               messages: [...c.messages, assistantMessage],
-              context: shouldApplyAiRole
-                ? { ...c.context, confirmedIdentity: detectedRole, roleSource: "ai" as const }
-                : c.context,
+              context: nextContext,
             };
           }
           return c;
