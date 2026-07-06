@@ -193,19 +193,20 @@
 
 【输出格式】
 必须使用以下 DICLOAK_SECTION 机器标识包裹正文；标识原样保留，不翻译、不改写，前端会隐藏标识并显示固定标题。
+必须使用以下 短 section 标签包裹正文；标签原样保留，不翻译、不改写，前端会隐藏标签并显示固定标题。
 
-<<<DICLOAK_SECTION:question>>>
+[[question]]
 xxx
-<<<END_DICLOAK_SECTION:question>>>
+[[/question]]
 
-<<<DICLOAK_SECTION:main>>>
+[[main]]
 xxx
-<<<END_DICLOAK_SECTION:main>>>
+[[/main]]
 
-<<<DICLOAK_SECTION:supplement>>>
+[[supplement]]
 （可选，若有与回复1不同的补充知识则输出，否则省略）
-<<<END_DICLOAK_SECTION:supplement>>>
+[[/supplement]]
 
-<<<DICLOAK_SECTION:info>>>
+[[info]]
 （可选，若有信息收集或次优建议则输出，否则省略）
-<<<END_DICLOAK_SECTION:info>>>
+[[/info]]

@@ -71,8 +71,8 @@ function normalizeMachineSectionMarkers(content: string): string {
   return content
     // Repair common incomplete marker variants produced by the model, for example
     // <<<DICLOAK_S:main>>> or <<<END_DICLOAKECTION:main>>>.
-    .replace(/<<<\s*DICLOAK_(?:S|SECT(?:ION)?|SECTION)\s*:\s*([a-z_]+)\s*>>>/gi, (_, type: string) => `<<<DICLOAK_SECTION:${type.toLowerCase()}>>>`)
-    .replace(/<<<\s*END_DICLOAK_(?:S|SECT(?:ION)?|ECTION|SECTION)\s*:\s*([a-z_]+)\s*>>>/gi, (_, type: string) => `<<<END_DICLOAK_SECTION:${type.toLowerCase()}>>>`);
+    .replace(/<<<\s*DICLO(?:AK|K)?_(?:S|SECT(?:ION)?|SECTION)\s*:\s*([a-z_]+)\s*>>>/gi, (_, type: string) => `<<<DICLOAK_SECTION:${type.toLowerCase()}>>>`)
+    .replace(/<<<\s*END_DICLO(?:AK|K)?_(?:S|SECT(?:ION)?|ECTION|SECTION)\s*:\s*([a-z_]+)\s*>>>/gi, (_, type: string) => `<<<END_DICLOAK_SECTION:${type.toLowerCase()}>>>`);
 }
 
 function stripStructuredReplyPayload(content: string): string {
@@ -82,6 +82,7 @@ function stripStructuredReplyPayload(content: string): string {
 function stripMachineSectionMarkers(content: string): string {
   return stripStructuredReplyPayload(content)
     .replace(/<<<\s*(?:END_)?DICLOAK_[A-Z_]*\s*:\s*[a-z_]+\s*>>>/gi, "")
+    .replace(/\[\[\/?\s*(?:question|identity|main|common|client|end_user|supplement|info)\s*\]\]/gi, "")
     .trim();
 }
 
@@ -110,6 +111,51 @@ function parseStructuredReplyPayload(content: string): ParsedReply[] | null {
     console.error("[STRUCTURED_REPLY Parse Error]", error);
     return null;
   }
+}
+
+
+function getReplyTypeLabel(type: ParsedReply["type"]): string {
+  const labels: Record<ParsedReply["type"], string> = {
+    question: "问题类型",
+    identity: "身份状态",
+    main: "主回复",
+    common: "通用回复",
+    client: "客户回复",
+    end_user: "终端用户回复",
+    supplement: "补充建议",
+    info: "需要补充的信息",
+  };
+
+  return labels[type];
+}
+
+function formatReplyTypes(types: ParsedReply["type"][]): string {
+  return types.length > 0 ? types.map(getReplyTypeLabel).join("、") : "无";
+}
+
+function getStructuredReplyTypes(content: string): ParsedReply["type"][] {
+  const structuredReplies = parseStructuredReplyPayload(content);
+  return structuredReplies?.map((reply) => reply.type) ?? [];
+}
+
+function getRawMarkerReplyTypes(content: string): ParsedReply["type"][] {
+  const normalizedContent = normalizeMachineSectionMarkers(stripStructuredReplyPayload(content));
+  const markerRegexes = [
+    /\[\[\s*(question|identity|main|common|client|end_user|supplement|info)\s*\]\](?:[\s\S]*?)\[\[\/\s*\1\s*\]\]/gi,
+    /<<<DICLOAK_SECTION:(question|identity|main|common|client|end_user|supplement|info)>>>(?:[\s\S]*?)<<<END_DICLOAK_SECTION:\1>>>/gi,
+  ];
+  const types: ParsedReply["type"][] = [];
+
+  for (const markerRegex of markerRegexes) {
+    for (const match of normalizedContent.matchAll(markerRegex)) {
+      const type = match[1].toLowerCase();
+      if (isSectionType(type) && !types.includes(type)) {
+        types.push(type);
+      }
+    }
+  }
+
+  return types;
 }
 
 function normalizeHeaderText(header: string): string {
@@ -200,32 +246,36 @@ function parseReplies(content: string, metaData: MetaData | null): ParsedReply[]
   }
 
   const normalizedMachineContent = normalizeMachineSectionMarkers(displayContent);
+  const foundTypes = new Set<ParsedReply["type"]>();
+  const appendParsedSection = (typeValue: string, value: string): void => {
+    const type = typeValue.toLowerCase();
+    if (!isSectionType(type) || foundTypes.has(type)) return;
+
+    const sectionText = sanitizeAssistantText(value);
+    if (!sectionText) return;
+
+    foundTypes.add(type);
+    result.push({ type, content: sectionText });
+  };
+
+  const simpleTagRegex = /\[\[\s*(question|identity|main|common|client|end_user|supplement|info)\s*\]\]\s*([\s\S]*?)\s*\[\[\/\s*\1\s*\]\]/gi;
+  for (const match of normalizedMachineContent.matchAll(simpleTagRegex)) {
+    appendParsedSection(match[1], match[2] || "");
+  }
+
   const markerRegex =
     /<<<DICLOAK_SECTION:(question|identity|main|common|client|end_user|supplement|info)>>>\s*([\s\S]*?)\s*<<<END_DICLOAK_SECTION:\1>>>/gi;
-  const markerMatches = [...normalizedMachineContent.matchAll(markerRegex)];
+  for (const match of normalizedMachineContent.matchAll(markerRegex)) {
+    appendParsedSection(match[1], match[2] || "");
+  }
 
-  if (markerMatches.length > 0) {
-    const foundTypes = new Set<ParsedReply["type"]>();
-
-    for (const match of markerMatches) {
-      const type = match[1].toLowerCase();
-      if (!isSectionType(type) || foundTypes.has(type)) continue;
-
-      const sectionText = sanitizeAssistantText(match[2] || "");
-      if (!sectionText) continue;
-
-      foundTypes.add(type);
-      result.push({ type, content: sectionText });
-    }
-
-    if (result.length > 0) {
+  if (result.length > 0) {
       if (finalMeta?.problemType === "troubleshooting" && (finalMeta.userRole === "client" || finalMeta.userRole === "end_user")) {
         return result.filter((section) => !["common", "client", "end_user"].includes(section.type));
       }
 
       return result;
     }
-  }
 
   /**
    * 直接扫描整段文本中的板块标题，而不是按行判断。
@@ -478,9 +528,25 @@ function AIReplies({
     }
     return true;
   });
+
+  const structuredTypes = getStructuredReplyTypes(cleanContent);
+  const rawMarkerTypes = getRawMarkerReplyTypes(cleanContent);
+  const displayedTypes = filtered.map((reply) => reply.type);
   
   return (
     <div className="space-y-4">
+      {metaData && (
+        <details className="rounded-md border border-dashed border-gray-300 bg-white/60 px-3 py-2 text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-400">
+          <summary className="cursor-pointer select-none font-medium text-gray-600 dark:text-gray-300">回复结构诊断</summary>
+          <div className="mt-2 space-y-1 leading-relaxed">
+            <p>AI 判定身份：{metaData.userRoleLabel || metaData.userRole || "未知"}{metaData.roleSource ? `（${metaData.roleSource === "manual" ? "人工确认" : "AI 推测"}）` : ""}</p>
+            <p>输出格式：{metaData.outputFormatType || "未知"}；问题类型：{metaData.problemTypeLabel || metaData.problemType || "未知"}</p>
+            <p>结构化载荷模块：{formatReplyTypes(structuredTypes)}</p>
+            <p>AI 原文标识模块：{formatReplyTypes(rawMarkerTypes)}</p>
+            <p>当前实际显示模块：{formatReplyTypes(displayedTypes)}</p>
+          </div>
+        </details>
+      )}
       {filtered.map((reply, index) => (
         <ReplyCard
           key={index}
