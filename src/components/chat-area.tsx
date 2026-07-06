@@ -356,7 +356,11 @@ function extractPureContent(text: string): string {
     /^\[回复\s*\d+\]\s*/i,
     /^\[回复\d+\]\s*/i,
     /^回复\s*\d+\s*[:：]?\s*/i,
-    /^\[.*?\]\s*/,
+    /^\[FAQ_ID:\s*[^\]]+\]\s*/i,
+    /^\[FUNCTION_ID:\s*[^\]]+\]\s*/i,
+    /^\[META\][\s\S]*?\[\/META\]\s*/i,
+    /^\[STRUCTURED_REPLY\][\s\S]*?\[\/STRUCTURED_REPLY\]\s*/i,
+    /^\[\[\/?\s*(?:question|identity|main|common|client|end_user|supplement|info)\s*\]\]\s*/i,
   ];
 
   for (const pattern of patterns) {
