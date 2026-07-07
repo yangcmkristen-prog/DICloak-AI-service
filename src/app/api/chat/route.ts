@@ -434,6 +434,95 @@ async function getBackendApiConfig(): Promise<{
 }
 
 // 获取系统配置版本信息
+
+type ChatApiConfig = {
+  provider: string;
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+};
+
+function getOpenAICompatibleBaseUrl(config: ChatApiConfig): string {
+  if (config.baseUrl) return config.baseUrl;
+  if (config.provider === 'aliyun') return 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+  if (config.provider === 'gpt') return 'https://api.tokenlab.sh/v1';
+  return 'https://api.deepseek.com';
+}
+
+function getDefaultModelForProvider(config: ChatApiConfig): string {
+  if (config.model) return config.model;
+  if (config.provider === 'aliyun') return 'qwen-mt-flash';
+  if (config.provider === 'gpt') return 'gpt-5.4';
+  if (config.provider === 'deepseek') return 'deepseek-chat';
+  return 'doubao-seed-2-0-lite-260215';
+}
+
+async function callModelOnce(config: ChatApiConfig, messages: Array<{ role: 'system' | 'user'; content: string }>, temperature: number): Promise<string> {
+  const isOpenAICompatibleProvider = config.provider === 'deepseek' || config.provider === 'aliyun' || config.provider === 'gpt';
+
+  if (isOpenAICompatibleProvider) {
+    const requestMessages = config.provider === 'aliyun'
+      ? messages.map((message) => ({ role: message.role === 'system' ? 'user' : message.role, content: message.content }))
+      : messages;
+    const response = await fetch(`${getOpenAICompatibleBaseUrl(config)}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: getDefaultModelForProvider(config),
+        messages: requestMessages,
+        temperature,
+      }),
+    });
+    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } };
+    if (!response.ok) {
+      throw new Error(data.error?.message || `模型质检失败: ${response.status} ${response.statusText}`);
+    }
+    return data.choices?.[0]?.message?.content?.trim() || '';
+  }
+
+  const llmConfig = new Config({
+    apiKey: config.apiKey,
+    baseUrl: config.baseUrl || 'https://api.coze.cn/v1',
+  });
+  const client = new LLMClient(llmConfig);
+  let fullContent = '';
+  for await (const chunk of client.stream(messages, { model: getDefaultModelForProvider(config), temperature })) {
+    const content = extractTextFromLlmChunk(chunk);
+    if (content) fullContent += content;
+  }
+  return fullContent.trim();
+}
+
+async function reviewCustomerFacingReply(config: ChatApiConfig, draft: string, referenceContext: string, languageRule: string): Promise<string> {
+  if (!draft.trim() || config.provider !== 'gpt' || !config.apiKey) return draft;
+
+  const systemPrompt = `You are a strict QA editor for DICloak customer-service replies.
+Only fix factual/formatting corruption introduced during generation. Output only the corrected reply.
+
+Checklist:
+- Preserve the original reply structure and section tags exactly.
+- Compare the draft against the reference context.
+- Fix missing punctuation that changes sentence boundaries.
+- Restore incomplete product/function names from the reference context, such as DICloak and Open API.
+- Restore decimal points in prices and exact numeric values from the pricing/reference context.
+- Restore help-center URLs exactly from the reference context.
+- Do not add new facts, new steps, source markers, explanations, or Markdown fences.
+- ${languageRule}`;
+
+  const reviewed = await callModelOnce(config, [
+    { role: 'system', content: systemPrompt },
+    {
+      role: 'user',
+      content: `Reference context (authoritative, may contain internal IDs; do not output IDs):\n${referenceContext.slice(0, 18000)}\n\nDraft reply to QA and correct:\n${draft}`,
+    },
+  ], 0);
+
+  return reviewed || draft;
+}
+
 async function getSystemConfigVersion(): Promise<{ version: number; updatedAt: string } | null> {
   try {
     const client = getSupabaseClient();
@@ -1311,7 +1400,8 @@ export async function POST(request: NextRequest) {
 ## FAQ Selection
 - Choose the FAQ with HIGHEST Score
 - Prefer FAQs with Score >= 10
-Use provided knowledge IDs only for internal source selection. Do NOT output [FAQ_ID: xxx], [TS_ID: xxx], [FUNCTION_ID: xxx], file names, or any other source marker in customer-facing replies
+- Use provided knowledge IDs only for internal source selection. Do NOT output [FAQ_ID: xxx], [TS_ID: xxx], [FUNCTION_ID: xxx], file names, or any other source marker in customer-facing replies
+- Preserve punctuation, decimal points, product/function names, and URLs exactly as provided by the knowledge base or pricing data. Do not shorten DICloak to DIClo, do not change Open API to Open, do not drop the decimal point in prices such as 28.8, and copy help-center URLs verbatim
 
 ## Term Translation
 - Replace {{UI terms}} with translated terms
@@ -2092,7 +2182,7 @@ The customer requested step-by-step setup instructions. Before giving any number
           knowledgeContext += "NOTE: This is SUPPLEMENTARY information. Priority data and deterministic backend facts above override FAQ content when there is any conflict.\n";
         }
         knowledgeContext += "INTERNAL: Each item has a FAQ ID for source selection only. Do NOT output [FAQ_ID: xxx] or any source marker.\n";
-        knowledgeContext += "STRICT: For FAQ answers, use StandardAnswer as the factual boundary. Do NOT add buttons, paths, permissions, password/expiry settings, quota details, or extra steps that are not explicitly in StandardAnswer or another provided context item.\n";
+        knowledgeContext += "STRICT: For FAQ answers, use StandardAnswer as the factual boundary. Do NOT add buttons, paths, permissions, password/expiry settings, quota details, or extra steps that are not explicitly in StandardAnswer or another provided context item. Preserve StandardAnswer punctuation, feature names, decimal prices, and URLs exactly.\n";
         knowledgeContext += "HINT: Higher score = more relevant. Prefer FAQs with score >= 10.\n\n";
         faqForContext.forEach((m, index) => {
           const item = m.item;
@@ -2125,7 +2215,7 @@ The customer requested step-by-step setup instructions. Before giving any number
       if (matchedTs.length > 0) {
         knowledgeContext += "## Troubleshooting Knowledge Base (sorted by relevance score)\n";
         knowledgeContext += "INTERNAL: Each item has a TS ID for source selection only. Do NOT output [TS_ID: xxx] or any source marker.\n";
-        knowledgeContext += "STRICT: Use provided StandardAnswer fields as the factual boundary. Do NOT add unprovided buttons, paths, permissions, password/expiry settings, quota details, or extra steps.\n";
+        knowledgeContext += "STRICT: Use provided StandardAnswer fields as the factual boundary. Do NOT add unprovided buttons, paths, permissions, password/expiry settings, quota details, or extra steps. Preserve StandardAnswer punctuation, feature names, decimal prices, and URLs exactly.\n";
         knowledgeContext += "HINT: Higher score = more relevant. Prefer items with score >= 10.\n\n";
         matchedTs.slice(0, 20).forEach((m, index) => {
           const item = m.item;
@@ -2320,11 +2410,7 @@ The customer requested step-by-step setup instructions. Before giving any number
       
       if (isOpenAICompatibleProvider) {
         // DeepSeek / 阿里百炼 / GPT(TokenLab) 使用 OpenAI 兼容 API
-        const baseUrl = config.baseUrl || (config.provider === 'aliyun'
-          ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-          : config.provider === 'gpt'
-            ? 'https://api.tokenlab.sh/v1'
-            : 'https://api.deepseek.com');
+        const baseUrl = getOpenAICompatibleBaseUrl(config);
         const requestMessages = config.provider === 'aliyun'
           ? messages.map(m => ({ role: m.role === 'system' ? 'user' : m.role, content: m.content }))
           : messages.map(m => ({ role: m.role, content: m.content }));
@@ -2336,7 +2422,7 @@ The customer requested step-by-step setup instructions. Before giving any number
             'Authorization': `Bearer ${config.apiKey}`,
           },
           body: JSON.stringify({
-            model: config.model || (config.provider === 'aliyun' ? 'qwen-mt-flash' : config.provider === 'gpt' ? 'gpt-5.4' : 'deepseek-chat'),
+            model: getDefaultModelForProvider(config),
             messages: requestMessages,
             temperature: responseShouldUsePricingTable ? 0.2 : 0.7,
             stream: true,
@@ -2391,7 +2477,7 @@ The customer requested step-by-step setup instructions. Before giving any number
   
         const client = new LLMClient(llmConfig);
         const llmConfigStream = {
-          model: config.model || "doubao-seed-2-0-lite-260215",
+          model: getDefaultModelForProvider(config),
           temperature: responseShouldUsePricingTable ? 0.2 : 0.7,
         };
   
@@ -2405,9 +2491,14 @@ The customer requested step-by-step setup instructions. Before giving any number
         console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
       }
       if (fullContent) {
+        const referenceContextForReview = knowledgeContext;
+        const reviewedContent = await reviewCustomerFacingReply(config, fullContent, referenceContextForReview, languageRule).catch((reviewError: unknown) => {
+          console.error('[AI Review] 回复质检失败，使用原始回复:', reviewError);
+          return fullContent;
+        });
         const intentCorrectedContent = problemType === 'intent_unclear' && needsSubscriptionSourceClarification(currentMessageText)
-          ? enforceSubscriptionSourceClarificationContent(fullContent, effectiveLanguage)
-          : fullContent;
+          ? enforceSubscriptionSourceClarificationContent(reviewedContent, effectiveLanguage)
+          : reviewedContent;
         const correctedContent = enforceSeatCalculationCorrections(intentCorrectedContent, actualUserCount, effectiveLanguage);
         const sanitizedContent = sanitizeCustomerFacingContent(correctedContent, effectiveLanguage);
         controller.enqueue(encoder.encode(`${sanitizedContent}${buildStructuredReplyPayload(sanitizedContent)}`));
