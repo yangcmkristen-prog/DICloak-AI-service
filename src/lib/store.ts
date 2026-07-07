@@ -57,6 +57,11 @@ export const MODEL_OPTIONS = [
   { value: 'minimax-m2-5-260212', label: 'MiniMax M2.5', provider: 'coze' },
   { value: 'minimax-m2-7-260318', label: 'MiniMax M2.7', provider: 'coze' },
   { value: 'qwen-3-5-plus-260215', label: 'Qwen 3.5', provider: 'coze' },
+  // GPT / TokenLab 模型（OpenAI 兼容）
+  { value: 'gpt-5.4', label: 'GPT-5.4', provider: 'gpt' },
+  { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini', provider: 'gpt' },
+  { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', provider: 'gpt' },
+  { value: 'gpt-5.2', label: 'GPT-5.2', provider: 'gpt' },
   // 阿里百炼模型
   { value: 'qwen-mt-flash', label: 'Qwen MT Flash（翻译）', provider: 'aliyun' },
   { value: 'qwen-vl-ocr', label: 'Qwen VL OCR（图片识别）', provider: 'aliyun' },
@@ -81,6 +86,13 @@ export const PROVIDER_INFO: Record<string, {
     defaultModel: 'doubao-seed-2-0-lite-260215',
     baseUrl: '',
     keyPlaceholder: '输入你的 Coze API Token',
+  },
+  gpt: {
+    label: 'GPT / TokenLab',
+    name: 'GPT / TokenLab',
+    defaultModel: 'gpt-5.4',
+    baseUrl: 'https://api.tokenlab.sh/v1',
+    keyPlaceholder: '输入你的 TokenLab API Key (sk-xxx)',
   },
   aliyun: {
     label: '阿里百炼',

@@ -2301,10 +2301,11 @@ The customer requested step-by-step setup instructions. Before giving any number
     console.log("[AI DEBUG] knowledgeContext 长度:", knowledgeContext.length);
 
     // 检查 API Key
-    const isOpenAICompatibleProvider = config.provider === 'deepseek' || config.provider === 'aliyun';
+    const isOpenAICompatibleProvider = config.provider === 'deepseek' || config.provider === 'aliyun' || config.provider === 'gpt';
 
     if (isOpenAICompatibleProvider && !config.apiKey) {
-      return NextResponse.json({ error: `请先配置 ${config.provider === 'aliyun' ? '阿里百炼' : 'DeepSeek'} API Key` }, { status: 400 });
+      const providerName = config.provider === 'aliyun' ? '阿里百炼' : config.provider === 'gpt' ? 'GPT / TokenLab' : 'DeepSeek';
+      return NextResponse.json({ error: `请先配置 ${providerName} API Key` }, { status: 400 });
     }
 
     const streamChatResponse = async (controller: ReadableStreamDefaultController<Uint8Array>): Promise<void> => {
@@ -2314,8 +2315,12 @@ The customer requested step-by-step setup instructions. Before giving any number
       controller.enqueue(encoder.encode(`[META]${metaData}[/META]\n`));
       
       if (isOpenAICompatibleProvider) {
-        // DeepSeek / 阿里百炼使用 OpenAI 兼容 API
-        const baseUrl = config.baseUrl || (config.provider === 'aliyun' ? 'https://dashscope.aliyuncs.com/compatible-mode/v1' : 'https://api.deepseek.com');
+        // DeepSeek / 阿里百炼 / GPT(TokenLab) 使用 OpenAI 兼容 API
+        const baseUrl = config.baseUrl || (config.provider === 'aliyun'
+          ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+          : config.provider === 'gpt'
+            ? 'https://api.tokenlab.sh/v1'
+            : 'https://api.deepseek.com');
         const requestMessages = config.provider === 'aliyun'
           ? messages.map(m => ({ role: m.role === 'system' ? 'user' : m.role, content: m.content }))
           : messages.map(m => ({ role: m.role, content: m.content }));
@@ -2327,7 +2332,7 @@ The customer requested step-by-step setup instructions. Before giving any number
             'Authorization': `Bearer ${config.apiKey}`,
           },
           body: JSON.stringify({
-            model: config.model || (config.provider === 'aliyun' ? 'qwen-mt-flash' : 'deepseek-chat'),
+            model: config.model || (config.provider === 'aliyun' ? 'qwen-mt-flash' : config.provider === 'gpt' ? 'gpt-5.4' : 'deepseek-chat'),
             messages: requestMessages,
             temperature: responseShouldUsePricingTable ? 0.2 : 0.7,
             stream: true,
@@ -2335,7 +2340,8 @@ The customer requested step-by-step setup instructions. Before giving any number
         });
   
         if (!response.ok) {
-          throw new Error(`${config.provider === 'aliyun' ? 'Aliyun Bailian' : 'DeepSeek'} API error: ${response.status} ${response.statusText}`);
+          const providerName = config.provider === 'aliyun' ? 'Aliyun Bailian' : config.provider === 'gpt' ? 'GPT / TokenLab' : 'DeepSeek';
+          throw new Error(`${providerName} API error: ${response.status} ${response.statusText}`);
         }
   
         const reader = response.body?.getReader();

@@ -155,9 +155,11 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
   const baseUrl = config.baseUrl
     || (config.provider === 'deepseek'
       ? 'https://api.deepseek.com'
-      : config.provider === 'aliyun'
-        ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-        : 'https://api.coze.cn/v1');
+      : config.provider === 'gpt'
+        ? 'https://api.tokenlab.sh/v1'
+        : config.provider === 'aliyun'
+          ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+          : 'https://api.coze.cn/v1');
   const isAliyunTranslationModel = config.provider === 'aliyun' && config.model.startsWith('qwen-mt-') && translationOptions;
   const messages = isAliyunTranslationModel
     ? [{ role: 'user', content: userPrompt }]
@@ -168,7 +170,7 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
           { role: 'user', content: userPrompt },
         ];
   const requestBody: Record<string, unknown> = {
-    model: config.model || 'doubao-seed-2-0-lite-260215',
+    model: config.model || (config.provider === 'gpt' ? 'gpt-5.4' : 'doubao-seed-2-0-lite-260215'),
     messages,
     temperature,
   };

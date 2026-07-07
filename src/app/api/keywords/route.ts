@@ -28,7 +28,7 @@ async function getBackendApiConfig(): Promise<{
   }
 }
 
-// 统一的 AI 流式调用函数，支持 Coze 和 DeepSeek
+// 统一的 AI 流式调用函数，支持 Coze 和 OpenAI 兼容服务
 async function callAIStream(
   systemPrompt: string,
   userPrompt: string,
@@ -39,9 +39,14 @@ async function callAIStream(
     { role: "user" as const, content: userPrompt },
   ];
 
-  if (config.provider === 'deepseek') {
-    // DeepSeek 使用 OpenAI 兼容 API (不需要 /v1 后缀)
-    const baseUrl = config.baseUrl || 'https://api.deepseek.com';
+  const isOpenAICompatibleProvider = config.provider === 'deepseek' || config.provider === 'gpt' || config.provider === 'aliyun';
+
+  if (isOpenAICompatibleProvider) {
+    const baseUrl = config.baseUrl || (config.provider === 'gpt'
+      ? 'https://api.tokenlab.sh/v1'
+      : config.provider === 'aliyun'
+        ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+        : 'https://api.deepseek.com');
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -49,7 +54,7 @@ async function callAIStream(
         'Authorization': `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify({
-        model: config.model || 'deepseek-chat',
+        model: config.model || (config.provider === 'gpt' ? 'gpt-5.4' : config.provider === 'aliyun' ? 'qwen-mt-flash' : 'deepseek-chat'),
         messages: messages.map(m => ({ role: m.role, content: m.content })),
         temperature: 0.3,
         stream: true,
@@ -57,7 +62,7 @@ async function callAIStream(
     });
 
     if (!response.ok) {
-      throw new Error(`DeepSeek API error: ${response.status} ${response.statusText}`);
+      throw new Error(`${config.provider} API error: ${response.status} ${response.statusText}`);
     }
 
     const reader = response.body?.getReader();
@@ -128,8 +133,8 @@ export async function POST(request: NextRequest) {
     const config = await getBackendApiConfig() || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
 
     // 检查 API Key
-    if (config.provider === 'deepseek' && !config.apiKey) {
-      return NextResponse.json({ error: "请先配置 DeepSeek API Key" }, { status: 400 });
+    if ((config.provider === 'deepseek' || config.provider === 'gpt' || config.provider === 'aliyun') && !config.apiKey) {
+      return NextResponse.json({ error: "请先配置模型 API Key" }, { status: 400 });
     }
 
     // 关键词提取的 System Prompt（方案3：一次调用同时提取+翻译）

@@ -133,11 +133,15 @@ export async function POST(request: NextRequest) {
 
     // 根据 provider 确定 baseUrl 和 model
     const baseUrl = config.baseUrl || (
-      config.provider === 'deepseek' 
-        ? 'https://api.deepseek.com' 
-        : 'https://api.coze.cn/v1'
+      config.provider === 'deepseek'
+        ? 'https://api.deepseek.com'
+        : config.provider === 'gpt'
+          ? 'https://api.tokenlab.sh/v1'
+          : config.provider === 'aliyun'
+            ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+            : 'https://api.coze.cn/v1'
     );
-    const model = config.model || 'deepseek-chat';
+    const model = config.model || (config.provider === 'gpt' ? 'gpt-5.4' : 'deepseek-chat');
 
     console.log('[CLASSIFY] 使用配置:', { provider: config.provider, model, baseUrl });
 
