@@ -5,6 +5,10 @@ import type { KnowledgeBase } from '@/lib/types';
 
 function sanitizeCustomerFacingContent(content: string, language: string = 'zh'): string {
   let sanitized = content
+    .replace(/\[(?:FAQ_ID|TS_ID|FUNCTION_ID):\s*[^\]]+\]\s*/gi, '')
+    .replace(/\bDIClo\b(?!ak)/g, 'DICloak')
+    .replace(/https?:\/\/help\.diclo\.com/gi, 'https://help.dicloak.com')
+    .replace(/popup\s*-?\s*appears/gi, 'popup-appears')
     .replace(/根据(?:当前)?(?:价格功能表|Pricing Feature Comparison Table|pricing table)(?:中的)?(?:信息|数据)?[，,：:]?/gi, '')
     .replace(/(?:当前)?(?:价格功能表|Pricing Feature Comparison Table|pricing table)(?:显示|中显示|记录|中记录)[，,：:]?/gi, '')
     .replace(/(?:FAQ|价格功能表|Pricing Feature Comparison Table|pricing table|检索结果|表格显示)[：:]/gi, '')
@@ -1307,7 +1311,7 @@ export async function POST(request: NextRequest) {
 ## FAQ Selection
 - Choose the FAQ with HIGHEST Score
 - Prefer FAQs with Score >= 10
-- Start your reply with [FAQ_ID: xxx], [TS_ID: xxx], or [FUNCTION_ID: xxx] when you used the corresponding knowledge source
+Use provided knowledge IDs only for internal source selection. Do NOT output [FAQ_ID: xxx], [TS_ID: xxx], [FUNCTION_ID: xxx], file names, or any other source marker in customer-facing replies
 
 ## Term Translation
 - Replace {{UI terms}} with translated terms
@@ -2037,7 +2041,7 @@ The customer requested step-by-step setup instructions. Before giving any number
         knowledgeContext += "## Function Knowledge Base (sorted by relevance score)\n";
         knowledgeContext += "IMPORTANT: For feature capability / function usage questions, you MUST use this function knowledge before saying no related knowledge was found.\n";
         knowledgeContext += "Use EntryPath, UIPosition, Prerequisites and Steps to answer how the feature works.\n";
-        knowledgeContext += "If you use this section, start your reply with [FUNCTION_ID: xxx].\n\n";
+        knowledgeContext += "INTERNAL: Each item has a FUNCTION ID for source selection only. Do NOT output [FUNCTION_ID: xxx] or any source marker.\n\n";
 
         matchedFunctionKnowledge.slice(0, 12).forEach((m, index) => {
           const item = m.item;
@@ -2087,7 +2091,7 @@ The customer requested step-by-step setup instructions. Before giving any number
         if (finalIsApiQuestion || finalIsPricingQuestion) {
           knowledgeContext += "NOTE: This is SUPPLEMENTARY information. Priority data and deterministic backend facts above override FAQ content when there is any conflict.\n";
         }
-        knowledgeContext += "IMPORTANT: You MUST start your reply with [FAQ_ID: xxx] where xxx is the FAQ ID you used.\n";
+        knowledgeContext += "INTERNAL: Each item has a FAQ ID for source selection only. Do NOT output [FAQ_ID: xxx] or any source marker.\n";
         knowledgeContext += "STRICT: For FAQ answers, use StandardAnswer as the factual boundary. Do NOT add buttons, paths, permissions, password/expiry settings, quota details, or extra steps that are not explicitly in StandardAnswer or another provided context item.\n";
         knowledgeContext += "HINT: Higher score = more relevant. Prefer FAQs with score >= 10.\n\n";
         faqForContext.forEach((m, index) => {
@@ -2120,7 +2124,7 @@ The customer requested step-by-step setup instructions. Before giving any number
       // 构建 Troubleshooting 上下文
       if (matchedTs.length > 0) {
         knowledgeContext += "## Troubleshooting Knowledge Base (sorted by relevance score)\n";
-        knowledgeContext += "IMPORTANT: You MUST start your reply with [TS_ID: xxx] where xxx is the FAQ ID you used.\n";
+        knowledgeContext += "INTERNAL: Each item has a TS ID for source selection only. Do NOT output [TS_ID: xxx] or any source marker.\n";
         knowledgeContext += "STRICT: Use provided StandardAnswer fields as the factual boundary. Do NOT add unprovided buttons, paths, permissions, password/expiry settings, quota details, or extra steps.\n";
         knowledgeContext += "HINT: Higher score = more relevant. Prefer items with score >= 10.\n\n";
         matchedTs.slice(0, 20).forEach((m, index) => {
