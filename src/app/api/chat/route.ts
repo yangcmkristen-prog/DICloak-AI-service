@@ -496,8 +496,22 @@ async function callModelOnce(config: ChatApiConfig, messages: Array<{ role: 'sys
   return fullContent.trim();
 }
 
+function shouldReviewCustomerFacingReply(config: ChatApiConfig, draft: string, referenceContext: string): boolean {
+  if (config.provider !== 'gpt' || !config.apiKey || !draft.trim()) return false;
+
+  const reviewSignals = [
+    /https?:\/\//i,
+    /\b(?:Free|Base|Plus|Share\+)\b/i,
+    /\b(?:DIClo|DICloak|Open API|Share profile|Transfer profile)\b/i,
+    /(?:\d+(?:\.\d+)?\s*(?:美元|USD|\$|元|月|年|席位|成员|环境))/i,
+    /(?:教程|指南|帮助|help|guide|quick start|入门)/i,
+  ];
+
+  return reviewSignals.some((pattern) => pattern.test(draft) || pattern.test(referenceContext));
+}
+
 async function reviewCustomerFacingReply(config: ChatApiConfig, draft: string, referenceContext: string, languageRule: string): Promise<string> {
-  if (!draft.trim() || config.provider !== 'gpt' || !config.apiKey) return draft;
+  if (!shouldReviewCustomerFacingReply(config, draft, referenceContext)) return draft;
 
   const systemPrompt = `You are a strict QA editor for DICloak customer-service replies.
 Only fix factual/formatting corruption introduced during generation. Output only the corrected reply.
@@ -2405,8 +2419,16 @@ The customer requested step-by-step setup instructions. Before giving any number
     const streamChatResponse = async (controller: ReadableStreamDefaultController<Uint8Array>): Promise<void> => {
       // 首先发送元数据给前端
       const encoder = new TextEncoder();
+      const statusStartedAt = Date.now();
+      const enqueueStatus = (label: string, detail?: string): void => {
+        const elapsedMs = Date.now() - statusStartedAt;
+        controller.enqueue(encoder.encode(`[STATUS]${JSON.stringify({ label, detail, elapsedMs })}[/STATUS]\n`));
+      };
       let fullContent = "";
       controller.enqueue(encoder.encode(`[META]${metaData}[/META]\n`));
+      enqueueStatus("正在整理上下文", "已完成知识库匹配，准备请求模型");
+      
+      enqueueStatus("正在请求模型", "等待首个响应片段");
       
       if (isOpenAICompatibleProvider) {
         // DeepSeek / 阿里百炼 / GPT(TokenLab) 使用 OpenAI 兼容 API
@@ -2446,6 +2468,7 @@ The customer requested step-by-step setup instructions. Before giving any number
           const chunk = decoder.decode(value, { stream: true });
           if (!firstTokenLogged && chunk) {
             console.log(`[PERF][CHAT] llm_first_token_ms=${Date.now() - tLlmStart}`);
+            enqueueStatus("AI 正在生成回复", "已收到模型输出");
             firstTokenLogged = true;
           }
           const lines = chunk.split('\n');
@@ -2485,6 +2508,11 @@ The customer requested step-by-step setup instructions. Before giving any number
           const content = extractTextFromLlmChunk(chunk);
   
           if (content) {
+            if (!firstTokenLogged) {
+              console.log(`[PERF][CHAT] llm_first_token_ms=${Date.now() - tLlmStart}`);
+              enqueueStatus("AI 正在生成回复", "已收到模型输出");
+              firstTokenLogged = true;
+            }
             fullContent += content;
           }
         }
@@ -2492,10 +2520,19 @@ The customer requested step-by-step setup instructions. Before giving any number
       }
       if (fullContent) {
         const referenceContextForReview = knowledgeContext;
-        const reviewedContent = await reviewCustomerFacingReply(config, fullContent, referenceContextForReview, languageRule).catch((reviewError: unknown) => {
-          console.error('[AI Review] 回复质检失败，使用原始回复:', reviewError);
-          return fullContent;
-        });
+        const shouldRunReview = shouldReviewCustomerFacingReply(config, fullContent, referenceContextForReview);
+        if (shouldRunReview) {
+          enqueueStatus("正在复核回复", "检查标点、功能名、价格和链接");
+        } else {
+          enqueueStatus("正在完成回复", "低风险内容，跳过二次复核");
+        }
+        const reviewedContent = shouldRunReview
+          ? await reviewCustomerFacingReply(config, fullContent, referenceContextForReview, languageRule).catch((reviewError: unknown) => {
+              console.error('[AI Review] 回复质检失败，使用原始回复:', reviewError);
+              return fullContent;
+            })
+          : fullContent;
+        enqueueStatus("正在整理最终回复");
         const intentCorrectedContent = problemType === 'intent_unclear' && needsSubscriptionSourceClarification(currentMessageText)
           ? enforceSubscriptionSourceClarificationContent(reviewedContent, effectiveLanguage)
           : reviewedContent;

@@ -19,6 +19,16 @@ export interface Message {
   userRole?: string;              // 用户身份
   usedFaqIds?: string[];          // 使用的 FAQ ID
   usedApiIds?: string[];          // 使用的 API ID
+  generationDurationMs?: number;  // AI 生成总耗时
+}
+
+export interface GenerationStatus {
+  label: string;
+  detail?: string;
+  startedAt: number;
+  elapsedMs?: number;
+  done?: boolean;
+  totalMs?: number;
 }
 
 // 对话上下文 - 用于多轮对话记忆

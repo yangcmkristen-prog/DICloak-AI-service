@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Conversation, ConversationRole, FAQItem, ImageAttachment, KnowledgeBase, Message, TroubleshootingItem, generateId } from "@/lib/types";
+import { Conversation, ConversationRole, FAQItem, GenerationStatus, ImageAttachment, KnowledgeBase, Message, TroubleshootingItem, generateId } from "@/lib/types";
 import {
   getConversations,
   saveConversations,
@@ -66,6 +66,7 @@ type StructuredReplySection = {
 };
 
 const STRUCTURED_REPLY_REGEX = /\[STRUCTURED_REPLY\]([\s\S]*?)\[\/STRUCTURED_REPLY\]/;
+const STATUS_REGEX = /\[STATUS\]([\s\S]*?)\[\/STATUS\]\n?/g;
 
 function parseStructuredReplySections(content: string): StructuredReplySection[] {
   const match = content.match(STRUCTURED_REPLY_REGEX);
@@ -473,6 +474,7 @@ export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationIdState] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState<GenerationStatus | null>(null);
   const [activeTab, setActiveTab] = useState("chat");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSettingsAuthOpen, setIsSettingsAuthOpen] = useState(false);
@@ -641,6 +643,11 @@ export default function Home() {
       return;
     }
 
+    const generationStartedAt = Date.now();
+    const updateGenerationStatus = (label: string, detail?: string): void => {
+      setGenerationStatus({ label, detail, startedAt: generationStartedAt });
+    };
+
     let imageOcrResults: Array<{ id: string; name: string; text: string }> = [];
     let messageAttachments = attachments;
 
@@ -665,9 +672,11 @@ export default function Home() {
     });
 
     setIsGenerating(true);
+    updateGenerationStatus("准备生成回复", "正在整理客户问题");
 
     try {
       if (attachments.length > 0) {
+        updateGenerationStatus("正在识别图片内容", "提取截图文字");
         toast.info("正在识别图片内容...");
         const ocrResponse = await fetch("/api/image-ocr", {
           method: "POST",
@@ -703,6 +712,8 @@ export default function Home() {
         });
       }
 
+      updateGenerationStatus("正在加载知识库与模型配置");
+
       // 直接从数据库获取最新配置，确保切换标签页后数据同步
       const [knowledgeRes, systemRes] = await Promise.all([
         fetch("/api/config/knowledge"),
@@ -733,6 +744,7 @@ export default function Home() {
       const contentForAnalysis = ocrTextForModel ? `${content}\n\n图片识别结果：\n${ocrTextForModel}` : content;
 
       // Step 1: AI 提取关键词
+      updateGenerationStatus("正在提取关键词", "用于匹配知识库");
       console.log('[DEBUG] 正在提取关键词...');
       const keywordsRes = await fetch("/api/keywords", {
         method: "POST",
@@ -756,6 +768,7 @@ export default function Home() {
       }
 
       // Step 2: DeepSeek 前置分类
+      updateGenerationStatus("正在判断问题类型", "识别客户身份与问题场景");
       let classification: Record<string, unknown> | null = null;
       try {
         const classifyRes = await fetch("/api/classify", {
@@ -780,6 +793,7 @@ export default function Home() {
       }
 
       // Step 3: 前端用关键词匹配 FAQ
+      updateGenerationStatus("正在匹配知识库", "筛选相关 FAQ 和排障资料");
       const matchedFaqs = matchFaqsByKeywords(knowledgeData, aiKeywords, contentForAnalysis);
       console.log('[DEBUG] 匹配到 FAQ 数量:', matchedFaqs.faqs.length);
       console.log('[DEBUG] 匹配到 TS 数量:', matchedFaqs.troubleshooting.length);
@@ -787,6 +801,7 @@ export default function Home() {
       // 构建请求
       const detectedLang = detectLanguage(content || ocrTextForModel);
       console.log('[DEBUG] 检测语言:', detectedLang, '原文:', content);
+      updateGenerationStatus("AI 正在生成回复", "等待模型输出");
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -831,9 +846,23 @@ export default function Home() {
           const { done, value } = await reader.read();
           if (done) break;
           fullContent += decoder.decode(value, { stream: true });
+          const statusMatches = Array.from(fullContent.matchAll(STATUS_REGEX));
+          const latestStatusMatch = statusMatches.at(-1);
+          if (latestStatusMatch) {
+            try {
+              const status = JSON.parse(latestStatusMatch[1]) as GenerationStatus;
+              setGenerationStatus({ ...status, startedAt: generationStartedAt, elapsedMs: Date.now() - generationStartedAt });
+            } catch (statusError) {
+              console.error("解析生成状态失败:", statusError);
+            }
+          }
         }
         fullContent += decoder.decode();
       }
+
+      fullContent = fullContent.replace(STATUS_REGEX, "");
+      const totalGenerationMs = Date.now() - generationStartedAt;
+      setGenerationStatus({ label: "生成完成", startedAt: generationStartedAt, done: true, totalMs: totalGenerationMs, elapsedMs: totalGenerationMs });
 
       const structuredSections = parseStructuredReplySections(fullContent);
       const aiReplyRole = getRoleFromAiReplySections(structuredSections);
@@ -862,6 +891,7 @@ export default function Home() {
         role: "assistant",
         content: fullContent,
         timestamp: Date.now(),
+        generationDurationMs: totalGenerationMs,
       };
 
       setConversations((prev) => {
@@ -901,6 +931,7 @@ export default function Home() {
       });
     } finally {
       setIsGenerating(false);
+      setGenerationStatus(null);
     }
   };
 
@@ -1380,6 +1411,7 @@ export default function Home() {
                   messages={currentConversation?.messages || []}
                   onSendMessage={handleSendMessage}
                   isGenerating={isGenerating}
+                  generationStatus={generationStatus}
                 />
               </section>
             </div>

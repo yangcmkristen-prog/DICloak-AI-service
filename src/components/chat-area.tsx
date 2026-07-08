@@ -6,13 +6,23 @@ import { Send, Loader2, Copy, Check, ChevronUp, Plus, X, ImageIcon } from "lucid
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { ImageAttachment, Message, generateId } from "@/lib/types";
+import { GenerationStatus, ImageAttachment, Message, generateId } from "@/lib/types";
 import { toast } from "sonner";
 
 interface ChatAreaProps {
   messages: Message[];
   onSendMessage: (content: string, attachments?: ImageAttachment[]) => Promise<void>;
   isGenerating: boolean;
+  generationStatus: GenerationStatus | null;
+}
+
+
+function formatDuration(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 60) return `${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  const restSeconds = seconds % 60;
+  return `${minutes} 分 ${restSeconds} 秒`;
 }
 
 // 元数据类型
@@ -570,8 +580,9 @@ function AIReplies({
   );
 }
 
-export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProps) {
+export function ChatArea({ messages, onSendMessage, isGenerating, generationStatus }: ChatAreaProps) {
   const [input, setInput] = useState("");
+  const [statusNow, setStatusNow] = useState(() => Date.now());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedTranslations, setExpandedTranslations] = useState<Record<string, boolean>>({});
   const [translations, setTranslations] = useState<Record<string, string>>({});
@@ -586,7 +597,13 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
     if (scrollRef.current) {
       scrollRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages]);
+  }, [messages, isGenerating, generationStatus]);
+
+  useEffect(() => {
+    if (!isGenerating) return;
+    const timer = window.setInterval(() => setStatusNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isGenerating]);
 
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
 
@@ -760,16 +777,23 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                       {message.content ? <p className="whitespace-pre-wrap">{message.content}</p> : <p className="text-sm opacity-80">已上传图片</p>}
                     </div>
                   ) : (
-                    <AIReplies
-                      content={message.content}
-                      messageId={message.id}
-                      onCopy={handleCopy}
-                      onTranslate={handleTranslate}
-                      copiedId={copiedId}
-                      expandedTranslations={expandedTranslations}
-                      translations={translations}
-                      translatingIds={translatingIds}
-                    />
+                    <>
+                      <AIReplies
+                        content={message.content}
+                        messageId={message.id}
+                        onCopy={handleCopy}
+                        onTranslate={handleTranslate}
+                        copiedId={copiedId}
+                        expandedTranslations={expandedTranslations}
+                        translations={translations}
+                        translatingIds={translatingIds}
+                      />
+                      {message.generationDurationMs !== undefined && (
+                        <div className="mt-3 border-t pt-2 text-xs text-muted-foreground">
+                          已思考 {formatDuration(message.generationDurationMs)}
+                        </div>
+                      )}
+                    </>
                   )}
                   </div>
                 </div>
@@ -780,7 +804,13 @@ export function ChatArea({ messages, onSendMessage, isGenerating }: ChatAreaProp
                 <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4">
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span className="text-sm">AI 正在生成回复...</span>
+                    <div className="space-y-1">
+                      <div className="text-sm">{generationStatus?.label || "AI 正在生成回复..."}</div>
+                      <div className="text-xs">
+                        已思考 {formatDuration(generationStatus?.elapsedMs ?? Math.max(0, statusNow - (generationStatus?.startedAt || statusNow)))}
+                        {generationStatus?.detail ? ` · ${generationStatus.detail}` : ""}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
