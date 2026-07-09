@@ -25,6 +25,12 @@ function formatDuration(ms: number): string {
   return `${minutes} 分 ${restSeconds} 秒`;
 }
 
+function getLiveGenerationElapsedMs(status: GenerationStatus | null, now: number): number {
+  if (!status) return 0;
+  if (status.done) return status.totalMs ?? status.elapsedMs ?? 0;
+  return Math.max(0, now - status.startedAt);
+}
+
 // 元数据类型
 interface MetaData {
   problemType: string;
@@ -807,7 +813,7 @@ export function ChatArea({ messages, onSendMessage, isGenerating, generationStat
                     <div className="space-y-1">
                       <div className="text-sm">{generationStatus?.label || "AI 正在生成回复..."}</div>
                       <div className="text-xs">
-                        已思考 {formatDuration(generationStatus?.elapsedMs ?? Math.max(0, statusNow - (generationStatus?.startedAt || statusNow)))}
+                        已思考 {formatDuration(getLiveGenerationElapsedMs(generationStatus, statusNow))}
                         {generationStatus?.detail ? ` · ${generationStatus.detail}` : ""}
                       </div>
                     </div>

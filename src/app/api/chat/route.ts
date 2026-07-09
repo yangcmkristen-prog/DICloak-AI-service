@@ -376,6 +376,42 @@ For account-sharing customers, do NOT equate team member count with browser envi
 `;
 }
 
+function countLatinLanguageSignals(text: string, words: string[]): number {
+  return words.reduce((count, word) => {
+    const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return count + (new RegExp(`\\b${escapedWord}\\b`, "i").test(text) ? 1 : 0);
+  }, 0);
+}
+
+function detectLatinRequestLanguage(text: string): string | null {
+  const normalized = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (/[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(text)) return "vi";
+  if (/[ãõç]/i.test(text)) return "pt";
+
+  const portugueseScore = countLatinLanguageSignals(normalized, [
+    "tem", "alguma", "forma", "ficarem", "visiveis", "membros", "perfil", "perfis", "cookies",
+    "nao", "sim", "voce", "voces", "posso", "pode", "podem", "para", "por", "favor", "conta",
+    "compartilhar", "equipe", "assinatura", "preciso", "ajuda", "como", "porque", "quando", "onde",
+  ]);
+  const spanishScore = countLatinLanguageSignals(normalized, [
+    "hay", "alguna", "forma", "visibles", "miembros", "perfil", "perfiles", "cookies", "no", "si",
+    "puedo", "puede", "pueden", "para", "por", "favor", "cuenta", "compartir", "equipo", "suscripcion",
+    "necesito", "ayuda", "como", "porque", "cuando", "donde",
+  ]);
+  const indonesianScore = countLatinLanguageSignals(normalized, [
+    "apakah", "bagaimana", "bisa", "tidak", "untuk", "anggota", "profil", "akun", "berbagi",
+    "tim", "langganan", "tolong", "yang", "dengan", "dimana", "kapan",
+  ]);
+
+  const scores: Array<{ language: string; score: number }> = [
+    { language: "pt", score: portugueseScore },
+    { language: "es", score: spanishScore },
+    { language: "id", score: indonesianScore },
+  ];
+  const best = scores.reduce((currentBest, candidate) => candidate.score > currentBest.score ? candidate : currentBest);
+  return best.score >= 2 ? best.language : null;
+}
+
 function detectRequestLanguage(text: string, provided?: string): string {
   if (provided && provided !== 'other') {
     return provided;
@@ -402,6 +438,10 @@ function detectRequestLanguage(text: string, provided?: string): string {
       return language;
     }
   }
+
+  const latinLanguage = detectLatinRequestLanguage(cleanText);
+  if (latinLanguage) return latinLanguage;
+
 
   return /[a-zA-Z]/.test(cleanText) ? 'en' : 'zh';
 }
@@ -1391,6 +1431,11 @@ export async function POST(request: NextRequest) {
       mixed: "用户问题中包含多种语言，请使用中文回复",
     };
     const languageRule = languageRules[effectiveLanguage] || languageRules.zh;
+    const multilingualQualityGuardrail = `## 多语种一致性硬性要求
+1. 先基于中文高质量客服口径确定事实、结论、限制和下一步，再用目标语种自然表达；不要因为目标语种不是中文而减少关键信息或改变结论。
+2. 目标语种回复必须与中文口径保持同等完整度：相同的问题类型、相同的事实依据、相同的风险提示、相同的追问点和相同的客服语气。
+3. 最终只输出目标语种正文和规定 section 标签；不要输出中文草稿、翻译说明或语言标签。
+4. 如果客户使用葡萄牙语、西班牙语、越南语、印尼语、俄语、泰语、阿拉伯语、日语或韩语，所有面向客户的正文必须使用该语种，不得夹杂中文或英文句子；产品名、URL 除外。`;
     console.log(`[PERF][CHAT] pre_config_ms=${Date.now() - t0}`);
 
     // API 配置
@@ -1492,7 +1537,7 @@ The customer requested step-by-step setup instructions. Before giving any number
     `
       : "";
 
-    const finalPromptWithCoverage = `${finalSystemPrompt}\n${intentGuardrail}\n${outputFormatGuardrail}\n${evidenceGuardrail}\n${pricingGuardrail}\n${deterministicSeatFacts}\n${planRecommendationRules}\n${accountSharingEnvironmentRules}\n${stepEvidenceGuardrail}\n${languageRule}`;
+    const finalPromptWithCoverage = `${finalSystemPrompt}\n${intentGuardrail}\n${outputFormatGuardrail}\n${evidenceGuardrail}\n${pricingGuardrail}\n${deterministicSeatFacts}\n${planRecommendationRules}\n${accountSharingEnvironmentRules}\n${stepEvidenceGuardrail}\n${languageRule}\n${multilingualQualityGuardrail}`;
     // 构建知识库上下文（只传递最相关的知识库项）
     let knowledgeContext = "";
     let responseShouldUsePricingTable = false;
@@ -2343,6 +2388,8 @@ The customer requested step-by-step setup instructions. Before giving any number
     ${imageOcrContext}
 
     ${languageRule}
+
+    ${multilingualQualityGuardrail}
 
     ${responseShouldUsePricingTable ? "Internal pricing requirement: use the pricing data in the context for plan/price/member/environment quota answers. Do NOT mention internal file/table names such as pricing table or Pricing Feature Comparison Table in the customer-facing reply. Official website/help-guide links are allowed when useful. Answer directly as DICloak support." : ""}
 
