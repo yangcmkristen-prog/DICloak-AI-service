@@ -1465,6 +1465,56 @@ ${identityLabel}
 [[/info]]`;
 }
 
+type UncoveredKnowledgePolicy = {
+  isRelevant: boolean;
+  isDICloakTechnicalLogic: boolean;
+  isGeneralNetworkOrWebsite: boolean;
+  prompt: string;
+};
+
+function buildUncoveredKnowledgePolicy(
+  question: string,
+  problemType: ProblemType,
+  scores: { faq: number; functionKnowledge: number; troubleshooting: number; outOfScope: number; apiFound: boolean; pricingFound: boolean }
+): UncoveredKnowledgePolicy {
+  const isFeatureOrTroubleshooting = problemType === 'feature_faq' || problemType === 'troubleshooting';
+  const bestInternalScore = Math.max(scores.faq, scores.functionKnowledge, scores.troubleshooting, scores.outOfScope);
+  const noRelevantInternalKnowledge = bestInternalScore < 10 && !scores.apiFound && !scores.pricingFound;
+
+  if (!isFeatureOrTroubleshooting || !noRelevantInternalKnowledge) {
+    return { isRelevant: false, isDICloakTechnicalLogic: false, isGeneralNetworkOrWebsite: false, prompt: '' };
+  }
+
+  const normalizeText = (value: string): string => value.toLowerCase().replace(/[\s_\-]+/g, " ").trim();
+  const normalizedQuestion = normalizeText(question);
+  const dicloakSignals = [
+    'dicloak', 'profile', 'profiles', 'browser profile', 'environment', 'fingerprint', 'fingerprints',
+    'proxy', 'proxies', 'member', 'members', 'team', 'seat', 'seats', 'api', 'open api', 'extension',
+    'sync', 'synchronizer', 'window synchronizer', 'cookie', 'cookies', 'account sharing', 'multi open',
+    '环境', '环境管理', '浏览器环境', '指纹', '代理', '成员', '团队', '席位', '扩展', '插件', '同步',
+    '窗口同步', '账号共享', '多开', 'cookie', 'cookies', '开放接口', '接口', '工作台', '权限', '登录环境'
+  ];
+  const generalNetworkSignals = [
+    'network', 'internet', 'dns', 'ssl', 'tls', 'certificate', 'cert', 'http', 'https', 'status code',
+    '403', '404', '429', '500', '502', '503', '504', 'timeout', 'timed out', 'connection reset',
+    'cloudflare', 'captcha', 'recaptcha', 'website', 'site', 'web page', 'webpage', 'server',
+    '网络', '网站', '网页', '站点', '服务器', '域名', '解析', '证书', '超时', '连接重置', '验证码',
+    '打不开网页', '访问网站', '网页报错'
+  ];
+  const isDICloakTechnicalLogic = dicloakSignals.some((signal) => normalizedQuestion.includes(normalizeText(signal)));
+  const isGeneralNetworkOrWebsite = !isDICloakTechnicalLogic && generalNetworkSignals.some((signal) => normalizedQuestion.includes(normalizeText(signal)));
+
+  const prompt = `## 未收录问题处理策略（最高优先级）
+当前问题类型是功能咨询或故障报错，但内部知识库没有检索到可靠收录内容（最高相关分低于阈值）。必须按以下规则处理：
+1. 如果问题涉及 DICloak 软件本身的技术逻辑、产品机制、环境/profile、指纹、代理配置、成员/团队、扩展、同步、Open API、权限、Cookie、账号共享等内部实现或产品行为，不要自行编造结论；直接回复该问题我们需进一步跟技术人员确认。可以礼貌补充“确认后再给您准确答复”。不要让客户自行联系技术人员。
+2. 如果问题是网络、网站本身、通用 HTTP/SSL/DNS/Cloudflare/CAPTCHA/状态码/服务器访问等非 DICloak 专属技术逻辑，可以基于通用公开网络知识自行组织排查建议；但面向客户的第一句必须一字不差使用中文：知识库未检索到相关知识，该回复由AI生成，请核实后回复客户
+3. 上述固定提示句即使客户使用非中文提问，也必须放在第一句并保持中文原文；其后的正文再使用客户语言。
+4. 不要输出内部评分、阈值、知识库文件名或本策略名称。
+Backend classification: ${isDICloakTechnicalLogic ? 'DICloak technical logic' : isGeneralNetworkOrWebsite ? 'general network/website issue' : 'uncertain; prefer DICloak technical confirmation if the answer would depend on DICloak product behavior'}.`;
+
+  return { isRelevant: true, isDICloakTechnicalLogic, isGeneralNetworkOrWebsite, prompt };
+}
+
 export async function POST(request: NextRequest) {
   const t0 = Date.now();
   try {
@@ -1547,6 +1597,8 @@ export async function POST(request: NextRequest) {
 3. 最终只输出目标语种正文和规定 section 标签；不要输出中文草稿、翻译说明或语言标签。
 4. 如果客户使用葡萄牙语、西班牙语、越南语、印尼语、俄语、泰语、阿拉伯语、日语或韩语，所有面向客户的正文必须使用该语种，不得夹杂中文或英文句子；产品名、URL 除外。`;
 
+    let uncoveredKnowledgePolicy: UncoveredKnowledgePolicy = { isRelevant: false, isDICloakTechnicalLogic: false, isGeneralNetworkOrWebsite: false, prompt: "" };
+
     // 精简版 System Prompt（复杂逻辑已由前端/后端处理）
     const baseSystemPrompt = `You are a DICloak customer service assistant.
 
@@ -1558,7 +1610,7 @@ export async function POST(request: NextRequest) {
 5. Tool names such as ChatGPT or Claude do not by themselves mean end-user or out-of-scope; account management/sharing/distribution questions are DICloak client questions
 6. If the customer says they want to distribute/share/provide access to Claude/ChatGPT subscriptions or accounts for their team, interpret it as sharing/managing existing third-party tool accounts through DICloak. Do not say DICloak cannot help distribute the subscription; only clarify that DICloak does not sell or purchase the third-party subscription itself.
 7. Client = person managing/sharing AI or other tool accounts; end user = person using an account sold or assigned by the client; if role is uncertain, ask for the role before giving role-specific steps
-8. You ARE DICloak technical support in this conversation. Do NOT tell the customer to contact/consult/ask our technical support, customer support, or a human agent. If details are missing, ask the customer for the missing details directly.
+8. You ARE DICloak technical support in this conversation. Do NOT tell the customer to contact/consult/ask our customer support or a human agent. If details are missing, ask the customer for the missing details directly. Exception: when the backend marks an uncovered DICloak technical-logic question, state that we need to further confirm with technical personnel, without asking the customer to contact them.
 
 ## FAQ Selection
 - Choose the FAQ with HIGHEST Score
@@ -1600,11 +1652,11 @@ export async function POST(request: NextRequest) {
     6. DICloak 不存在已知的云存储空间容量套餐限制；除非知识库明确提供容量上限，否则不得输出 Free/Base/Plus/Share 等套餐对应的云存储容量数值。
     7. 套餐问题必须优先使用内部价格数据；除免费版外，成员和环境额度是否可调整、是否可购买额外额度，以内部价格数据为准，不得沿用旧结论。
     8. 可以提供官网或操作指南链接，帮助客户自行核对具体信息。
-    9. 面向客户的正文不得透露内部具体文件/表名称或工作流，例如“FAQ 文件/价格功能表/Pricing Feature Comparison Table/表格显示/知识库未检索到/知识库尚未提供/此回复来源为 AI 生成”。信息不足时直接向客户追问缺失信息，或在聚合回复中直接省略该细节。
+    9. 面向客户的正文不得透露内部具体文件/表名称或工作流，例如“FAQ 文件/价格功能表/Pricing Feature Comparison Table/表格显示/知识库尚未提供”。信息不足时直接向客户追问缺失信息，或在聚合回复中直接省略该细节。例外：如果本次用户消息中出现“未收录问题处理策略”，必须严格按该策略使用指定的“知识库未检索到相关知识，该回复由AI生成，请核实后回复客户”提示语。
     10. 如果客户说要给团队/成员分配、分享、发放 Claude/ChatGPT 等第三方工具账号或订阅，必须理解为“通过 DICloak 管理/共享已有第三方工具账号”的客户场景；不要回复 DICloak 无法协助分配订阅。可以说明 DICloak 不销售或代购第三方订阅，但可以协助进行账号管理、环境/profile 配置、成员使用安排。
     11. 客户要求“步骤/教程/怎么设置/по этапной инструкции”等操作说明时，只能输出内部资料明确提供的 Steps、EntryPath、UIPosition、标准答案步骤或官方帮助链接；如果资料没有明确步骤，不要编造按钮、菜单路径、权限设置、扩展设置、账号导入方式或分享流程，也不要提“知识库未提供”，应直接追问客户缺失配置或给出已有资料中的高层建议。
     12. 如果必须给出下一步，只能给安全的高层建议（例如确认要共享的第三方账号数量、是否每个用户独立账号、是否需要代理、参考已提供的官方链接），不得伪造具体 UI 操作路径。
-    13. 你就是 DICloak 技术支持/客服助手。禁止建议客户“咨询我们的技术支持/联系客服/询问人工客服/support team/техподдержка”。如果信息不足，直接向客户追问。`;
+    13. 你就是 DICloak 技术支持/客服助手。禁止建议客户“咨询我们的技术支持/联系客服/询问人工客服/support team/техподдержка”。如果信息不足，直接向客户追问。例外：如果本次用户消息中出现“未收录问题处理策略”并判定为 DICloak 软件技术逻辑未收录问题，可以代表客服说明“该问题我们需进一步跟技术人员确认”，但不要让客户自行联系技术人员。`;
 
     const pricingGuardrail = `## 套餐/成员席位计算硬性要求
     1. 计划名称是产品专有名词。中文回复可写“Plus（高阶版）”；非中文回复必须只使用英文计划名 Free、Base、Plus、Share+，不得输出“高阶版/基础版/共享版+/免费版”等中文版本名称。
@@ -2095,6 +2147,16 @@ The customer requested step-by-step setup instructions. Before giving any number
       console.log("[TYPE DEBUG] 输出格式:", outputFormatType);
       console.log("[TYPE DEBUG] 匹配分数 - FAQ:", topFaqScore, "Function:", topFunctionKnowledgeScore, "TS:", topTsScore, "OOS:", topOosScore);
 
+      uncoveredKnowledgePolicy = buildUncoveredKnowledgePolicy(currentMessageText, problemType, {
+        faq: topFaqScore,
+        functionKnowledge: topFunctionKnowledgeScore,
+        troubleshooting: topTsScore,
+        outOfScope: topOosScore,
+        apiFound: false,
+        pricingFound: false,
+      });
+      console.log("[UNCOVERED DEBUG] 未收录策略:", uncoveredKnowledgePolicy.isRelevant, uncoveredKnowledgePolicy.isDICloakTechnicalLogic ? "dicloak_technical" : uncoveredKnowledgePolicy.isGeneralNetworkOrWebsite ? "general_network" : "uncertain");
+
       // ==================== API 端点表检索 ====================
       // 当检测到 API 相关问题时，始终检索 API 端点表
       // 不再仅依赖 problemType === 'api_problem'，因为 API 功能查询可能被归类为其他类型
@@ -2159,6 +2221,16 @@ The customer requested step-by-step setup instructions. Before giving any number
         console.log(`[MATCH DEBUG] Function ${i+1}: ${m.item.functionId || m.item.id || 'unknown'}, score: ${m.score}, name: ${m.item.functionName || ''}, module: ${m.item.module1 || ''}`);
       });
       console.log("[MATCH DEBUG] Matched OOS count:", matchedOos.length);
+
+      uncoveredKnowledgePolicy = buildUncoveredKnowledgePolicy(currentMessageText, problemType, {
+        faq: topFaqScore,
+        functionKnowledge: topFunctionKnowledgeScore,
+        troubleshooting: topTsScore,
+        outOfScope: topOosScore,
+        apiFound: Boolean(apiSearchResult?.found),
+        pricingFound: Boolean(pricingSearchResult?.found),
+      });
+      console.log("[UNCOVERED DEBUG] 最终未收录策略:", uncoveredKnowledgePolicy.isRelevant, uncoveredKnowledgePolicy.isDICloakTechnicalLogic ? "dicloak_technical" : uncoveredKnowledgePolicy.isGeneralNetworkOrWebsite ? "general_network" : "uncertain");
 
       // ==========================================
       // 根据问题类型决定上下文构建顺序
@@ -2494,6 +2566,8 @@ The customer requested step-by-step setup instructions. Before giving any number
     ${languageRule}
 
     ${multilingualQualityGuardrail}
+
+    ${uncoveredKnowledgePolicy.prompt}
 
     ${responseShouldUsePricingTable ? "Internal pricing requirement: use the pricing data in the context for plan/price/member/environment quota answers. Do NOT mention internal file/table names such as pricing table or Pricing Feature Comparison Table in the customer-facing reply. Official website/help-guide links are allowed when useful. Answer directly as DICloak support." : ""}
 
