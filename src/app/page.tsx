@@ -431,7 +431,7 @@ function PhraseListItem({ phrase, editingPhraseId, editingPhraseName, onOpen, on
 
   if (isEditing) {
     return (
-      <div className="flex items-center gap-1">
+      <div className="flex min-w-0 items-center gap-1">
         <Input
           value={editingPhraseName}
           onChange={(event) => onChangeEditName(event.target.value)}
@@ -457,7 +457,7 @@ function PhraseListItem({ phrase, editingPhraseId, editingPhraseName, onOpen, on
       onDrop={(event) => onDropOnPhrase(event, phrase)}
     >
       <GripVertical className="ml-1 h-4 w-4 shrink-0 cursor-grab text-muted-foreground opacity-60 group-hover:opacity-100" aria-hidden="true" />
-      <button type="button" onClick={() => onOpen(phrase)} className="min-w-0 flex-1 truncate px-3 py-2 text-left text-sm">
+      <button type="button" onClick={() => onOpen(phrase)} className="min-w-0 flex-1 overflow-hidden truncate whitespace-nowrap px-3 py-2 text-left text-sm">
         {phrase.name}
       </button>
       <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 opacity-70 group-hover:opacity-100" onClick={() => onStartEdit(phrase)} aria-label="修改话术名称">
@@ -1537,7 +1537,7 @@ export default function Home() {
                     </div>
                   </div>
 
-                    <aside className="rounded-lg border bg-background p-4 shadow-xs xl:sticky xl:top-4 xl:max-h-[calc(100vh-11rem)] xl:overflow-y-auto">
+                    <aside className="min-w-0 max-w-full overflow-hidden rounded-lg border bg-background p-4 shadow-xs xl:sticky xl:top-4 xl:max-h-[calc(100vh-11rem)] xl:overflow-y-auto">
                       <div className="mb-4 flex items-center justify-between gap-2">
                         <div>
                           <h2 className="text-base font-semibold">收纳话术</h2>
@@ -1555,13 +1555,13 @@ export default function Home() {
                         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <Input value={phraseSearch} onChange={(e) => setPhraseSearch(e.target.value)} placeholder="搜索话术名称" className="pl-9" />
                       </div>
-                      <div className="space-y-2">
+                      <div className="min-w-0 space-y-2 overflow-hidden">
                         {phraseSearch.trim() ? (
                           searchedPhrases.length > 0 ? searchedPhrases.map(renderSavedPhraseItem) : <p className="py-6 text-center text-sm text-muted-foreground">未找到匹配话术</p>
                         ) : (
                           <>
                             <div
-                              className="space-y-1 rounded-md border border-dashed border-transparent p-1 transition-colors hover:border-muted-foreground/30"
+                              className="min-w-0 space-y-1 overflow-hidden rounded-md border border-dashed border-transparent p-1 transition-colors hover:border-muted-foreground/30"
                               onDragOver={(event) => event.preventDefault()}
                               onDrop={handleRootPhraseDrop}
                             >
@@ -1573,7 +1573,7 @@ export default function Home() {
                               return (
                                 <div
                                   key={folder.id}
-                                  className={`rounded-md border ${savedPhraseDragItem?.type === "folder" && savedPhraseDragItem.id === folder.id ? "opacity-50 ring-1 ring-primary" : ""}`}
+                                  className={`min-w-0 overflow-hidden rounded-md border ${savedPhraseDragItem?.type === "folder" && savedPhraseDragItem.id === folder.id ? "opacity-50 ring-1 ring-primary" : ""}`}
                                   onDragOver={(event) => event.preventDefault()}
                                   onDrop={(event) => handleFolderDrop(event, folder.id)}
                                 >
@@ -1597,17 +1597,17 @@ export default function Home() {
                                     </div>
                                   ) : (
                                     <div
-                                      className="group flex items-center gap-1"
+                                      className="group flex min-w-0 items-center gap-1"
                                       draggable
                                       onDragStart={(event) => handleSavedPhraseDragStart(event, { type: "folder", id: folder.id })}
                                       onDragEnd={handleSavedPhraseDragEnd}
                                     >
                                       <button type="button" onClick={() => setExpandedFolderIds((prev) => isExpanded ? prev.filter((id) => id !== folder.id) : [...prev, folder.id])} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm font-medium">
                                         <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-muted-foreground opacity-60 group-hover:opacity-100" aria-hidden="true" />
-                                        <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
-                                        <Folder className="h-4 w-4 text-blue-500" />
+                                        <ChevronRight className={`h-4 w-4 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                                        <Folder className="h-4 w-4 shrink-0 text-blue-500" />
                                         <span className="min-w-0 flex-1 truncate">{folder.name}</span>
-                                        <span className="text-xs text-muted-foreground">{folderPhrases.length}</span>
+                                        <span className="shrink-0 text-xs text-muted-foreground">{folderPhrases.length}</span>
                                       </button>
                                       <Button
                                         size="icon"
@@ -1624,7 +1624,7 @@ export default function Home() {
                                     </div>
                                   )}
                                   {isExpanded && (
-                                    <div className="space-y-1 border-t p-2">
+                                    <div className="min-w-0 space-y-1 overflow-hidden border-t p-2">
                                       {folderPhrases.length > 0 ? folderPhrases.map(renderSavedPhraseItem) : <p className="px-2 py-3 text-xs text-muted-foreground">文件夹暂无话术</p>}
                                     </div>
                                   )}
