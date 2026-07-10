@@ -387,14 +387,16 @@ function countLatinLanguageSignals(text: string, words: string[]): number {
 type LanguageDetectionResult = {
   language: string;
   confidence: number;
-  source: "provided" | "script" | "latin-rules" | "fallback" | "ai";
+  source: "provided" | "script" | "latin-rules" | "fallback" | "ai" | "history";
 };
 
 const SUPPORTED_LANGUAGE_CODES = new Set(["zh", "en", "es", "pt", "ru", "vi", "id", "th", "ar", "ja", "ko", "mixed", "other"]);
+const LATIN_LANGUAGE_CODES = new Set(["en", "es", "pt", "vi", "id"]);
+const VIETNAMESE_EXCLUSIVE_PATTERN = /[ăđơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i;
 
 function detectLatinRequestLanguage(text: string): LanguageDetectionResult | null {
   const normalized = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  if (/[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(text)) {
+  if (VIETNAMESE_EXCLUSIVE_PATTERN.test(text)) {
     return { language: "vi", confidence: 0.95, source: "latin-rules" };
   }
   if (/[ãõç]/i.test(text)) {
@@ -432,11 +434,15 @@ function detectLatinRequestLanguage(text: string): LanguageDetectionResult | nul
 }
 
 function detectRequestLanguageByRules(text: string, provided?: string): LanguageDetectionResult {
-  if (provided && provided !== 'other' && provided !== 'en') {
-    return { language: provided, confidence: 0.95, source: "provided" };
+  const cleanText = text.trim();
+  const providedLanguage = provided?.trim().toLowerCase();
+  const hasLatinLetter = /[a-zA-ZÀ-ỹ]/.test(cleanText);
+  const shouldVerifyProvidedLatinLanguage = Boolean(providedLanguage && LATIN_LANGUAGE_CODES.has(providedLanguage) && hasLatinLetter);
+
+  if (providedLanguage && providedLanguage !== 'other' && providedLanguage !== 'en' && !shouldVerifyProvidedLatinLanguage) {
+    return { language: providedLanguage, confidence: 0.95, source: "provided" };
   }
 
-  const cleanText = text.trim();
   const totalChars = cleanText.replace(/\s/g, '').length;
   if (totalChars === 0) {
     return { language: "zh", confidence: 0.95, source: "fallback" };
@@ -461,8 +467,11 @@ function detectRequestLanguageByRules(text: string, provided?: string): Language
   const latinLanguage = detectLatinRequestLanguage(cleanText);
   if (latinLanguage) return latinLanguage;
 
+  if (providedLanguage && providedLanguage !== "other" && providedLanguage !== "en" && shouldVerifyProvidedLatinLanguage) {
+    return { language: providedLanguage, confidence: 0.45, source: "provided" };
+  }
 
-  if (provided === "en") {
+  if (providedLanguage === "en") {
     return { language: "en", confidence: 0.45, source: "provided" };
   }
   return /[a-zA-Z]/.test(cleanText)
@@ -501,12 +510,25 @@ async function classifyLanguageWithTranslationModel(text: string): Promise<Langu
 function shouldUseAiLanguageDetection(text: string, provided: string | undefined, ruleResult: LanguageDetectionResult): boolean {
   if (!/[a-zA-Z]/.test(text)) return false;
   if (ruleResult.source === "script") return false;
-  if (provided === "en" && ruleResult.confidence < 0.8) return true;
-  if (provided === "other") return true;
+  const providedLanguage = provided?.trim().toLowerCase();
+  if (providedLanguage && LATIN_LANGUAGE_CODES.has(providedLanguage) && ruleResult.confidence < 0.8) return true;
+  if (providedLanguage === "other") return true;
   return ruleResult.confidence < 0.7;
 }
 
-async function resolveRequestLanguage(text: string, provided: string | undefined): Promise<LanguageDetectionResult> {
+function detectRecentContextLanguage(history?: Array<{ role: string; content: string }>): LanguageDetectionResult | null {
+  const recentMessages = [...(history || [])].reverse().slice(0, 4);
+  for (const item of recentMessages) {
+    if (!item.content.trim()) continue;
+    const result = detectRequestLanguageByRules(item.content);
+    if (result.language !== "en" && result.language !== "zh" && result.confidence >= 0.7) {
+      return { ...result, source: "history", confidence: Math.min(0.85, result.confidence) };
+    }
+  }
+  return null;
+}
+
+async function resolveRequestLanguage(text: string, provided: string | undefined, contextLanguage: LanguageDetectionResult | null): Promise<LanguageDetectionResult> {
   const ruleResult = detectRequestLanguageByRules(text, provided);
   if (!shouldUseAiLanguageDetection(text, provided, ruleResult)) {
     return ruleResult;
@@ -518,6 +540,9 @@ async function resolveRequestLanguage(text: string, provided: string | undefined
     }
   } catch (error) {
     console.log("[DEBUG] AI语种二次识别失败，使用规则结果:", error);
+  }
+  if (contextLanguage && ruleResult.confidence < 0.65) {
+    return contextLanguage;
   }
   return ruleResult;
 }
@@ -1482,12 +1507,13 @@ export async function POST(request: NextRequest) {
     const config = backendConfig || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
     
     // 调试知识库数据
-    const languageDetection = await resolveRequestLanguage(currentMessageText, detectedLanguage);
+    const contextLanguage = detectRecentContextLanguage(history);
+    const languageDetection = await resolveRequestLanguage(currentMessageText, detectedLanguage, contextLanguage);
     const effectiveLanguage = languageDetection.language;
     const actualUserCount = extractActualUserCount(`${message || ""}\n${imageOcrResults?.map((item) => item.text).join("\n") || ""}`);
     const stepByStepRequested = hasStepByStepRequest(message || "");
     const customerBusinessType = detectCustomerBusinessType(message || "");
-    console.log('[DEBUG] 后端接收语言:', detectedLanguage, '=>', effectiveLanguage, '置信度:', languageDetection.confidence, '来源:', languageDetection.source);
+    console.log('[DEBUG] 后端接收语言:', detectedLanguage, '=>', effectiveLanguage, '置信度:', languageDetection.confidence, '来源:', languageDetection.source, '上下文语言:', contextLanguage?.language || null);
     console.log('[DEBUG] 解析到实际用户数:', actualUserCount);
     console.log('[DEBUG] 是否请求步骤说明:', stepByStepRequested);
     console.log('[DEBUG] 客户业务类型:', customerBusinessType);

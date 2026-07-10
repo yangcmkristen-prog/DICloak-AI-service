@@ -446,7 +446,7 @@ function detectLatinScript(text: string): { language: DetectedLanguage; confiden
   if (text.length < 5) return null;
   
   // 越南语特殊字符检测（优先检测，因为有独特的字母组合）
-  const hasVietnamese = /[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(text);
+  const hasVietnamese = /[ăđơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(text);
   if (hasVietnamese) {
     return { language: 'vi', confidence: 0.95, detected: true };
   }
