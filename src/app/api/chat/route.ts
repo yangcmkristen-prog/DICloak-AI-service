@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { LLMClient, Config } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import type { KnowledgeBase } from '@/lib/types';
+import { callExtensionTranslateModel } from "../copilot/shared";
 
 function sanitizeCustomerFacingContent(content: string, language: string = 'zh'): string {
   let sanitized = content
@@ -383,15 +384,29 @@ function countLatinLanguageSignals(text: string, words: string[]): number {
   }, 0);
 }
 
-function detectLatinRequestLanguage(text: string): string | null {
+type LanguageDetectionResult = {
+  language: string;
+  confidence: number;
+  source: "provided" | "script" | "latin-rules" | "fallback" | "ai";
+};
+
+const SUPPORTED_LANGUAGE_CODES = new Set(["zh", "en", "es", "pt", "ru", "vi", "id", "th", "ar", "ja", "ko", "mixed", "other"]);
+
+function detectLatinRequestLanguage(text: string): LanguageDetectionResult | null {
   const normalized = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  if (/[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(text)) return "vi";
-  if (/[ãõç]/i.test(text)) return "pt";
+  if (/[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(text)) {
+    return { language: "vi", confidence: 0.95, source: "latin-rules" };
+  }
+  if (/[ãõç]/i.test(text)) {
+    return { language: "pt", confidence: 0.9, source: "latin-rules" };
+  }
 
   const portugueseScore = countLatinLanguageSignals(normalized, [
     "tem", "alguma", "forma", "ficarem", "visiveis", "membros", "perfil", "perfis", "cookies",
     "nao", "sim", "voce", "voces", "posso", "pode", "podem", "para", "por", "favor", "conta",
     "compartilhar", "equipe", "assinatura", "preciso", "ajuda", "como", "porque", "quando", "onde",
+    "estou", "usando", "fica", "ficando", "saindo", "desconectando", "tudo", "consigo", "consegue",
+    "conseguem", "minha", "meu", "sua", "seu", "obrigado", "obrigada",
   ]);
   const spanishScore = countLatinLanguageSignals(normalized, [
     "hay", "alguna", "forma", "visibles", "miembros", "perfil", "perfiles", "cookies", "no", "si",
@@ -409,18 +424,22 @@ function detectLatinRequestLanguage(text: string): string | null {
     { language: "id", score: indonesianScore },
   ];
   const best = scores.reduce((currentBest, candidate) => candidate.score > currentBest.score ? candidate : currentBest);
-  return best.score >= 2 ? best.language : null;
+  const sortedScores = [...scores].sort((left, right) => right.score - left.score);
+  const runnerUpScore = sortedScores[1]?.score || 0;
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length || 1;
+  const confidence = Math.min(0.95, 0.45 + (best.score / wordCount) + Math.max(0, best.score - runnerUpScore) * 0.15);
+  return best.score >= 2 ? { language: best.language, confidence, source: "latin-rules" } : null;
 }
 
-function detectRequestLanguage(text: string, provided?: string): string {
-  if (provided && provided !== 'other') {
-    return provided;
+function detectRequestLanguageByRules(text: string, provided?: string): LanguageDetectionResult {
+  if (provided && provided !== 'other' && provided !== 'en') {
+    return { language: provided, confidence: 0.95, source: "provided" };
   }
 
   const cleanText = text.trim();
   const totalChars = cleanText.replace(/\s/g, '').length;
   if (totalChars === 0) {
-    return 'zh';
+    return { language: "zh", confidence: 0.95, source: "fallback" };
   }
 
   const scripts: Array<[string, RegExp]> = [
@@ -435,7 +454,7 @@ function detectRequestLanguage(text: string, provided?: string): string {
   for (const [language, pattern] of scripts) {
     const count = (cleanText.match(pattern) || []).length;
     if (count / totalChars >= 0.2) {
-      return language;
+      return { language, confidence: Math.min(0.99, count / totalChars), source: "script" };
     }
   }
 
@@ -443,7 +462,64 @@ function detectRequestLanguage(text: string, provided?: string): string {
   if (latinLanguage) return latinLanguage;
 
 
-  return /[a-zA-Z]/.test(cleanText) ? 'en' : 'zh';
+  if (provided === "en") {
+    return { language: "en", confidence: 0.45, source: "provided" };
+  }
+  return /[a-zA-Z]/.test(cleanText)
+    ? { language: "en", confidence: 0.45, source: "fallback" }
+    : { language: "zh", confidence: 0.5, source: "fallback" };
+}
+
+function parseLanguageDetectionJson(rawContent: string): LanguageDetectionResult | null {
+  const jsonText = rawContent.match(/\{[\s\S]*\}/)?.[0];
+  if (!jsonText) return null;
+  try {
+    const parsed = JSON.parse(jsonText) as { language?: unknown; confidence?: unknown };
+    const language = typeof parsed.language === "string" ? parsed.language.trim().toLowerCase() : "";
+    const confidence = typeof parsed.confidence === "number" ? parsed.confidence : Number(parsed.confidence);
+    if (!SUPPORTED_LANGUAGE_CODES.has(language) || Number.isNaN(confidence)) return null;
+    return { language, confidence: Math.max(0, Math.min(1, confidence)), source: "ai" };
+  } catch (error) {
+    console.log("[DEBUG] AI语种识别JSON解析失败:", error);
+    return null;
+  }
+}
+
+async function classifyLanguageWithTranslationModel(text: string): Promise<LanguageDetectionResult | null> {
+  const systemPrompt = [
+    "You are a strict language identification engine.",
+    "Return ONLY valid JSON with keys language and confidence.",
+    "Allowed language codes: zh, en, es, pt, ru, vi, id, th, ar, ja, ko, mixed, other.",
+    "Do not translate, answer, explain, or add markdown.",
+    "For Portuguese vs Spanish, pay attention to verb forms and sentence patterns such as estou, fica, saindo, você, não.",
+  ].join("\n");
+  const userPrompt = `Identify the language of this customer message:\n\n${text}`;
+  const rawContent = await callExtensionTranslateModel(systemPrompt, userPrompt, 0);
+  return parseLanguageDetectionJson(rawContent);
+}
+
+function shouldUseAiLanguageDetection(text: string, provided: string | undefined, ruleResult: LanguageDetectionResult): boolean {
+  if (!/[a-zA-Z]/.test(text)) return false;
+  if (ruleResult.source === "script") return false;
+  if (provided === "en" && ruleResult.confidence < 0.8) return true;
+  if (provided === "other") return true;
+  return ruleResult.confidence < 0.7;
+}
+
+async function resolveRequestLanguage(text: string, provided: string | undefined): Promise<LanguageDetectionResult> {
+  const ruleResult = detectRequestLanguageByRules(text, provided);
+  if (!shouldUseAiLanguageDetection(text, provided, ruleResult)) {
+    return ruleResult;
+  }
+  try {
+    const aiResult = await classifyLanguageWithTranslationModel(text);
+    if (aiResult && aiResult.confidence >= 0.65 && aiResult.language !== "other") {
+      return aiResult;
+    }
+  } catch (error) {
+    console.log("[DEBUG] AI语种二次识别失败，使用规则结果:", error);
+  }
+  return ruleResult;
 }
 
 // ==================== 后端获取 API 配置 ====================
@@ -1398,12 +1474,20 @@ export async function POST(request: NextRequest) {
 
     const currentMessageText = message || imageOcrResults?.map((item) => item.text).join("\n") || "";
 
+    console.log(`[PERF][CHAT] pre_config_ms=${Date.now() - t0}`);
+
+    // API 配置
+    // 从后端获取 API 配置（安全：API Key 不暴露给前端）
+    const backendConfig = await getBackendApiConfig();
+    const config = backendConfig || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
+    
     // 调试知识库数据
-    const effectiveLanguage = detectRequestLanguage(currentMessageText, detectedLanguage);
+    const languageDetection = await resolveRequestLanguage(currentMessageText, detectedLanguage);
+    const effectiveLanguage = languageDetection.language;
     const actualUserCount = extractActualUserCount(`${message || ""}\n${imageOcrResults?.map((item) => item.text).join("\n") || ""}`);
     const stepByStepRequested = hasStepByStepRequest(message || "");
     const customerBusinessType = detectCustomerBusinessType(message || "");
-    console.log('[DEBUG] 后端接收语言:', detectedLanguage, '=>', effectiveLanguage);
+    console.log('[DEBUG] 后端接收语言:', detectedLanguage, '=>', effectiveLanguage, '置信度:', languageDetection.confidence, '来源:', languageDetection.source);
     console.log('[DEBUG] 解析到实际用户数:', actualUserCount);
     console.log('[DEBUG] 是否请求步骤说明:', stepByStepRequested);
     console.log('[DEBUG] 客户业务类型:', customerBusinessType);
@@ -1436,12 +1520,6 @@ export async function POST(request: NextRequest) {
 2. 目标语种回复必须与中文口径保持同等完整度：相同的问题类型、相同的事实依据、相同的风险提示、相同的追问点和相同的客服语气。
 3. 最终只输出目标语种正文和规定 section 标签；不要输出中文草稿、翻译说明或语言标签。
 4. 如果客户使用葡萄牙语、西班牙语、越南语、印尼语、俄语、泰语、阿拉伯语、日语或韩语，所有面向客户的正文必须使用该语种，不得夹杂中文或英文句子；产品名、URL 除外。`;
-    console.log(`[PERF][CHAT] pre_config_ms=${Date.now() - t0}`);
-
-    // API 配置
-    // 从后端获取 API 配置（安全：API Key 不暴露给前端）
-    const backendConfig = await getBackendApiConfig();
-    const config = backendConfig || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
 
     // 精简版 System Prompt（复杂逻辑已由前端/后端处理）
     const baseSystemPrompt = `You are a DICloak customer service assistant.
