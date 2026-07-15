@@ -166,6 +166,24 @@ function getRootFolderId(folders: SavedPhraseFolder[], folderId: string): string
   return rootId;
 }
 
+function getDescendantFolderIds(folders: SavedPhraseFolder[], folderId: string): Set<string> {
+  const descendantIds = new Set<string>();
+  const pendingIds = [folderId];
+
+  while (pendingIds.length > 0) {
+    const currentId = pendingIds.pop();
+    if (!currentId) continue;
+    folders.forEach((folder) => {
+      if (folder.parentId === currentId && !descendantIds.has(folder.id)) {
+        descendantIds.add(folder.id);
+        pendingIds.push(folder.id);
+      }
+    });
+  }
+
+  return descendantIds;
+}
+
 function getFolderDisplayName(folders: SavedPhraseFolder[], folder: SavedPhraseFolder): string {
   const names = [folder.name];
   let currentParentId = folder.parentId;
@@ -546,6 +564,7 @@ export default function Home() {
   const [editingPhraseName, setEditingPhraseName] = useState("");
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState("");
+  const [editingFolderParentId, setEditingFolderParentId] = useState("root");
   const [selectedPhrase, setSelectedPhrase] = useState<SavedPhrase | null>(null);
   const [copiedSavedPhraseLanguage, setCopiedSavedPhraseLanguage] = useState<PhraseLanguage | null>(null);
   const [savedPhraseDragItem, setSavedPhraseDragItem] = useState<SavedPhraseDragItem | null>(null);
@@ -1188,13 +1207,32 @@ export default function Home() {
   const handleRenameFolder = (folderId: string) => {
     const name = editingFolderName.trim();
     if (!name) return;
+
+    const nextParentId = editingFolderParentId === "root" ? null : editingFolderParentId;
+    const descendantFolderIds = getDescendantFolderIds(savedPhraseState.folders, folderId);
+    if (nextParentId === folderId || (nextParentId && descendantFolderIds.has(nextParentId))) {
+      toast.error("不能将文件夹移动到自身或其子文件夹下");
+      return;
+    }
+
+    const nextFolders = savedPhraseState.folders.map((folder) => folder.id === folderId ? { ...folder, name, parentId: nextParentId } : folder);
     void persistSavedPhraseState({
       ...savedPhraseState,
-      folders: savedPhraseState.folders.map((folder) => folder.id === folderId ? { ...folder, name } : folder),
+      folders: nextFolders,
     });
     setEditingFolderId(null);
     setEditingFolderName("");
-    toast.success("文件夹名称已更新");
+    setEditingFolderParentId("root");
+
+    if (nextParentId) {
+      setSelectedPrimaryFolderId(getRootFolderId(nextFolders, nextParentId));
+      setActiveNestedFolderId(nextParentId);
+    } else {
+      setSelectedPrimaryFolderId(folderId);
+      setActiveNestedFolderId(folderId);
+    }
+
+    toast.success("文件夹已更新");
   };
 
   const handleMovePhrase = (phraseId: string, folderValue: string) => {
@@ -1329,6 +1367,9 @@ export default function Home() {
     folder,
     label: getFolderDisplayName(savedPhraseState.folders, folder),
   }));
+  const editingFolderMoveOptions = editingFolderId
+    ? folderSelectOptions.filter(({ folder }) => folder.id !== editingFolderId && !getDescendantFolderIds(savedPhraseState.folders, editingFolderId).has(folder.id))
+    : folderSelectOptions;
 
   const renderSavedPhraseItem = (phrase: SavedPhrase) => (
     <PhraseListItem
@@ -1647,22 +1688,38 @@ export default function Home() {
                                   onDrop={(event) => handleFolderDrop(event, folder.id)}
                                 >
                                   {editingFolderId === folder.id ? (
-                                    <div className="flex items-center gap-1 px-2 py-2">
-                                      <Folder className="h-4 w-4 shrink-0 text-blue-500" />
-                                      <Input
-                                        value={editingFolderName}
-                                        onChange={(event) => setEditingFolderName(event.target.value)}
-                                        onKeyDown={(event) => {
-                                          if (event.key === "Enter") handleRenameFolder(folder.id);
-                                          if (event.key === "Escape") {
-                                            setEditingFolderId(null);
-                                            setEditingFolderName("");
-                                          }
-                                        }}
-                                        className="h-8 min-w-0 text-sm"
-                                        autoFocus
-                                      />
-                                      <Button size="sm" variant="ghost" onClick={() => handleRenameFolder(folder.id)}>保存</Button>
+                                    <div className="space-y-2 px-2 py-2">
+                                      <div className="flex items-center gap-1">
+                                        <Folder className="h-4 w-4 shrink-0 text-blue-500" />
+                                        <Input
+                                          value={editingFolderName}
+                                          onChange={(event) => setEditingFolderName(event.target.value)}
+                                          onKeyDown={(event) => {
+                                            if (event.key === "Enter") handleRenameFolder(folder.id);
+                                            if (event.key === "Escape") {
+                                              setEditingFolderId(null);
+                                              setEditingFolderName("");
+                                              setEditingFolderParentId("root");
+                                            }
+                                          }}
+                                          className="h-8 min-w-0 text-sm"
+                                          autoFocus
+                                        />
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Select value={editingFolderParentId} onValueChange={setEditingFolderParentId}>
+                                          <SelectTrigger className="h-8 min-w-0 text-xs">
+                                            <SelectValue placeholder="选择所属文件夹" />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="root">一级列表</SelectItem>
+                                            {editingFolderMoveOptions.map(({ folder: optionFolder, label }) => (
+                                              <SelectItem key={optionFolder.id} value={optionFolder.id}>{label}</SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                        <Button size="sm" variant="ghost" onClick={() => handleRenameFolder(folder.id)}>保存</Button>
+                                      </div>
                                     </div>
                                   ) : (
                                     <div
@@ -1685,6 +1742,7 @@ export default function Home() {
                                         onClick={() => {
                                           setEditingFolderId(folder.id);
                                           setEditingFolderName(folder.name);
+                                          setEditingFolderParentId(folder.parentId || "root");
                                         }}
                                         aria-label="修改文件夹名称"
                                       >
@@ -1730,10 +1788,25 @@ export default function Home() {
                                 onDrop={(event) => handleFolderDrop(event, folder.id)}
                               >
                                 {editingFolderId === folder.id ? (
-                                  <div className="flex items-center gap-1 px-2 py-2">
-                                    <Folder className="h-4 w-4 shrink-0 text-blue-500" />
-                                    <Input value={editingFolderName} onChange={(event) => setEditingFolderName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") handleRenameFolder(folder.id); if (event.key === "Escape") { setEditingFolderId(null); setEditingFolderName(""); } }} className="h-8 min-w-0 text-sm" autoFocus />
-                                    <Button size="sm" variant="ghost" onClick={() => handleRenameFolder(folder.id)}>保存</Button>
+                                  <div className="space-y-2 px-2 py-2">
+                                    <div className="flex items-center gap-1">
+                                      <Folder className="h-4 w-4 shrink-0 text-blue-500" />
+                                      <Input value={editingFolderName} onChange={(event) => setEditingFolderName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") handleRenameFolder(folder.id); if (event.key === "Escape") { setEditingFolderId(null); setEditingFolderName(""); setEditingFolderParentId("root"); } }} className="h-8 min-w-0 text-sm" autoFocus />
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Select value={editingFolderParentId} onValueChange={setEditingFolderParentId}>
+                                        <SelectTrigger className="h-8 min-w-0 text-xs">
+                                          <SelectValue placeholder="选择所属文件夹" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="root">一级列表</SelectItem>
+                                          {editingFolderMoveOptions.map(({ folder: optionFolder, label }) => (
+                                            <SelectItem key={optionFolder.id} value={optionFolder.id}>{label}</SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                      <Button size="sm" variant="ghost" onClick={() => handleRenameFolder(folder.id)}>保存</Button>
+                                    </div>
                                   </div>
                                 ) : (
                                   <div className="group flex min-w-0 items-center gap-1" draggable onDragStart={(event) => handleSavedPhraseDragStart(event, { type: "folder", id: folder.id })} onDragEnd={handleSavedPhraseDragEnd}>
@@ -1744,7 +1817,7 @@ export default function Home() {
                                       <span className="min-w-0 flex-1 truncate">{folder.name}</span>
                                       <span className="shrink-0 text-xs text-muted-foreground">{childFolderCount + phraseCount}</span>
                                     </button>
-                                    <Button size="icon" variant="ghost" className="mr-1 h-8 w-8 shrink-0 opacity-70 group-hover:opacity-100" onClick={() => { setEditingFolderId(folder.id); setEditingFolderName(folder.name); }} aria-label="修改文件夹名称">
+                                    <Button size="icon" variant="ghost" className="mr-1 h-8 w-8 shrink-0 opacity-70 group-hover:opacity-100" onClick={() => { setEditingFolderId(folder.id); setEditingFolderName(folder.name); setEditingFolderParentId(folder.parentId || "root"); }} aria-label="修改文件夹名称">
                                       <Edit className="h-3.5 w-3.5" />
                                     </Button>
                                   </div>
