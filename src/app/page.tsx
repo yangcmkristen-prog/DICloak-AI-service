@@ -125,7 +125,7 @@ function getRoleFromAiReplySections(sections: StructuredReplySection[]): Convers
 }
 
 type PhraseLanguage = typeof PHRASE_TRANSLATION_LANGUAGES[number]["value"];
-type SavedPhraseFolder = { id: string; name: string };
+type SavedPhraseFolder = { id: string; name: string; parentId: string | null };
 type SavedPhrase = { id: string; name: string; sourceText: string; folderId: string | null; translations: Record<PhraseLanguage, string>; createdAt: number };
 type SavedPhraseState = { folders: SavedPhraseFolder[]; phrases: SavedPhrase[] };
 type SavedPhraseDragItem = { type: "phrase" | "folder"; id: string };
@@ -139,6 +139,50 @@ function createEmptyPhraseTranslations(): Record<PhraseLanguage, string> {
   }, {} as Record<PhraseLanguage, string>);
 }
 
+function normalizeSavedPhraseFolder(folder: unknown): SavedPhraseFolder {
+  if (!folder || typeof folder !== "object") return { id: generateId(), name: "未命名文件夹", parentId: null };
+  const candidate = folder as { id?: unknown; name?: unknown; parentId?: unknown };
+  return {
+    id: typeof candidate.id === "string" ? candidate.id : generateId(),
+    name: typeof candidate.name === "string" ? candidate.name : "未命名文件夹",
+    parentId: typeof candidate.parentId === "string" ? candidate.parentId : null,
+  };
+}
+
+function getRootFolderId(folders: SavedPhraseFolder[], folderId: string): string {
+  let rootId = folderId;
+  let currentId: string | null = folderId;
+  const visited = new Set<string>();
+
+  while (currentId) {
+    if (visited.has(currentId)) break;
+    visited.add(currentId);
+    const folder = folders.find((item) => item.id === currentId);
+    if (!folder) break;
+    rootId = folder.id;
+    currentId = folder.parentId;
+  }
+
+  return rootId;
+}
+
+function getFolderDisplayName(folders: SavedPhraseFolder[], folder: SavedPhraseFolder): string {
+  const names = [folder.name];
+  let currentParentId = folder.parentId;
+  const visited = new Set<string>([folder.id]);
+
+  while (currentParentId) {
+    if (visited.has(currentParentId)) break;
+    visited.add(currentParentId);
+    const parent = folders.find((item) => item.id === currentParentId);
+    if (!parent) break;
+    names.unshift(parent.name);
+    currentParentId = parent.parentId;
+  }
+
+  return names.join(" / ");
+}
+
 function getSavedPhraseState(): SavedPhraseState {
   if (typeof window === "undefined") return { folders: [], phrases: [] };
 
@@ -147,7 +191,7 @@ function getSavedPhraseState(): SavedPhraseState {
     if (!raw) return { folders: [], phrases: [] };
     const parsed = JSON.parse(raw) as Partial<SavedPhraseState>;
     return {
-      folders: Array.isArray(parsed.folders) ? parsed.folders : [],
+      folders: Array.isArray(parsed.folders) ? parsed.folders.map(normalizeSavedPhraseFolder) : [],
       phrases: Array.isArray(parsed.phrases) ? parsed.phrases : [],
     };
   } catch (error) {
@@ -489,12 +533,15 @@ export default function Home() {
   const [isTranslating, setIsTranslating] = useState(false);
   const [isTranslationCopied, setIsTranslationCopied] = useState(false);
   const [savedPhraseState, setSavedPhraseState] = useState<SavedPhraseState>({ folders: [], phrases: [] });
-  const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
   const [phraseSearch, setPhraseSearch] = useState("");
   const [isSavePhraseDialogOpen, setIsSavePhraseDialogOpen] = useState(false);
   const [selectedFolderIdForSave, setSelectedFolderIdForSave] = useState("root");
   const [isSavingPhrase, setIsSavingPhrase] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderParentId, setNewFolderParentId] = useState("root");
+  const [isAddFolderDialogOpen, setIsAddFolderDialogOpen] = useState(false);
+  const [selectedPrimaryFolderId, setSelectedPrimaryFolderId] = useState<string | null>(null);
+  const [activeNestedFolderId, setActiveNestedFolderId] = useState<string | null>(null);
   const [editingPhraseId, setEditingPhraseId] = useState<string | null>(null);
   const [editingPhraseName, setEditingPhraseName] = useState("");
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
@@ -1063,12 +1110,20 @@ export default function Home() {
       toast.error("请输入文件夹名称");
       return;
     }
+    const parentId = newFolderParentId === "root" ? null : newFolderParentId;
+    const nextFolder: SavedPhraseFolder = { id: generateId(), name, parentId };
     const nextState = {
       ...savedPhraseState,
-      folders: [...savedPhraseState.folders, { id: generateId(), name }],
+      folders: [...savedPhraseState.folders, nextFolder],
     };
     void persistSavedPhraseState(nextState);
     setNewFolderName("");
+    setNewFolderParentId("root");
+    setIsAddFolderDialogOpen(false);
+    if (parentId) {
+      setSelectedPrimaryFolderId(getRootFolderId(savedPhraseState.folders, parentId));
+      setActiveNestedFolderId(parentId);
+    }
     toast.success("文件夹已添加");
   };
 
@@ -1152,8 +1207,9 @@ export default function Home() {
     if (selectedPhrase?.id === phraseId) {
       setSelectedPhrase((phrase) => phrase ? { ...phrase, folderId: nextFolderId } : phrase);
     }
-    if (nextFolderId && !expandedFolderIds.includes(nextFolderId)) {
-      setExpandedFolderIds((prev) => [...prev, nextFolderId]);
+    if (nextFolderId) {
+      setSelectedPrimaryFolderId(getRootFolderId(savedPhraseState.folders, nextFolderId));
+      setActiveNestedFolderId(nextFolderId);
     }
     toast.success("话术所属文件夹已更新");
   };
@@ -1187,8 +1243,9 @@ export default function Home() {
 
     void persistSavedPhraseState({ ...savedPhraseState, phrases: nextPhrases });
     if (selectedPhrase?.id === draggedPhrase.id) setSelectedPhrase(updatedDraggedPhrase);
-    if (targetFolderId && !expandedFolderIds.includes(targetFolderId)) {
-      setExpandedFolderIds((prev) => [...prev, targetFolderId]);
+    if (targetFolderId) {
+      setSelectedPrimaryFolderId(getRootFolderId(savedPhraseState.folders, targetFolderId));
+      setActiveNestedFolderId(targetFolderId);
     }
     setSavedPhraseDragItem(null);
     toast.success("话术排序已更新");
@@ -1261,6 +1318,17 @@ export default function Home() {
   const searchedPhrases = phraseSearch.trim()
     ? savedPhraseState.phrases.filter((phrase) => phrase.name.toLowerCase().includes(phraseSearch.trim().toLowerCase()))
     : [];
+
+  const rootSavedPhraseFolders = savedPhraseState.folders.filter((folder) => !folder.parentId);
+  const selectedPrimaryFolder = selectedPrimaryFolderId ? savedPhraseState.folders.find((folder) => folder.id === selectedPrimaryFolderId) || null : null;
+  const activeNestedFolder = activeNestedFolderId ? savedPhraseState.folders.find((folder) => folder.id === activeNestedFolderId) || null : selectedPrimaryFolder;
+  const visibleNestedFolderId = activeNestedFolder?.id || null;
+  const visibleNestedFolders = savedPhraseState.folders.filter((folder) => folder.parentId === visibleNestedFolderId);
+  const visibleNestedPhrases = savedPhraseState.phrases.filter((phrase) => phrase.folderId === visibleNestedFolderId);
+  const folderSelectOptions = savedPhraseState.folders.map((folder) => ({
+    folder,
+    label: getFolderDisplayName(savedPhraseState.folders, folder),
+  }));
 
   const renderSavedPhraseItem = (phrase: SavedPhrase) => (
     <PhraseListItem
@@ -1420,7 +1488,7 @@ export default function Home() {
           <TabsContent value="translate" className="flex-1 min-h-0 m-0 overflow-y-auto">
             <div className="min-h-full flex flex-col">
               <div className="flex-1 p-4 md:p-6 lg:p-8">
-                <div className="mx-auto grid max-w-7xl gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <div className={`mx-auto grid gap-6 transition-all ${selectedPrimaryFolder ? "max-w-[96rem] xl:grid-cols-[minmax(0,1fr)_300px_300px]" : "max-w-7xl xl:grid-cols-[minmax(0,1fr)_320px]"}`}>
                   <div className="space-y-6">
                   <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2 sm:gap-4">
                     <div className="min-w-0 space-y-2">
@@ -1545,10 +1613,10 @@ export default function Home() {
                         </div>
                         {isSavedPhraseSyncing && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                       </div>
-                      <div className="mb-4 flex gap-2">
-                        <Input value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} placeholder="新建文件夹" className="min-w-0" />
-                        <Button size="icon" variant="outline" onClick={handleAddPhraseFolder} aria-label="添加文件夹">
-                          <Plus className="w-4 h-4" />
+                       <div className="mb-4 flex justify-end">
+                        <Button size="sm" variant="outline" onClick={() => setIsAddFolderDialogOpen(true)}>
+                          <Plus className="mr-1 h-4 w-4" />
+                          新建文件夹
                         </Button>
                       </div>
                       <div className="relative mb-4">
@@ -1567,13 +1635,14 @@ export default function Home() {
                             >
                               {savedPhraseState.phrases.filter((phrase) => !phrase.folderId).map(renderSavedPhraseItem)}
                             </div>
-                            {savedPhraseState.folders.map((folder) => {
-                              const isExpanded = expandedFolderIds.includes(folder.id);
-                              const folderPhrases = savedPhraseState.phrases.filter((phrase) => phrase.folderId === folder.id);
+                            {rootSavedPhraseFolders.map((folder) => {
+                              const isSelected = selectedPrimaryFolderId === folder.id;
+                              const directPhraseCount = savedPhraseState.phrases.filter((phrase) => phrase.folderId === folder.id).length;
+                              const childFolderCount = savedPhraseState.folders.filter((item) => item.parentId === folder.id).length;
                               return (
                                 <div
                                   key={folder.id}
-                                  className={`min-w-0 overflow-hidden rounded-md border ${savedPhraseDragItem?.type === "folder" && savedPhraseDragItem.id === folder.id ? "opacity-50 ring-1 ring-primary" : ""}`}
+                                  className={`min-w-0 overflow-hidden rounded-md border ${isSelected ? "border-primary bg-primary/5" : ""} ${savedPhraseDragItem?.type === "folder" && savedPhraseDragItem.id === folder.id ? "opacity-50 ring-1 ring-primary" : ""}`}
                                   onDragOver={(event) => event.preventDefault()}
                                   onDrop={(event) => handleFolderDrop(event, folder.id)}
                                 >
@@ -1602,12 +1671,12 @@ export default function Home() {
                                       onDragStart={(event) => handleSavedPhraseDragStart(event, { type: "folder", id: folder.id })}
                                       onDragEnd={handleSavedPhraseDragEnd}
                                     >
-                                      <button type="button" onClick={() => setExpandedFolderIds((prev) => isExpanded ? prev.filter((id) => id !== folder.id) : [...prev, folder.id])} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm font-medium">
+                                      <button type="button" onClick={() => { setSelectedPrimaryFolderId(folder.id); setActiveNestedFolderId(folder.id); }} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm font-medium">
                                         <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-muted-foreground opacity-60 group-hover:opacity-100" aria-hidden="true" />
-                                        <ChevronRight className={`h-4 w-4 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                                        <ChevronRight className={`h-4 w-4 shrink-0 transition-transform ${isSelected ? "rotate-90" : ""}`} />
                                         <Folder className="h-4 w-4 shrink-0 text-blue-500" />
                                         <span className="min-w-0 flex-1 truncate">{folder.name}</span>
-                                        <span className="shrink-0 text-xs text-muted-foreground">{folderPhrases.length}</span>
+                                        <span className="shrink-0 text-xs text-muted-foreground">{childFolderCount + directPhraseCount}</span>
                                       </button>
                                       <Button
                                         size="icon"
@@ -1623,11 +1692,6 @@ export default function Home() {
                                       </Button>
                                     </div>
                                   )}
-                                  {isExpanded && (
-                                    <div className="min-w-0 space-y-1 overflow-hidden border-t p-2">
-                                      {folderPhrases.length > 0 ? folderPhrases.map(renderSavedPhraseItem) : <p className="px-2 py-3 text-xs text-muted-foreground">文件夹暂无话术</p>}
-                                    </div>
-                                  )}
                                 </div>
                               );
                             })}
@@ -1636,6 +1700,63 @@ export default function Home() {
                         )}
                       </div>
                     </aside>
+                    {selectedPrimaryFolder && visibleNestedFolderId && (
+                      <aside className="min-w-0 max-w-full overflow-hidden rounded-lg border bg-background p-4 shadow-xs xl:sticky xl:top-4 xl:max-h-[calc(100vh-11rem)] xl:overflow-y-auto">
+                        <div className="mb-4 flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <h2 className="truncate text-base font-semibold" title={activeNestedFolder?.name || selectedPrimaryFolder.name}>{activeNestedFolder?.name || selectedPrimaryFolder.name}</h2>
+                            <p className="text-xs text-muted-foreground">子文件夹与子话术</p>
+                          </div>
+                          <Button size="sm" variant="ghost" onClick={() => { setSelectedPrimaryFolderId(null); setActiveNestedFolderId(null); }}>收起</Button>
+                        </div>
+                        {activeNestedFolder?.id !== selectedPrimaryFolder.id && (
+                          <Button size="sm" variant="ghost" className="mb-3 px-0 text-muted-foreground" onClick={() => setActiveNestedFolderId(activeNestedFolder?.parentId || selectedPrimaryFolder.id)}>
+                            返回上级
+                          </Button>
+                        )}
+                        <div
+                          className="min-w-0 space-y-2 overflow-hidden rounded-md border border-dashed border-transparent p-1 transition-colors hover:border-muted-foreground/30"
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={(event) => { event.preventDefault(); event.stopPropagation(); handleDropPhraseToFolder(visibleNestedFolderId); }}
+                        >
+                          {visibleNestedFolders.map((folder) => {
+                            const phraseCount = savedPhraseState.phrases.filter((phrase) => phrase.folderId === folder.id).length;
+                            const childFolderCount = savedPhraseState.folders.filter((item) => item.parentId === folder.id).length;
+                            return (
+                              <div
+                                key={folder.id}
+                                className={`min-w-0 overflow-hidden rounded-md border ${savedPhraseDragItem?.type === "folder" && savedPhraseDragItem.id === folder.id ? "opacity-50 ring-1 ring-primary" : ""}`}
+                                onDragOver={(event) => event.preventDefault()}
+                                onDrop={(event) => handleFolderDrop(event, folder.id)}
+                              >
+                                {editingFolderId === folder.id ? (
+                                  <div className="flex items-center gap-1 px-2 py-2">
+                                    <Folder className="h-4 w-4 shrink-0 text-blue-500" />
+                                    <Input value={editingFolderName} onChange={(event) => setEditingFolderName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") handleRenameFolder(folder.id); if (event.key === "Escape") { setEditingFolderId(null); setEditingFolderName(""); } }} className="h-8 min-w-0 text-sm" autoFocus />
+                                    <Button size="sm" variant="ghost" onClick={() => handleRenameFolder(folder.id)}>保存</Button>
+                                  </div>
+                                ) : (
+                                  <div className="group flex min-w-0 items-center gap-1" draggable onDragStart={(event) => handleSavedPhraseDragStart(event, { type: "folder", id: folder.id })} onDragEnd={handleSavedPhraseDragEnd}>
+                                    <button type="button" onClick={() => setActiveNestedFolderId(folder.id)} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm font-medium">
+                                      <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-muted-foreground opacity-60 group-hover:opacity-100" aria-hidden="true" />
+                                      <ChevronRight className="h-4 w-4 shrink-0" />
+                                      <Folder className="h-4 w-4 shrink-0 text-blue-500" />
+                                      <span className="min-w-0 flex-1 truncate">{folder.name}</span>
+                                      <span className="shrink-0 text-xs text-muted-foreground">{childFolderCount + phraseCount}</span>
+                                    </button>
+                                    <Button size="icon" variant="ghost" className="mr-1 h-8 w-8 shrink-0 opacity-70 group-hover:opacity-100" onClick={() => { setEditingFolderId(folder.id); setEditingFolderName(folder.name); }} aria-label="修改文件夹名称">
+                                      <Edit className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {visibleNestedPhrases.map(renderSavedPhraseItem)}
+                          {visibleNestedFolders.length === 0 && visibleNestedPhrases.length === 0 && <p className="px-2 py-6 text-center text-sm text-muted-foreground">文件夹暂无内容</p>}
+                        </div>
+                      </aside>
+                    )}
                 </div>
               </div>
 
@@ -1683,6 +1804,39 @@ export default function Home() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={isAddFolderDialogOpen} onOpenChange={setIsAddFolderDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>新建文件夹</DialogTitle>
+            <DialogDescription>选择所属文件夹；选择一级列表则创建一级文件夹。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">文件夹名称</label>
+              <Input value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} placeholder="请输入文件夹名称" autoFocus />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">所属文件夹</label>
+              <Select value={newFolderParentId} onValueChange={setNewFolderParentId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="选择所属文件夹" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="root">一级列表</SelectItem>
+                  {folderSelectOptions.map(({ folder, label }) => (
+                    <SelectItem key={folder.id} value={folder.id}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddFolderDialogOpen(false)}>取消</Button>
+            <Button onClick={handleAddPhraseFolder}>添加</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isSavePhraseDialogOpen} onOpenChange={setIsSavePhraseDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -1697,8 +1851,8 @@ export default function Home() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="root">一级列表</SelectItem>
-                {savedPhraseState.folders.map((folder) => (
-                  <SelectItem key={folder.id} value={folder.id}>{folder.name}</SelectItem>
+                {folderSelectOptions.map(({ folder, label }) => (
+                  <SelectItem key={folder.id} value={folder.id}>{label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -1739,8 +1893,8 @@ export default function Home() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="root">一级列表</SelectItem>
-                    {savedPhraseState.folders.map((folder) => (
-                      <SelectItem key={folder.id} value={folder.id}>{folder.name}</SelectItem>
+                    {folderSelectOptions.map(({ folder, label }) => (
+                      <SelectItem key={folder.id} value={folder.id}>{label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

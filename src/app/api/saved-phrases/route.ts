@@ -3,7 +3,7 @@ import { getSupabaseClient } from "@/storage/database/supabase-client";
 
 const CONFIG_KEY = "saved_phrases";
 
-type SavedPhraseFolder = { id: string; name: string };
+type SavedPhraseFolder = { id: string; name: string; parentId: string | null };
 type SavedPhrase = {
   id: string;
   name: string;
@@ -14,6 +14,16 @@ type SavedPhrase = {
 };
 type SavedPhraseState = { folders: SavedPhraseFolder[]; phrases: SavedPhrase[] };
 
+function normalizeSavedPhraseFolder(folder: unknown): SavedPhraseFolder {
+  if (!folder || typeof folder !== "object") return { id: crypto.randomUUID(), name: "未命名文件夹", parentId: null };
+  const candidate = folder as { id?: unknown; name?: unknown; parentId?: unknown };
+  return {
+    id: typeof candidate.id === "string" ? candidate.id : crypto.randomUUID(),
+    name: typeof candidate.name === "string" ? candidate.name : "未命名文件夹",
+    parentId: typeof candidate.parentId === "string" ? candidate.parentId : null,
+  };
+}
+
 function normalizeSavedPhraseState(value: unknown): SavedPhraseState {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return { folders: [], phrases: [] };
@@ -21,7 +31,7 @@ function normalizeSavedPhraseState(value: unknown): SavedPhraseState {
 
   const data = value as Partial<SavedPhraseState>;
   return {
-    folders: Array.isArray(data.folders) ? data.folders : [],
+    folders: Array.isArray(data.folders) ? data.folders.map(normalizeSavedPhraseFolder) : [],
     phrases: Array.isArray(data.phrases) ? data.phrases : [],
   };
 }
