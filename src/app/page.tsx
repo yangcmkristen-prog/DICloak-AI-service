@@ -35,6 +35,8 @@ const TRANSLATION_LANGUAGES = [
   { value: "auto", label: "自动检测" },
   { value: "zh", label: "简体中文" },
   { value: "en", label: "英语" },
+  { value: "fr", label: "法语" },
+  { value: "de", label: "德语" },
   { value: "es", label: "西班牙语" },
   { value: "pt-BR", label: "葡萄牙语（巴西）" },
   { value: "pt-PT", label: "葡萄牙语（欧洲）" },

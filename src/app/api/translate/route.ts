@@ -7,6 +7,8 @@ const LANGUAGE_NAMES: Record<string, string> = {
   zh: "简体中文",
   en: "英语",
   es: "西班牙语",
+  fr: "法语",
+  de: "德语",
   "pt-BR": "葡萄牙语（巴西）",
   "pt-PT": "葡萄牙语（欧洲）",
   pt: "葡萄牙语（巴西）",
@@ -25,6 +27,8 @@ const QWEN_MT_LANGUAGE_NAMES: Record<string, string> = {
   zh: "Chinese",
   en: "English",
   es: "Spanish",
+  fr: "French",
+  de: "German",
   "pt-BR": "Portuguese",
   "pt-PT": "Portuguese",
   pt: "Portuguese",
@@ -41,6 +45,8 @@ const LANGUAGE_PROMPT_NAMES: Record<string, string> = {
   auto: "Auto Detect",
   zh: "Simplified Chinese (中文简体, zh-Hans)",
   en: "English",
+  fr: "French (Français)",
+  de: "German (Deutsch)",
   es: "Spanish (Español)",
   "pt-BR": "Brazilian Portuguese (Português do Brasil, pt-BR)",
   "pt-PT": "European Portuguese (Português Europeu, pt-PT)",
@@ -191,6 +197,8 @@ function readTermField(term: TermRecord, language: string): string {
   const fieldMap: Record<string, string[]> = {
     zh: ["termCN", "zh", "cn", "中文"],
     en: ["termEN", "en", "英文"],
+    fr: ["termFR", "fr", "法语"],
+    de: ["termDE", "de", "德语"],
     es: ["termES", "es", "西班牙语"],
     "pt-BR": ["termPT", "pt", "葡萄牙语（巴西）"],
     "pt-PT": ["termPT", "pt", "葡萄牙语（巴西）"],
@@ -275,6 +283,8 @@ function detectSourceLanguage(text: string): string | null {
   if (/[\u0e00-\u0e7f]/.test(text)) return "th";
   if (/[\u0600-\u06ff]/.test(text)) return "ar";
   if (/\b(the|and|you|your|have|has|hello|regarding|failure|issue|methods|network|settings|computer|installed|please|account|team)\b/.test(lower)) return "en";
+  if (/\b(bonjour|merci|compte|équipe|equipe|paramètres|parametres|problème|probleme|besoin|aide|connexion)\b/.test(lower) || /[àâçéèêëîïôûùüÿœæ]/.test(lower)) return "fr";
+  if (/\b(hallo|danke|konto|team|einstellungen|problem|hilfe|brauche|anmeldung|proxy|profil)\b/.test(lower) || /[äöüß]/.test(lower)) return "de";
   if (/\b(hemos|desactivar|agregar|entre|otros|hola|gracias|usted|puedo|necesito|cuenta|equipo|configuración|configuracion|contraseña|contrasena|archivo|carpeta|problema)\b/.test(lower) || /[¿¡ñáéíóúü]/.test(lower)) return "es";
   if (/\b(você|voce|obrigado|obrigada|não|nao|estou|preciso|conta|equipe|configurações|configuracoes)\b/.test(lower)) return "pt-BR";
   if (/\b(tu|estás|estas|ficheiro|telemóvel|telemovel|factura|fatura)\b/.test(lower)) return "pt-PT";
