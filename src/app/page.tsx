@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import type { DragEvent } from "react";
+import type { DragEvent, KeyboardEvent } from "react";
 import { Archive, ArrowRightLeft, Check, ChevronRight, Copy, Edit, Folder, GripVertical, Languages, Loader2, MessageSquare, Plus, Search, Settings, Trash2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConversationList } from "@/components/conversation-list";
@@ -1038,6 +1038,17 @@ export default function Home() {
     }
   };
 
+  const handleTranslationInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+      return;
+    }
+
+    event.preventDefault();
+    if (!isTranslating && translationInput.trim()) {
+      void handleTranslate();
+    }
+  };
+
   const handleCopyTranslation = async () => {
     if (!translationResult) {
       toast.error("暂无可复制的翻译结果");
@@ -1598,7 +1609,8 @@ export default function Home() {
                     <Textarea
                       value={translationInput}
                       onChange={(e) => setTranslationInput(e.target.value.slice(0, 5000))}
-                      placeholder="请输入要翻译的内容..."
+                      onKeyDown={handleTranslationInputKeyDown}
+                      placeholder="请输入要翻译的内容，按 Enter 开始翻译，Shift + Enter 换行..."
                       className="min-h-40 resize-none bg-background"
                     />
                   </div>
