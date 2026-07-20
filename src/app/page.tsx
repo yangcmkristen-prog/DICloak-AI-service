@@ -574,6 +574,7 @@ export default function Home() {
   const [copiedSavedPhraseLanguage, setCopiedSavedPhraseLanguage] = useState<PhraseLanguage | null>(null);
   const [otherPhraseLanguage, setOtherPhraseLanguage] = useState(OTHER_PHRASE_TRANSLATION_LANGUAGES[0]?.value || "");
   const [isTranslatingSavedPhrase, setIsTranslatingSavedPhrase] = useState(false);
+  const [copiedOtherPhraseLanguage, setCopiedOtherPhraseLanguage] = useState<string | null>(null);
   const [savedPhraseDragItem, setSavedPhraseDragItem] = useState<SavedPhraseDragItem | null>(null);
   const [isSavedPhraseSyncing, setIsSavedPhraseSyncing] = useState(false);
 
@@ -1393,7 +1394,11 @@ export default function Home() {
 
       // 其他语种按需翻译后直接复制，不写入话术状态或 localStorage。
       await navigator.clipboard.writeText(data.translation);
+      setCopiedOtherPhraseLanguage(otherPhraseLanguage);
       toast.success(`${getTranslationLanguageLabel(otherPhraseLanguage)}译文已复制`);
+      window.setTimeout(() => setCopiedOtherPhraseLanguage((currentLanguage) => (
+        currentLanguage === otherPhraseLanguage ? null : currentLanguage
+      )), 1500);
     } catch (error) {
       console.error("翻译并复制话术失败:", error);
       toast.error(error instanceof Error ? error.message : "翻译并复制失败，请稍后重试");
@@ -2064,6 +2069,7 @@ export default function Home() {
         if (!open) {
           setSelectedPhrase(null);
           setCopiedSavedPhraseLanguage(null);
+          setCopiedOtherPhraseLanguage(null);
           setIsTranslatingSavedPhrase(false);
         }
       }}>
@@ -2119,7 +2125,10 @@ export default function Home() {
                   <p className="text-xs text-muted-foreground">选择后将即时翻译并复制，译文不会被储存。</p>
                 </div>
                 <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
-                  <Select value={otherPhraseLanguage} onValueChange={setOtherPhraseLanguage} disabled={isTranslatingSavedPhrase}>
+                  <Select value={otherPhraseLanguage} onValueChange={(language) => {
+                    setOtherPhraseLanguage(language);
+                    setCopiedOtherPhraseLanguage(null);
+                  }} disabled={isTranslatingSavedPhrase}>
                     <SelectTrigger className="min-w-0 flex-1">
                       <SelectValue placeholder="选择其他语言" />
                     </SelectTrigger>
@@ -2130,8 +2139,14 @@ export default function Home() {
                     </SelectContent>
                   </Select>
                   <Button onClick={() => void handleTranslateAndCopySavedPhrase(selectedPhrase)} disabled={!otherPhraseLanguage || isTranslatingSavedPhrase}>
-                    {isTranslatingSavedPhrase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Copy className="mr-2 h-4 w-4" />}
-                    {isTranslatingSavedPhrase ? "翻译中" : "翻译并复制"}
+                    {isTranslatingSavedPhrase ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : copiedOtherPhraseLanguage === otherPhraseLanguage ? (
+                      <Check className="mr-2 h-4 w-4" />
+                    ) : (
+                      <Copy className="mr-2 h-4 w-4" />
+                    )}
+                    {isTranslatingSavedPhrase ? "翻译中" : copiedOtherPhraseLanguage === otherPhraseLanguage ? "已复制" : "翻译并复制"}
                   </Button>
                 </div>
               </div>
