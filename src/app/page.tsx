@@ -58,6 +58,9 @@ const PHRASE_TRANSLATION_LANGUAGES = [
   { value: "ru", label: "俄语" },
   { value: "vi", label: "越南语" },
 ] as const;
+const OTHER_PHRASE_TRANSLATION_LANGUAGES = TARGET_TRANSLATION_LANGUAGES.filter(
+  (language) => !PHRASE_TRANSLATION_LANGUAGES.some((savedLanguage) => savedLanguage.value === language.value),
+);
 const SAVED_PHRASES_STORAGE_KEY = "diclok_saved_phrases";
 
 type ReplySectionType = "question" | "identity" | "main" | "common" | "client" | "end_user" | "supplement" | "info";
@@ -569,6 +572,8 @@ export default function Home() {
   const [editingFolderParentId, setEditingFolderParentId] = useState("root");
   const [selectedPhrase, setSelectedPhrase] = useState<SavedPhrase | null>(null);
   const [copiedSavedPhraseLanguage, setCopiedSavedPhraseLanguage] = useState<PhraseLanguage | null>(null);
+  const [otherPhraseLanguage, setOtherPhraseLanguage] = useState(OTHER_PHRASE_TRANSLATION_LANGUAGES[0]?.value || "");
+  const [isTranslatingSavedPhrase, setIsTranslatingSavedPhrase] = useState(false);
   const [savedPhraseDragItem, setSavedPhraseDragItem] = useState<SavedPhraseDragItem | null>(null);
   const [isSavedPhraseSyncing, setIsSavedPhraseSyncing] = useState(false);
 
@@ -1366,6 +1371,37 @@ export default function Home() {
     }
   };
 
+  const handleTranslateAndCopySavedPhrase = async (phrase: SavedPhrase) => {
+    if (!otherPhraseLanguage) {
+      toast.error("请选择要翻译的语言");
+      return;
+    }
+
+    setIsTranslatingSavedPhrase(true);
+    try {
+      const response = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: phrase.sourceText,
+          sourceLanguage: "auto",
+          targetLanguage: otherPhraseLanguage,
+        }),
+      });
+      const data = await response.json() as { translation?: string; error?: string };
+      if (!response.ok || !data.translation) throw new Error(data.error || "翻译失败");
+
+      // 其他语种按需翻译后直接复制，不写入话术状态或 localStorage。
+      await navigator.clipboard.writeText(data.translation);
+      toast.success(`${getTranslationLanguageLabel(otherPhraseLanguage)}译文已复制`);
+    } catch (error) {
+      console.error("翻译并复制话术失败:", error);
+      toast.error(error instanceof Error ? error.message : "翻译并复制失败，请稍后重试");
+    } finally {
+      setIsTranslatingSavedPhrase(false);
+    }
+  };
+
   const searchedPhrases = phraseSearch.trim()
     ? savedPhraseState.phrases.filter((phrase) => phrase.name.toLowerCase().includes(phraseSearch.trim().toLowerCase()))
     : [];
@@ -2028,6 +2064,7 @@ export default function Home() {
         if (!open) {
           setSelectedPhrase(null);
           setCopiedSavedPhraseLanguage(null);
+          setIsTranslatingSavedPhrase(false);
         }
       }}>
         <DialogContent className="min-w-0 max-h-[90vh] overflow-hidden sm:max-w-[520px]">
@@ -2075,6 +2112,28 @@ export default function Home() {
                     </Button>
                   );
                 })}
+              </div>
+              <div className="space-y-2 rounded-md border p-3">
+                <div>
+                  <div className="text-sm font-medium">其他语言</div>
+                  <p className="text-xs text-muted-foreground">选择后将即时翻译并复制，译文不会被储存。</p>
+                </div>
+                <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+                  <Select value={otherPhraseLanguage} onValueChange={setOtherPhraseLanguage} disabled={isTranslatingSavedPhrase}>
+                    <SelectTrigger className="min-w-0 flex-1">
+                      <SelectValue placeholder="选择其他语言" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {OTHER_PHRASE_TRANSLATION_LANGUAGES.map((language) => (
+                        <SelectItem key={language.value} value={language.value}>{language.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={() => void handleTranslateAndCopySavedPhrase(selectedPhrase)} disabled={!otherPhraseLanguage || isTranslatingSavedPhrase}>
+                    {isTranslatingSavedPhrase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Copy className="mr-2 h-4 w-4" />}
+                    {isTranslatingSavedPhrase ? "翻译中" : "翻译并复制"}
+                  </Button>
+                </div>
               </div>
               <Button variant="outline" className="w-full min-w-0 whitespace-normal text-red-500 hover:text-red-600" onClick={() => handleDeletePhrase(selectedPhrase.id)}>
                 <Trash2 className="mr-2 h-4 w-4" />
