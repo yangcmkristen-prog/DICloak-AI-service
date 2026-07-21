@@ -1139,7 +1139,7 @@ function hasExternalToolMention(text: string): boolean {
 
 function isExternalToolLoggedOutEndUserRequest(text: string): boolean {
   const normalizedText = text.toLowerCase();
-  const hasLoggedOutState = /未登录|未登入|显示.*(?:退出|登出)|已退出登录|登录状态失效|会话过期|掉登录|掉线|not logged in|logged out|signed out|session expired/.test(normalizedText);
+  const hasLoggedOutState = /未登录|未登入|显示.*(?:退出|登出)|已退出登录|登录状态失效|会话过期|掉登录|掉线|not logged in|logged out|signed out|session\s+(?:(?:has|is|was)\s+)?expired|expired session|session expiration|sessão expirada|sesión (?:ha )?expirad[ao]|сесси[яи].*(?:истек|заверш)|phiên đăng nhập.*hết hạn/.test(normalizedText);
   const explicitlyAdmin = /我是(?:团队|环境)?管理员|我(?:是|有)管理权限|\bi(?:'m| am) (?:an )?admin\b|\badministrator\b/.test(normalizedText);
   return hasExternalToolMention(normalizedText) && hasLoggedOutState && !explicitlyAdmin;
 }
@@ -1172,6 +1172,38 @@ function inferTroubleshootingFlowFieldHints(text: string): Record<string, string
   }
 
   return hints;
+}
+
+function normalizeFlowMatchText(value: string): string {
+  return value.toLowerCase().replace(/[\s_\-]+/g, ' ').trim();
+}
+
+function matchesTroubleshootingFlowStart(
+  text: string,
+  item: Pick<KnowledgeBase['troubleshootingFlowItems'][number], 'questionCN' | 'userPhrases' | 'tags'>,
+): boolean {
+  const normalizedText = normalizeFlowMatchText(text);
+  if (!normalizedText) return false;
+
+  const normalizedQuestion = normalizeFlowMatchText(item.questionCN);
+  if (normalizedQuestion.length >= 4 && normalizedText.includes(normalizedQuestion)) {
+    return true;
+  }
+
+  const userPhrases = item.userPhrases
+    .split(/[,，;；\n]+/)
+    .map((phrase) => normalizeFlowMatchText(phrase))
+    .filter((phrase) => phrase.length >= 4);
+  if (userPhrases.some((phrase) => normalizedText.includes(phrase))) {
+    return true;
+  }
+
+  // 短标签（如“登录”“账号”）过于宽泛，不能单独触发多轮排障。
+  return item.tags.some((tag) => {
+    const normalizedTag = normalizeFlowMatchText(tag);
+    const minimumLength = /[\u3400-\u9fff]/.test(normalizedTag) ? 4 : 6;
+    return normalizedTag.length >= minimumLength && normalizedText.includes(normalizedTag);
+  });
 }
 
 function hasOutOfScopeExternalToolMention(text: string): boolean {
@@ -2138,12 +2170,9 @@ The customer requested step-by-step setup instructions. Before giving any number
         .filter(m => m.score > 0)
         .sort((a, b) => b.score - a.score);
 
-      // 多轮排障流程按整段对话匹配，确保客户简短回答后仍能继续此前命中的流程。
+      // 只有客户消息明确命中 start 节点的标准问题、用户问法或有效标签，
+      // 才允许进入多轮排障；节点正文和宽泛关键词不能触发新流程。
       type FlowItem = NonNullable<KnowledgeBase['troubleshootingFlowItems']>[number];
-      const conversationText = [
-        ...(history || []).map((item) => item.content),
-        currentMessageText,
-      ].join('\n');
       const userConversationText = [
         ...(history || []).filter((item) => item.role !== 'assistant').map((item) => item.content),
         currentMessageText,
@@ -2151,9 +2180,11 @@ The customer requested step-by-step setup instructions. Before giving any number
       const externalToolEndUserRouting = lockedRole !== 'client' && isExternalToolLoggedOutEndUserRequest(userConversationText);
       const flowKnownFieldHints = inferTroubleshootingFlowFieldHints(userConversationText);
       const enabledFlowItems = (knowledge.troubleshootingFlowItems || []).filter((item) => item.enabled);
+      const startFlowItems = enabledFlowItems.filter((item) => item.nodeId.trim().toLowerCase() === 'start');
       const flowScores = new Map<string, number>();
-      enabledFlowItems.forEach((item) => {
-        const score = calculateMatchScore(conversationText, {
+      startFlowItems.forEach((item) => {
+        if (!matchesTroubleshootingFlowStart(userConversationText, item)) return;
+        const score = calculateMatchScore(userConversationText, {
           questionCN: item.questionCN,
           userPhrases: item.userPhrases,
           tags: item.tags,
@@ -2161,9 +2192,8 @@ The customer requested step-by-step setup instructions. Before giving any number
         flowScores.set(item.flowId, Math.max(flowScores.get(item.flowId) || 0, score));
       });
       const matchedFlowIds = externalToolEndUserRouting ? [] : [...flowScores.entries()]
-        .filter(([, score]) => score > 0)
         .sort((left, right) => right[1] - left[1])
-        .slice(0, 3)
+        .slice(0, 1)
         .map(([flowId]) => flowId);
       const matchedFlowItems: FlowItem[] = enabledFlowItems.filter((item) => matchedFlowIds.includes(item.flowId));
 
