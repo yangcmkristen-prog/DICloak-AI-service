@@ -263,6 +263,7 @@ function isKnowledgeBaseEmpty(kb: Partial<KnowledgeBase> | null | undefined): bo
   return !kb || (
     (!kb.faqItems || kb.faqItems.length === 0) &&
     (!kb.troubleshootingItems || kb.troubleshootingItems.length === 0) &&
+    (!kb.troubleshootingFlowItems || kb.troubleshootingFlowItems.length === 0) &&
     (!kb.outOfScopeItems || kb.outOfScopeItems.length === 0) &&
     (!kb.mappingItems || kb.mappingItems.length === 0) &&
     (!kb.functionKnowledge || kb.functionKnowledge.length === 0) &&

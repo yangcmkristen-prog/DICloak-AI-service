@@ -25,6 +25,7 @@ export async function GET() {
         data: {
           faqItems: [],
           troubleshootingItems: [],
+          troubleshootingFlowItems: [],
           outOfScopeItems: [],
           mappingItems: [],
           functionKnowledge: [],
@@ -37,7 +38,7 @@ export async function GET() {
 
     // 检查知识库是否为空
     const kb = data.knowledge_data;
-    const isEmpty = !kb.faqItems?.length && !kb.troubleshootingItems?.length && 
+    const isEmpty = !kb.faqItems?.length && !kb.troubleshootingItems?.length && !kb.troubleshootingFlowItems?.length &&
                     !kb.outOfScopeItems?.length && !kb.mappingItems?.length && 
                     !kb.functionKnowledge?.length && !kb.termItems?.length;
 

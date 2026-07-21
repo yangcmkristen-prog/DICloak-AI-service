@@ -93,6 +93,29 @@ export interface TroubleshootingItem extends FAQItem {
   answerEndUser?: string;   // 标准答案（end_user）
 }
 
+export type TroubleshootingFlowNodeType = 'question' | 'solution' | 'diagnosis' | 'handoff' | 'message';
+
+// troubleshooting_flow Sheet：一行表示一个节点的一条可匹配分支。
+export interface TroubleshootingFlowItem {
+  id: string;
+  flowId: string;
+  flowName: string;
+  questionCN: string;
+  userPhrases: string;
+  tags: string[];
+  enabled: boolean;
+  nodeId: string;
+  nodeName: string;
+  nodeType: TroubleshootingFlowNodeType;
+  prerequisites: string;
+  question: string;
+  collectField: string;
+  matchValue: string;
+  matchKeywords: string;
+  nextNodeId: string;
+  solution: string;
+}
+
 // Out of scope 专用字段
 export interface OutOfScopeItem extends FAQItem {
   subType?: string;         // sub_type
@@ -247,6 +270,7 @@ export interface PricingTable {
 export interface KnowledgeBase {
   faqItems: FAQItem[];
   troubleshootingItems: TroubleshootingItem[];
+  troubleshootingFlowItems: TroubleshootingFlowItem[];
   outOfScopeItems: OutOfScopeItem[];
   mappingItems: MappingItem[];
   functionKnowledge: FunctionKnowledge[];

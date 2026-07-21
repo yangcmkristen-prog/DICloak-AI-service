@@ -108,6 +108,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   const [stats, setStats] = useState<{
     faqCount: number;
     troubleshootingCount: number;
+    troubleshootingFlowCount: number;
     outOfScopeCount: number;
     mappingCount: number;
     functionCount: number;
@@ -120,6 +121,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   }>({
     faqCount: 0,
     troubleshootingCount: 0,
+    troubleshootingFlowCount: 0,
     outOfScopeCount: 0,
     mappingCount: 0,
     functionCount: 0,
@@ -391,6 +393,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
         const combinedData: Partial<KnowledgeBase> = {
           faqItems: [],
           troubleshootingItems: [],
+          troubleshootingFlowItems: [],
           outOfScopeItems: [],
           mappingItems: [],
           functionKnowledge: [],
@@ -413,6 +416,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
           if (result.data) {
             combinedData.faqItems!.push(...(result.data.faqItems || []));
             combinedData.troubleshootingItems!.push(...(result.data.troubleshootingItems || []));
+            combinedData.troubleshootingFlowItems!.push(...(result.data.troubleshootingFlowItems || []));
             combinedData.outOfScopeItems!.push(...(result.data.outOfScopeItems || []));
             combinedData.mappingItems!.push(...(result.data.mappingItems || []));
             combinedData.functionKnowledge!.push(...(result.data.functionKnowledge || []));
@@ -480,6 +484,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
       await syncKnowledgeToDatabase({
         faqItems: [],
         troubleshootingItems: [],
+        troubleshootingFlowItems: [],
         outOfScopeItems: [],
         mappingItems: [],
         functionKnowledge: [],
@@ -600,7 +605,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     } : null);
   };
 
-  const totalItems = stats.faqCount + stats.troubleshootingCount + stats.outOfScopeCount + 
+  const totalItems = stats.faqCount + stats.troubleshootingCount + stats.troubleshootingFlowCount + stats.outOfScopeCount +
                      stats.mappingCount + stats.functionCount + stats.termCount +
                      stats.apiEndpointCount + stats.apiParameterCount + stats.pricingPlanCount;
 
@@ -679,6 +684,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                       <div className="flex flex-wrap gap-3 mt-1 text-sm text-green-600 dark:text-green-400">
                         {result.stats.faqCount > 0 && <span>FAQ: {result.stats.faqCount}</span>}
                         {result.stats.troubleshootingCount > 0 && <span>排障: {result.stats.troubleshootingCount}</span>}
+                        {result.stats.troubleshootingFlowCount > 0 && <span>多轮排障节点: {result.stats.troubleshootingFlowCount}</span>}
                         {result.stats.outOfScopeCount > 0 && <span>超范围: {result.stats.outOfScopeCount}</span>}
                         {result.stats.mappingCount > 0 && <span>映射: {result.stats.mappingCount}</span>}
                         {result.stats.functionCount > 0 && <span>功能: {result.stats.functionCount}</span>}
@@ -738,6 +744,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <StatCard label="FAQ" count={stats.faqCount} color="blue" />
                 <StatCard label="排障问题" count={stats.troubleshootingCount} color="orange" />
+                <StatCard label="多轮排障节点" count={stats.troubleshootingFlowCount} color="orange" />
                 <StatCard label="超范围问题" count={stats.outOfScopeCount} color="gray" />
                 <StatCard label="问题映射" count={stats.mappingCount} color="purple" />
                 <StatCard label="功能知识" count={stats.functionCount} color="green" />

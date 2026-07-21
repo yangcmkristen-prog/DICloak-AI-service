@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import {
   FAQItem,
   TroubleshootingItem,
+  TroubleshootingFlowItem,
   OutOfScopeItem,
   MappingItem,
   FunctionKnowledge,
@@ -120,6 +121,39 @@ function parseTroubleshootingSheet(sheet: XLSX.WorkSheet): TroubleshootingItem[]
         answerEndUser: getCellValue(row['标准答案（end_user）']),
       };
     });
+}
+
+function parseTroubleshootingFlowSheet(sheet: XLSX.WorkSheet): TroubleshootingFlowItem[] {
+  const data = XLSX.utils.sheet_to_json<Record<string, CellValue>>(sheet, { defval: '' });
+  const validNodeTypes = new Set<TroubleshootingFlowItem['nodeType']>(['question', 'solution', 'diagnosis', 'handoff', 'message']);
+
+  return data.flatMap((row): TroubleshootingFlowItem[] => {
+    const flowId = getCellValue(row['FLOW_ID']);
+    const nodeId = getCellValue(row['NODE_ID']);
+    const rawNodeType = getCellValue(row['NODE_TYPE']).toLowerCase();
+    if (!flowId || !nodeId || !validNodeTypes.has(rawNodeType as TroubleshootingFlowItem['nodeType'])) return [];
+
+    const enabledValue = getCellValue(row['是否启用']).toLowerCase();
+    return [{
+      id: generateId(),
+      flowId,
+      flowName: getCellValue(row['FLOW_NAME']),
+      questionCN: getCellValue(row['标准问题（中文）']),
+      userPhrases: getCellValue(row['用户问法']),
+      tags: parseTags(row['标签']),
+      enabled: !['否', 'false', '0', 'no', 'disabled'].includes(enabledValue),
+      nodeId,
+      nodeName: getCellValue(row['NODE_NAME']),
+      nodeType: rawNodeType as TroubleshootingFlowItem['nodeType'],
+      prerequisites: getCellValue(row['PREREQUISITES']),
+      question: getCellValue(row['QUESTION']),
+      collectField: getCellValue(row['COLLECT_FIELD']),
+      matchValue: getCellValue(row['MATCH_VALUE']),
+      matchKeywords: getCellValue(row['MATCH_KEYWORDS']),
+      nextNodeId: getCellValue(row['NEXT_NODE_ID']),
+      solution: getCellValue(row['SOLUTION']),
+    }];
+  });
 }
 
 // 解析 out_of_scope
@@ -325,6 +359,7 @@ function parsePricingSheet(sheet: XLSX.WorkSheet): { plans: PricingPlan[]; rawTa
 // 从 Sheet 名称推断类型
 function inferSheetType(sheetName: string): string {
   const name = sheetName.toLowerCase();
+  if (name.includes('troubleshooting_flow') || name.includes('troubleshoot_flow')) return 'troubleshooting_flow';
   if (name.includes('feature_faq')) return 'feature_faq';
   if (name.includes('user_routing')) return 'user_routing';
   if (name.includes('troubleshoot')) return 'troubleshooting';
@@ -351,6 +386,7 @@ export interface ImportResult {
   stats: {
     faqCount: number;
     troubleshootingCount: number;
+    troubleshootingFlowCount: number;
     outOfScopeCount: number;
     mappingCount: number;
     functionCount: number;
@@ -399,6 +435,9 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
         case 'troubleshooting':
           const troubleshootItems = parseTroubleshootingSheet(sheet);
           result.troubleshootingItems!.push(...troubleshootItems);
+          break;
+        case 'troubleshooting_flow':
+          result.troubleshootingFlowItems!.push(...parseTroubleshootingFlowSheet(sheet));
           break;
         case 'out_of_scope':
           const outOfScopeItems = parseOutOfScopeSheet(sheet);
@@ -459,6 +498,7 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
     const totalCount = 
       result.faqItems!.length +
       result.troubleshootingItems!.length +
+      result.troubleshootingFlowItems!.length +
       result.outOfScopeItems!.length +
       result.mappingItems!.length +
       result.functionKnowledge!.length +
@@ -469,7 +509,7 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
 
     // 判断文件类型：优先根据实际解析出的内容判断，避免 FAQ 文件因 Sheet1/术语页被误归类
     let fileType: 'faq' | 'term' | 'function' | 'api' | 'pricing' = 'faq';
-    if (result.faqItems!.length > 0 || result.troubleshootingItems!.length > 0 || result.outOfScopeItems!.length > 0 || result.mappingItems!.length > 0) {
+    if (result.faqItems!.length > 0 || result.troubleshootingItems!.length > 0 || result.troubleshootingFlowItems!.length > 0 || result.outOfScopeItems!.length > 0 || result.mappingItems!.length > 0) {
       fileType = 'faq';
     } else if (result.apiEndpoints!.length > 0 || result.apiParameters!.length > 0) {
       fileType = 'api';
@@ -489,6 +529,7 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
       stats: {
         faqCount: result.faqItems!.length,
         troubleshootingCount: result.troubleshootingItems!.length,
+        troubleshootingFlowCount: result.troubleshootingFlowItems!.length,
         outOfScopeCount: result.outOfScopeItems!.length,
         mappingCount: result.mappingItems!.length,
         functionCount: result.functionKnowledge!.length,
@@ -508,6 +549,7 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
       stats: {
         faqCount: 0,
         troubleshootingCount: 0,
+        troubleshootingFlowCount: 0,
         outOfScopeCount: 0,
         mappingCount: 0,
         functionCount: 0,
@@ -530,6 +572,7 @@ export async function importMultipleExcelFiles(files: File[]): Promise<{
   const combinedData: Partial<KnowledgeBase> = {
     faqItems: [],
     troubleshootingItems: [],
+    troubleshootingFlowItems: [],
     outOfScopeItems: [],
     mappingItems: [],
     functionKnowledge: [],
@@ -546,6 +589,7 @@ export async function importMultipleExcelFiles(files: File[]): Promise<{
     if (result.success && result.data) {
       combinedData.faqItems!.push(...(result.data.faqItems || []));
       combinedData.troubleshootingItems!.push(...(result.data.troubleshootingItems || []));
+      combinedData.troubleshootingFlowItems!.push(...(result.data.troubleshootingFlowItems || []));
       combinedData.outOfScopeItems!.push(...(result.data.outOfScopeItems || []));
       combinedData.mappingItems!.push(...(result.data.mappingItems || []));
       combinedData.functionKnowledge!.push(...(result.data.functionKnowledge || []));
@@ -559,6 +603,7 @@ export async function importMultipleExcelFiles(files: File[]): Promise<{
   const totalStats = {
     faqCount: combinedData.faqItems!.length,
     troubleshootingCount: combinedData.troubleshootingItems!.length,
+    troubleshootingFlowCount: combinedData.troubleshootingFlowItems!.length,
     outOfScopeCount: combinedData.outOfScopeItems!.length,
     mappingCount: combinedData.mappingItems!.length,
     functionCount: combinedData.functionKnowledge!.length,

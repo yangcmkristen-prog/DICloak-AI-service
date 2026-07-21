@@ -188,6 +188,7 @@ export async function saveKnowledgeBase(data: Partial<KnowledgeBase>): Promise<v
 export function getKnowledgeStats(data?: Partial<KnowledgeBase>): {
   faqCount: number;
   troubleshootingCount: number;
+  troubleshootingFlowCount: number;
   outOfScopeCount: number;
   mappingCount: number;
   functionCount: number;
@@ -208,6 +209,7 @@ export function getKnowledgeStats(data?: Partial<KnowledgeBase>): {
   const result = {
     faqCount: 0,
     troubleshootingCount: 0,
+    troubleshootingFlowCount: 0,
     outOfScopeCount: 0,
     mappingCount: 0,
     functionCount: 0,
@@ -243,6 +245,9 @@ export function getKnowledgeStats(data?: Partial<KnowledgeBase>): {
   }
   if (knowledgeData.troubleshootingItems) {
     result.troubleshootingCount += knowledgeData.troubleshootingItems.length;
+  }
+  if (knowledgeData.troubleshootingFlowItems) {
+    result.troubleshootingFlowCount += knowledgeData.troubleshootingFlowItems.length;
   }
   if (knowledgeData.outOfScopeItems) {
     result.outOfScopeCount += knowledgeData.outOfScopeItems.length;
