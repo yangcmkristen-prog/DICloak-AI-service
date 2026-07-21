@@ -404,16 +404,30 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
     const workbook = await readExcelFile(file);
     const sheetNames = workbook.SheetNames;
 
+    // 使用确定存在的本地数组完成整个解析过程，避免可选的 Partial 字段在
+    // 新增 Sheet 类型或热更新后的旧数据结构中出现 undefined.push/length。
+    const faqItems: FAQItem[] = [];
+    const troubleshootingItems: TroubleshootingItem[] = [];
+    const troubleshootingFlowItems: TroubleshootingFlowItem[] = [];
+    const outOfScopeItems: OutOfScopeItem[] = [];
+    const mappingItems: MappingItem[] = [];
+    const functionKnowledge: FunctionKnowledge[] = [];
+    const termItems: TermItem[] = [];
+    const apiEndpoints: ApiEndpoint[] = [];
+    const apiParameters: ApiParameter[] = [];
+    const pricingPlans: PricingPlan[] = [];
+
     const result: Partial<KnowledgeBase> = {
-      faqItems: [],
-      troubleshootingItems: [],
-      outOfScopeItems: [],
-      mappingItems: [],
-      functionKnowledge: [],
-      termItems: [],
-      apiEndpoints: [],
-      apiParameters: [],
-      pricingPlans: [],
+      faqItems,
+      troubleshootingItems,
+      troubleshootingFlowItems,
+      outOfScopeItems,
+      mappingItems,
+      functionKnowledge,
+      termItems,
+      apiEndpoints,
+      apiParameters,
+      pricingPlans,
     };
 
     for (const sheetName of sheetNames) {
@@ -429,43 +443,35 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
       switch (sheetType) {
         case 'feature_faq':
         case 'user_routing':
-          const faqItems = parseFAQSheet(sheet, sheetType);
-          result.faqItems!.push(...faqItems);
+          faqItems.push(...parseFAQSheet(sheet, sheetType));
           break;
         case 'troubleshooting':
-          const troubleshootItems = parseTroubleshootingSheet(sheet);
-          result.troubleshootingItems!.push(...troubleshootItems);
+          troubleshootingItems.push(...parseTroubleshootingSheet(sheet));
           break;
         case 'troubleshooting_flow':
-          result.troubleshootingFlowItems!.push(...parseTroubleshootingFlowSheet(sheet));
+          troubleshootingFlowItems.push(...parseTroubleshootingFlowSheet(sheet));
           break;
         case 'out_of_scope':
-          const outOfScopeItems = parseOutOfScopeSheet(sheet);
-          result.outOfScopeItems!.push(...outOfScopeItems);
+          outOfScopeItems.push(...parseOutOfScopeSheet(sheet));
           break;
         case 'mapping':
-          const mappingItems = parseMappingSheet(sheet);
-          result.mappingItems!.push(...mappingItems);
+          mappingItems.push(...parseMappingSheet(sheet));
           break;
         case 'function_knowledge':
-          const functionItems = parseFunctionKnowledgeSheet(sheet);
-          result.functionKnowledge!.push(...functionItems);
+          functionKnowledge.push(...parseFunctionKnowledgeSheet(sheet));
           break;
         case 'term':
-          const termItems = parseTermSheet(sheet);
-          result.termItems!.push(...termItems);
+          termItems.push(...parseTermSheet(sheet));
           break;
         case 'api_endpoint':
-          const apiEndpoints = parseApiEndpointSheet(sheet);
-          result.apiEndpoints!.push(...apiEndpoints);
+          apiEndpoints.push(...parseApiEndpointSheet(sheet));
           break;
         case 'api_parameter':
-          const apiParameters = parseApiParameterSheet(sheet);
-          result.apiParameters!.push(...apiParameters);
+          apiParameters.push(...parseApiParameterSheet(sheet));
           break;
         case 'pricing':
           const pricingResult = parsePricingSheet(sheet);
-          result.pricingPlans!.push(...pricingResult.plans);
+          pricingPlans.push(...pricingResult.plans);
           result.pricingRawTable = pricingResult.rawTable;
           break;
         case 'sheet1':
@@ -476,14 +482,13 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
             if (columns.includes('Features') && columns.some(col => col.includes('/'))) {
               console.log('[EXCEL DEBUG] Sheet1 检测为价格功能表');
               const sheet1PricingResult = parsePricingSheet(sheet);
-              result.pricingPlans!.push(...sheet1PricingResult.plans);
+              pricingPlans.push(...sheet1PricingResult.plans);
               result.pricingRawTable = sheet1PricingResult.rawTable;
             }
             // 如果有 term_id 或 中文/英文 列，则是术语库
             else if (columns.includes('term_id') || (columns.includes('中文') && columns.includes('英文'))) {
               console.log('[EXCEL DEBUG] Sheet1 检测为术语库');
-              const terms = parseTermSheet(sheet);
-              result.termItems!.push(...terms);
+              termItems.push(...parseTermSheet(sheet));
             } else {
               console.log('[EXCEL DEBUG] Sheet1 类型未识别，列名:', columns);
             }
@@ -496,28 +501,28 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
     }
 
     const totalCount = 
-      result.faqItems!.length +
-      result.troubleshootingItems!.length +
-      result.troubleshootingFlowItems!.length +
-      result.outOfScopeItems!.length +
-      result.mappingItems!.length +
-      result.functionKnowledge!.length +
-      result.termItems!.length +
-      result.apiEndpoints!.length +
-      result.apiParameters!.length +
-      result.pricingPlans!.length;
+      faqItems.length +
+      troubleshootingItems.length +
+      troubleshootingFlowItems.length +
+      outOfScopeItems.length +
+      mappingItems.length +
+      functionKnowledge.length +
+      termItems.length +
+      apiEndpoints.length +
+      apiParameters.length +
+      pricingPlans.length;
 
     // 判断文件类型：优先根据实际解析出的内容判断，避免 FAQ 文件因 Sheet1/术语页被误归类
     let fileType: 'faq' | 'term' | 'function' | 'api' | 'pricing' = 'faq';
-    if (result.faqItems!.length > 0 || result.troubleshootingItems!.length > 0 || result.troubleshootingFlowItems!.length > 0 || result.outOfScopeItems!.length > 0 || result.mappingItems!.length > 0) {
+    if (faqItems.length > 0 || troubleshootingItems.length > 0 || troubleshootingFlowItems.length > 0 || outOfScopeItems.length > 0 || mappingItems.length > 0) {
       fileType = 'faq';
-    } else if (result.apiEndpoints!.length > 0 || result.apiParameters!.length > 0) {
+    } else if (apiEndpoints.length > 0 || apiParameters.length > 0) {
       fileType = 'api';
-    } else if (result.pricingPlans!.length > 0) {
+    } else if (pricingPlans.length > 0) {
       fileType = 'pricing';
-    } else if (result.functionKnowledge!.length > 0) {
+    } else if (functionKnowledge.length > 0) {
       fileType = 'function';
-    } else if (result.termItems!.length > 0) {
+    } else if (termItems.length > 0) {
       fileType = 'term';
     }
 
@@ -527,16 +532,16 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
       fileName: file.name,
       fileType,
       stats: {
-        faqCount: result.faqItems!.length,
-        troubleshootingCount: result.troubleshootingItems!.length,
-        troubleshootingFlowCount: result.troubleshootingFlowItems!.length,
-        outOfScopeCount: result.outOfScopeItems!.length,
-        mappingCount: result.mappingItems!.length,
-        functionCount: result.functionKnowledge!.length,
-        termCount: result.termItems!.length,
-        apiEndpointCount: result.apiEndpoints!.length,
-        apiParameterCount: result.apiParameters!.length,
-        pricingPlanCount: result.pricingPlans!.length,
+        faqCount: faqItems.length,
+        troubleshootingCount: troubleshootingItems.length,
+        troubleshootingFlowCount: troubleshootingFlowItems.length,
+        outOfScopeCount: outOfScopeItems.length,
+        mappingCount: mappingItems.length,
+        functionCount: functionKnowledge.length,
+        termCount: termItems.length,
+        apiEndpointCount: apiEndpoints.length,
+        apiParameterCount: apiParameters.length,
+        pricingPlanCount: pricingPlans.length,
       },
       data: result,
     };
