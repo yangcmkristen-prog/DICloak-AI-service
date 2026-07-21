@@ -579,6 +579,22 @@ export default function Home() {
   const [savedPhraseDragItem, setSavedPhraseDragItem] = useState<SavedPhraseDragItem | null>(null);
   const [isSavedPhraseSyncing, setIsSavedPhraseSyncing] = useState(false);
 
+  const handlePrimaryFolderToggle = (folderId: string) => {
+    if (selectedPrimaryFolderId === folderId) {
+      setSelectedPrimaryFolderId(null);
+      setActiveNestedFolderId(null);
+      return;
+    }
+
+    setSelectedPrimaryFolderId(folderId);
+    setActiveNestedFolderId(folderId);
+  };
+
+  const handlePrimaryFolderCollapse = () => {
+    setSelectedPrimaryFolderId(null);
+    setActiveNestedFolderId(null);
+  };
+
   // 移动端编辑对话框状态
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editConversationName, setEditConversationName] = useState("");
@@ -1784,7 +1800,12 @@ export default function Home() {
                                       onDragStart={(event) => handleSavedPhraseDragStart(event, { type: "folder", id: folder.id })}
                                       onDragEnd={handleSavedPhraseDragEnd}
                                     >
-                                      <button type="button" onClick={() => { setSelectedPrimaryFolderId(folder.id); setActiveNestedFolderId(folder.id); }} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm font-medium">
+                                      <button
+                                        type="button"
+                                        onClick={() => handlePrimaryFolderToggle(folder.id)}
+                                        aria-expanded={isSelected}
+                                        className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm font-medium"
+                                      >
                                         <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-muted-foreground opacity-60 group-hover:opacity-100" aria-hidden="true" />
                                         <ChevronRight className={`h-4 w-4 shrink-0 transition-transform ${isSelected ? "rotate-90" : ""}`} />
                                         <Folder className="h-4 w-4 shrink-0 text-blue-500" />
@@ -1813,9 +1834,12 @@ export default function Home() {
                                           <div className="truncate text-sm font-medium" title={activeNestedFolder?.name || folder.name}>{activeNestedFolder?.name || folder.name}</div>
                                           <div className="text-xs text-muted-foreground">子文件夹与子话术已在当前文件夹下展开</div>
                                         </div>
-                                        {activeNestedFolder?.id !== folder.id && (
-                                          <Button size="sm" variant="ghost" onClick={() => setActiveNestedFolderId(activeNestedFolder?.parentId || folder.id)}>返回</Button>
-                                        )}
+                                        <div className="flex shrink-0 items-center gap-1">
+                                          {activeNestedFolder?.id !== folder.id && (
+                                            <Button size="sm" variant="ghost" onClick={() => setActiveNestedFolderId(activeNestedFolder?.parentId || folder.id)}>返回</Button>
+                                          )}
+                                          <Button size="sm" variant="ghost" onClick={handlePrimaryFolderCollapse}>收起</Button>
+                                        </div>
                                       </div>
                                       <div
                                         className="min-w-0 space-y-2 overflow-hidden rounded-md border border-dashed border-transparent p-1 transition-colors hover:border-muted-foreground/30"
@@ -1890,7 +1914,7 @@ export default function Home() {
                             <h2 className="truncate text-base font-semibold" title={activeNestedFolder?.name || selectedPrimaryFolder.name}>{activeNestedFolder?.name || selectedPrimaryFolder.name}</h2>
                             <p className="text-xs text-muted-foreground">子文件夹与子话术</p>
                           </div>
-                          <Button size="sm" variant="ghost" onClick={() => { setSelectedPrimaryFolderId(null); setActiveNestedFolderId(null); }}>收起</Button>
+                          <Button size="sm" variant="ghost" onClick={handlePrimaryFolderCollapse}>收起</Button>
                         </div>
                         {activeNestedFolder?.id !== selectedPrimaryFolder.id && (
                           <Button size="sm" variant="ghost" className="mb-3 px-0 text-muted-foreground" onClick={() => setActiveNestedFolderId(activeNestedFolder?.parentId || selectedPrimaryFolder.id)}>
