@@ -132,6 +132,14 @@ function getSubscriptionSourceClarificationReply(language: string): string {
   return 'Did you subscribe through the Billing Center in the DICloak software, or through another reseller or platform?';
 }
 
+function getExternalToolRoleClarificationReply(language: string): string {
+  if (language === 'zh' || language === 'mixed') {
+    return '请确认一下：这个第三方工具账号是由销售方或管理员提供给你使用的，还是你本人是通过 DICloak 管理、配置该账号的管理员？';
+  }
+
+  return 'Please confirm whether this third-party tool account was provided to you by a seller or administrator, or whether you are the administrator managing and configuring it through DICloak.';
+}
+
 type StructuredReplySectionType = "question" | "identity" | "main" | "common" | "client" | "end_user" | "supplement" | "info";
 
 type StructuredReplySection = {
@@ -305,6 +313,14 @@ function enforceSubscriptionSourceClarificationContent(content: string, language
     getSubscriptionSourceClarificationReply(language)
   );
 
+  return normalized;
+}
+
+function enforceExternalToolRoleClarificationContent(content: string, language: string): string {
+  let normalized = replaceSectionContent(content, 'question', language === 'zh' || language === 'mixed' ? '身份待确认' : 'Role clarification');
+  normalized = replaceSectionContent(normalized, 'main', getExternalToolRoleClarificationReply(language));
+  normalized = replaceSectionContent(normalized, 'supplement', language === 'zh' || language === 'mixed' ? '无。' : 'None.');
+  normalized = replaceSectionContent(normalized, 'info', language === 'zh' || language === 'mixed' ? '无。' : 'None.');
   return normalized;
 }
 
@@ -1286,6 +1302,13 @@ function hasAmbiguousExternalToolTrouble(message: string): boolean {
   return troubleKeywords.some((kw) => msgLower.includes(kw));
 }
 
+function isExternalToolAccountSupportRequest(message: string): boolean {
+  const normalized = message.toLowerCase();
+  if (!hasExternalToolMention(normalized)) return false;
+
+  return /如何登录|怎么登录|怎样登录|登录方法|如何使用|怎么使用|怎样使用|未登录|已登出|退出登录|账号|账户|订阅|续费|退款|停用|封禁|风控|密码|验证码|额度|限制|how (?:do i |to )?(?:log ?in|sign ?in|use)|login to|sign in to|logged out|signed out|account|subscription|renew|refund|suspend|ban|risk control|password|verification code|quota|limit/.test(normalized);
+}
+
 /**
  * 识别问题类型（后端规则分类，AI 不能改变）
  */
@@ -1293,13 +1316,14 @@ function identifyProblemType(
   message: string,
   matchedFaqScore: number,
   matchedTsScore: number,
-  matchedOosScore: number
+  matchedOosScore: number,
+  userRole: UserRole,
 ): { type: ProblemType; reason: string; apiInfo?: ReturnType<typeof checkApiProblem>; subscriptionInfo?: ReturnType<typeof checkSubscriptionProblem> } {
   const msgLower = message.toLowerCase().trim();
 
   // 第三方工具明确显示“未登录/已登出”时，按终端用户路由口径处理，
   // 不进入 DICloak 自身账号或环境异常的故障排查流程。
-  if (isExternalToolLoggedOutEndUserRequest(message)) {
+  if (userRole === 'end_user' && isExternalToolLoggedOutEndUserRequest(message)) {
     return { type: 'user_routing', reason: '第三方工具账号显示未登录，按终端用户问题处理' };
   }
   
@@ -1310,6 +1334,18 @@ function identifyProblemType(
       type: 'info_insufficient', 
       reason: `信息不足，缺少：${infoCheck.missingInfo.join('、')}` 
     };
+  }
+
+  // 第三方工具的登录/使用责任取决于身份：DICloak 客户由我们协助配置，
+  // 终端用户应由账号销售方/管理员处理。问题只给出工具名时，只追问身份和账号来源。
+  if (isExternalToolAccountSupportRequest(message)) {
+    if (userRole === 'end_user') {
+      return { type: 'user_routing', reason: '终端用户的第三方工具账号应由销售方或管理员处理' };
+    }
+    if (userRole === 'client') {
+      return { type: 'feature_faq', reason: 'DICloak 客户需要第三方工具账号管理配置帮助' };
+    }
+    return { type: 'info_insufficient', reason: '第三方工具已明确，但需要确认用户身份和账号来源' };
   }
   
   // 2. API 问题检测
@@ -1393,13 +1429,16 @@ function identifyProblemType(
  * 识别用户身份
  */
 function identifyUserRole(message: string, history?: Array<{ role: string; content: string }>): { role: UserRole; reason: string } {
-  const allText = (message + ' ' + (history?.map(h => h.content).join(' ') || '')).toLowerCase();
+  // 只继承用户自己表达过的身份，避免助手上一轮的“管理员/终端用户”选项污染判断。
+  const userHistory = history?.filter((item) => item.role === 'user').map((item) => item.content).join(' ') || '';
+  const allText = `${message} ${userHistory}`.toLowerCase();
   
   // 终端用户特征
   const endUserIndicators = [
-    '账号是别人给的', '账号来自', '第三方', '不是管理员', 
-    '服务商', '别人提供的', '管理员给的', '老师给的',
-    'account was given', 'from third party', 'not admin'
+    '账号是别人给的', '账号来自', '不是管理员',
+    '服务商', '销售方提供', '商家提供', '别人提供的', '管理员给的', '老师给的',
+    '从商家购买', '购买网站', 'account was given', 'provided by a seller',
+    'provided by my administrator', 'from third party', 'not admin'
   ];
   if (endUserIndicators.some(ind => allText.includes(ind))) {
     return { role: 'end_user', reason: '用户提到账号来自第三方或他人' };
@@ -1409,7 +1448,8 @@ function identifyUserRole(message: string, history?: Array<{ role: string; conte
   const clientIndicators = [
     '我是管理员', '我的团队', '管理成员', '设置环境', 
     '我购买的', '我的套餐', '管理代理', '数据同步', '分发', '分享账号', '共享账号', '团队', '成员', '环境额度',
-    'i am admin', 'my team', 'i purchased', 'manage members'
+    'i am admin', "i'm an admin", 'my team', 'i purchased', 'manage members',
+    'manage this account through dicloak', 'configure this account through dicloak'
   ];
   if (clientIndicators.some(ind => allText.includes(ind))) {
     return { role: 'client', reason: '用户提到自己是管理员或在进行管理操作' };
@@ -1682,10 +1722,7 @@ export async function POST(request: NextRequest) {
 2. Use the FAQ StandardAnswer as the basis for your reply; do not add UI buttons, paths, permissions, password/expiry settings, limits, or operation steps that are not explicitly present in the provided answer/context
 3. Do NOT expose internal logic (FAQ, knowledge base, matching, etc.)
 4. Reply in the same language as the user's question
-5. Tool names such as ChatGPT or Claude do not by themselves mean end-user or out-of-scope; account management/sharing/distribution questions are DICloak client questions
-6. If the customer says they want to distribute/share/provide access to Claude/ChatGPT subscriptions or accounts for their team, interpret it as sharing/managing existing third-party tool accounts through DICloak. Do not say DICloak cannot help distribute the subscription; only clarify that DICloak does not sell or purchase the third-party subscription itself.
-7. Client = person managing/sharing AI or other tool accounts; end user = person using an account sold or assigned by the client; if role is uncertain, ask for the role before giving role-specific steps
-8. You ARE DICloak technical support in this conversation. Do NOT tell the customer to contact/consult/ask our customer support or a human agent. If details are missing, ask the customer for the missing details directly. Exception: when the backend marks an uncovered DICloak technical-logic question, state that we need to further confirm with technical personnel, without asking the customer to contact them.
+5. Act as DICloak customer operations and follow the product/responsibility model below; do not redirect direct customers to DICloak support because you are that support channel
 
 ## FAQ Selection
 - Choose the FAQ with HIGHEST Score
@@ -1768,7 +1805,16 @@ The customer requested step-by-step setup instructions. Before giving any number
     `
       : "";
 
-    const finalPromptWithCoverage = `${finalSystemPrompt}\n${intentGuardrail}\n${outputFormatGuardrail}\n${evidenceGuardrail}\n${pricingGuardrail}\n${deterministicSeatFacts}\n${planRecommendationRules}\n${accountSharingEnvironmentRules}\n${stepEvidenceGuardrail}\n${languageRule}\n${multilingualQualityGuardrail}`;
+    const supportResponsibilityGuardrail = `## DICloak 产品背景与客户运营职责（最高优先级）
+1. DICloak 是用于管理和共享平台/工具账号的指纹浏览器。DICloak 只提供浏览器工具；客户注册 DICloak、创建环境，并在环境中管理客户自己拥有的工具账号和信息。
+2. 你的身份是 DICloak 客户运营。你的职责是协助直接客户解决 DICloak 软件问题、顺利运营其平台账号、了解功能与套餐；不要把本应由我们协助的直接客户推给其管理员。
+3. 终端用户是从共享业务客户/管理员处购买或获配工具服务的人。对终端用户，我们协助 DICloak 软件崩溃、DICloak 登录故障、环境打不开、浏览器黑屏/卡顿及软件内操作报错；工具风控、工具账号登录、账号停用、订阅、退款等服务问题应引导其联系提供服务的管理员。
+4. 除上述共享业务终端用户外，DICloak 直接客户的相关问题都应由我们协助。身份不明且答案会因身份不同而变化时，只确认账号来源/是否为管理员，不重复询问用户已经明确的工具名称。
+5. 与 DICloak、账号管理/共享或客户运营完全无关的内容才是超出支持范围。出现 ChatGPT、Claude 等平台名本身不代表无关业务。
+6. 代理由第三方代理服务商提供。我们可以提供 DICloak 内的代理配置方法并协助检查代理能否使用；代理连接故障、服务限制、额度或线路质量由代理服务商排查确认。
+7. 不得编造知识资料未提供的步骤或结论；先理解责任边界，再使用匹配的标准答案。`;
+
+    const finalPromptWithCoverage = `${finalSystemPrompt}\n${supportResponsibilityGuardrail}\n${intentGuardrail}\n${outputFormatGuardrail}\n${evidenceGuardrail}\n${pricingGuardrail}\n${deterministicSeatFacts}\n${planRecommendationRules}\n${accountSharingEnvironmentRules}\n${stepEvidenceGuardrail}\n${languageRule}\n${multilingualQualityGuardrail}`;
     // 构建知识库上下文（只传递最相关的知识库项）
     let knowledgeContext = "";
     let responseShouldUsePricingTable = false;
@@ -2022,7 +2068,8 @@ The customer requested step-by-step setup instructions. Before giving any number
     // 初始化问题类型和格式（默认值）
     let problemType: ProblemType = 'info_insufficient';
     const lockedRole: UserRole | null = confirmedRole === 'client' || confirmedRole === 'end_user' ? confirmedRole : null;
-    let userRole: UserRole = lockedRole || 'unknown';
+    const initialUserRoleResult = identifyUserRole(currentMessageText, history);
+    let userRole: UserRole = lockedRole || initialUserRoleResult.role;
     let outputFormatType: 'A' | 'B' | 'C' = 'A';
     let aiOutputFormat = generateAIOutputFormat(problemType, userRole);
 
@@ -2177,7 +2224,7 @@ The customer requested step-by-step setup instructions. Before giving any number
         ...(history || []).filter((item) => item.role !== 'assistant').map((item) => item.content),
         currentMessageText,
       ].join('\n');
-      const externalToolEndUserRouting = lockedRole !== 'client' && isExternalToolLoggedOutEndUserRequest(userConversationText);
+      const externalToolEndUserRouting = userRole === 'end_user' && isExternalToolLoggedOutEndUserRequest(userConversationText);
       const flowKnownFieldHints = inferTroubleshootingFlowFieldHints(userConversationText);
       const enabledFlowItems = (knowledge.troubleshootingFlowItems || []).filter((item) => item.enabled);
       const startFlowItems = enabledFlowItems.filter((item) => item.nodeId.trim().toLowerCase() === 'start');
@@ -2213,8 +2260,8 @@ The customer requested step-by-step setup instructions. Before giving any number
       const topOosScore = matchedOos.length > 0 ? Math.max(...matchedOos.map(m => m.score)) : 0;
       const topFunctionKnowledgeScore = matchedFunctionKnowledge.length > 0 ? Math.max(...matchedFunctionKnowledge.map(m => m.score)) : 0;
       
-      const problemTypeResult = identifyProblemType(currentMessageText, Math.max(topFaqScore, topFunctionKnowledgeScore), topTroubleshootingScore, topOosScore);
-      const userRoleResult = identifyUserRole(currentMessageText, history);
+      const userRoleResult = initialUserRoleResult;
+      const problemTypeResult = identifyProblemType(currentMessageText, Math.max(topFaqScore, topFunctionKnowledgeScore), topTroubleshootingScore, topOosScore, userRole);
 
       const intents = classification?.intents || [];
       const selectedTables = new Set<TableId>(
@@ -2245,7 +2292,10 @@ The customer requested step-by-step setup instructions. Before giving any number
         : backendRequiresClarification || classificationLooksLikeMisroutedEndUser
         ? problemTypeResult.type
         : classifiedProblemType || problemTypeResult.type;
-      const inferredRole = classification?.identityStatus || userRoleResult.role;
+      // 明确的用户自述优先于模型的 unknown，避免已知身份被重置为身份不明。
+      const inferredRole = userRoleResult.role !== 'unknown'
+        ? userRoleResult.role
+        : classification?.identityStatus || 'unknown';
       userRole = externalToolEndUserRouting ? 'end_user' : lockedRole || inferredRole;
       outputFormatType = getOutputFormatType(problemType, userRole);
       aiOutputFormat = generateAIOutputFormat(problemType, userRole);
@@ -2924,7 +2974,10 @@ MANDATORY EXECUTION RULES:
             })
           : fullContent;
         enqueueStatus("正在整理最终回复");
-        const intentCorrectedContent = problemType === 'intent_unclear' && needsSubscriptionSourceClarification(currentMessageText)
+        const needsExternalToolRoleClarification = isExternalToolAccountSupportRequest(currentMessageText) && userRole === 'unknown';
+        const intentCorrectedContent = needsExternalToolRoleClarification
+          ? enforceExternalToolRoleClarificationContent(reviewedContent, effectiveLanguage)
+          : problemType === 'intent_unclear' && needsSubscriptionSourceClarification(currentMessageText)
           ? enforceSubscriptionSourceClarificationContent(reviewedContent, effectiveLanguage)
           : reviewedContent;
         const correctedContent = enforceSeatCalculationCorrections(intentCorrectedContent, actualUserCount, effectiveLanguage);
