@@ -406,6 +406,20 @@ type LanguageDetectionResult = {
   source: "provided" | "script" | "latin-rules" | "fallback" | "ai" | "history";
 };
 
+const LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
+  zh: "Simplified Chinese",
+  en: "English",
+  es: "Spanish",
+  pt: "Portuguese",
+  ru: "Russian",
+  vi: "Vietnamese",
+  id: "Indonesian",
+  th: "Thai",
+  ar: "Arabic",
+  ja: "Japanese",
+  ko: "Korean",
+};
+
 const SUPPORTED_LANGUAGE_CODES = new Set(["zh", "en", "es", "pt", "ru", "vi", "id", "th", "ar", "ja", "ko", "mixed", "other"]);
 const LATIN_LANGUAGE_CODES = new Set(["en", "es", "pt", "vi", "id"]);
 const VIETNAMESE_EXCLUSIVE_PATTERN = /[ăđơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i;
@@ -488,11 +502,45 @@ function detectRequestLanguageByRules(text: string, provided?: string): Language
   }
 
   if (providedLanguage === "en") {
-    return { language: "en", confidence: 0.45, source: "provided" };
+    return { language: "en", confidence: 0.9, source: "provided" };
   }
   return /[a-zA-Z]/.test(cleanText)
     ? { language: "en", confidence: 0.45, source: "fallback" }
     : { language: "zh", confidence: 0.5, source: "fallback" };
+}
+
+function isReplyLanguageMismatch(content: string, targetLanguage: string): boolean {
+  const customerText = stripMachineSectionMarkers(content).replace(/https?:\/\/\S+/g, "");
+  const counts: Record<string, number> = {
+    zh: (customerText.match(/[\u4e00-\u9fff]/g) || []).length,
+    ru: (customerText.match(/[\u0400-\u04ff]/g) || []).length,
+    ar: (customerText.match(/[\u0600-\u06ff\u0750-\u077f]/g) || []).length,
+    th: (customerText.match(/[\u0e00-\u0e7f]/g) || []).length,
+    ja: (customerText.match(/[\u3040-\u30ff]/g) || []).length,
+    ko: (customerText.match(/[\uac00-\ud7af\u1100-\u115f]/g) || []).length,
+    latin: (customerText.match(/[A-Za-zÀ-ỹ]/g) || []).length,
+  };
+  const foreignScriptCount = Object.entries(counts)
+    .filter(([script]) => script !== targetLanguage && script !== "latin")
+    .reduce((sum, [, count]) => sum + count, 0);
+
+  if (targetLanguage === "zh") return counts.latin > Math.max(30, counts.zh * 1.5);
+  if (LATIN_LANGUAGE_CODES.has(targetLanguage)) return foreignScriptCount > Math.max(12, counts.latin * 0.15);
+  return (counts[targetLanguage] || 0) < foreignScriptCount;
+}
+
+async function enforceReplyLanguage(config: ChatApiConfig, content: string, targetLanguage: string): Promise<string> {
+  if (!LANGUAGE_DISPLAY_NAMES[targetLanguage] || !isReplyLanguageMismatch(content, targetLanguage)) return content;
+
+  const targetName = LANGUAGE_DISPLAY_NAMES[targetLanguage];
+  const translated = await callModelOnce(config, [
+    {
+      role: "system",
+      content: `You are a strict customer-reply translator. Translate every customer-facing sentence into ${targetName}. Preserve all [[section]] tags exactly. Preserve meaning, facts, numbers, URLs, product names, and UI terms. Do not add, remove, summarize, explain, or use another language. Output only the translated reply.`,
+    },
+    { role: "user", content },
+  ], 0);
+  return translated || content;
 }
 
 function parseLanguageDetectionJson(rawContent: string): LanguageDetectionResult | null {
@@ -2981,7 +3029,11 @@ MANDATORY EXECUTION RULES:
           ? enforceSubscriptionSourceClarificationContent(reviewedContent, effectiveLanguage)
           : reviewedContent;
         const correctedContent = enforceSeatCalculationCorrections(intentCorrectedContent, actualUserCount, effectiveLanguage);
-        const sanitizedContent = sanitizeCustomerFacingContent(correctedContent, effectiveLanguage);
+        const languageCorrectedContent = await enforceReplyLanguage(config, correctedContent, effectiveLanguage).catch((languageError: unknown) => {
+          console.error('[Language QA] 回复语言纠正失败，使用原始回复:', languageError);
+          return correctedContent;
+        });
+        const sanitizedContent = sanitizeCustomerFacingContent(languageCorrectedContent, effectiveLanguage);
         controller.enqueue(encoder.encode(`${sanitizedContent}${buildStructuredReplyPayload(sanitizedContent)}`));
       }
       controller.close();

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getLatestCustomerMessage, snapshotToTranscript, validateSnapshot } from '../shared';
+import { getLatestCustomerMessage, validateSnapshot } from '../shared';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -25,7 +25,6 @@ export async function POST(request: NextRequest) {
     }
 
     const latestCustomerMessage = getLatestCustomerMessage(snapshot);
-    const transcript = snapshotToTranscript(snapshot, { maxMessages: 40 });
     if (!latestCustomerMessage) {
       return NextResponse.json({ error: '未找到客户消息，无法生成推荐回复' }, { status: 400, headers: CORS_HEADERS });
     }
@@ -61,7 +60,9 @@ export async function POST(request: NextRequest) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        message: `以下是 WhatsApp 当前聊天记录，请根据最后一条客户消息生成客服推荐回复。\n\n当前联系人：${snapshot.chat.displayName}\n\n${transcript}\n\n最后一条客户消息：${latestCustomerMessage}`,
+        // The chat API detects the reply language from `message`. Keep this field free of
+        // Chinese orchestration text; the transcript is already supplied as history.
+        message: latestCustomerMessage,
         history: snapshot.messages.slice(-20).map((message) => ({
           role: message.role === 'agent' ? 'assistant' : 'user',
           content: message.text,
@@ -69,7 +70,6 @@ export async function POST(request: NextRequest) {
         knowledge: knowledgeData.success && !knowledgeData.isEmpty ? knowledgeData.data : undefined,
         systemPrompt: systemData.success && !systemData.isEmpty ? systemData.data?.systemPrompt : undefined,
         apiConfig: systemData.success && !systemData.isEmpty ? systemData.data?.apiConfig : undefined,
-        detectedLanguage: 'mixed',
         aiKeywords: keywordsData.englishKeywords || [],
         classification,
         confirmedRole: snapshot.chat.confirmedRole,
