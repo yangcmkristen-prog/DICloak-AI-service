@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { callTextModel, snapshotToTranscript, validateSnapshot } from "../shared";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 
-const CORS_HEADERS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
+const CORS_HEADERS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
 
 export function OPTIONS() { return new NextResponse(null, { status: 204, headers: CORS_HEADERS }); }
 
@@ -25,6 +25,67 @@ export async function GET() {
   }
 }
 
+type EditableSummary = {
+  contactName?: string;
+  contactMethod?: string;
+  teamId?: string;
+  region?: string;
+  customerType?: string;
+  customerStatus?: "活跃" | "跟进中" | "潜在客户";
+  useCase?: string;
+  userScale?: string;
+  accountScale?: string;
+  currentPlan?: string;
+  notes?: string;
+  issues?: unknown[];
+  featureRequests?: unknown[];
+};
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json() as { externalChatId?: unknown; updates?: unknown };
+    if (typeof body.externalChatId !== "string" || !body.externalChatId.trim() || !body.updates || typeof body.updates !== "object" || Array.isArray(body.updates)) {
+      return NextResponse.json({ error: "缺少有效的客户 ID 或修改内容" }, { status: 400, headers: CORS_HEADERS });
+    }
+
+    const client = getSupabaseClient();
+    const { data: record, error: readError } = await client.from("customer_summaries")
+      .select("summary_data")
+      .eq("external_chat_id", body.externalChatId)
+      .single();
+    if (readError || !record) {
+      return NextResponse.json({ error: "未找到客户数据" }, { status: 404, headers: CORS_HEADERS });
+    }
+
+    const allowedKeys: Array<keyof EditableSummary> = [
+      "contactName", "contactMethod", "teamId", "region", "customerType", "customerStatus", "useCase",
+      "userScale", "accountScale", "currentPlan", "notes", "issues", "featureRequests",
+    ];
+    const requested = body.updates as Record<string, unknown>;
+    const updates: EditableSummary = {};
+    for (const key of allowedKeys) {
+      const value = requested[key];
+      if (key === "issues" || key === "featureRequests") {
+        if (Array.isArray(value)) updates[key] = value;
+      } else if (typeof value === "string") {
+        updates[key] = value as never;
+      }
+    }
+    const updatedAt = new Date().toISOString();
+    const summary = { ...(record.summary_data as Record<string, unknown>), ...updates, updatedAt };
+    const { error: updateError } = await client.from("customer_summaries").update({
+      summary_data: summary,
+      contact_name: typeof summary.contactName === "string" ? summary.contactName : "",
+      updated_at: updatedAt,
+    }).eq("external_chat_id", body.externalChatId);
+    if (updateError) throw updateError;
+    return NextResponse.json({ summary }, { headers: CORS_HEADERS });
+  } catch (error) {
+    console.error("[Customer Summary] 修改失败:", error);
+    return NextResponse.json({ error: "客户数据保存失败" }, { status: 500, headers: CORS_HEADERS });
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const snapshot = validateSnapshot(await request.json());
@@ -38,8 +99,8 @@ export async function POST(request: NextRequest) {
       `请分析以下完整会话（共 ${snapshot.messages.length} 条），输出 JSON：\n{
   "teamId":"", "region":"", "customerType":"", "useCase":"", "userScale":"", "accountScale":"",
   "currentPlan":"", "customerStatus":"", "notes":"",
-  "issues":[{"title":"","description":"","resolution":"","status":"已解决/处理中/待跟进","occurredAt":""}],
-  "featureRequests":[{"title":"","description":"","priority":"高/中/低","source":"客户聊天","status":"未评估/开发中/已完成"}]
+  "issues":[{"title":"","description":"","resolution":"","status":"已解决/处理中/未处理","occurredAt":""}],
+  "featureRequests":[{"title":"","description":"","source":"客户聊天","status":"未评估/已评估/已上线"}]
 }\n\n完整聊天记录：\n${transcript}`,
       0.2,
     );

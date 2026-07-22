@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, ChevronRight, Globe2, MessageCircle, MoreHorizontal, Plus, RefreshCw, Search, Sparkles, X } from "lucide-react";
+import { CalendarDays, Check, ChevronRight, Globe2, MessageCircle, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,8 +12,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 
-type Issue = { title: string; description: string; resolution: string; status: "已解决" | "处理中" | "待跟进"; date: string };
-type Feature = { title: string; description: string; priority: "高" | "中" | "低"; status: "未评估" | "开发中" | "已完成" };
+type IssueStatus = "未处理" | "处理中" | "已解决";
+type Issue = { title: string; description: string; resolution: string; status: IssueStatus; date: string };
+type Feature = { title: string; description: string; status: "未评估" | "已评估" | "已上线" };
 type Customer = {
   id: string; name: string; initials: string; teamId: string; channel: string; contact: string;
   region: string; scenario: string; type: string; users: string; accounts: string; plan: string;
@@ -56,8 +57,8 @@ export function CustomerOverview() {
             region: record.region || "未知", scenario: record.useCase || "待 AI 补充", type: record.customerType || "未分类",
             users: record.userScale || "未知", accounts: record.accountScale || "未知", plan: record.currentPlan || "未知",
             status, updatedAt: record.updatedAt || "—", note: record.notes || "暂无备注",
-            issues: (record.issues || []).map((issue) => ({ title: issue.title || "未命名问题", description: issue.description || "", resolution: issue.resolution || "", status: issue.status === "已解决" || issue.status === "处理中" ? issue.status : "待跟进", date: issue.occurredAt || issue.date || "" })),
-            features: (record.featureRequests || []).map((feature) => ({ title: feature.title || "未命名需求", description: feature.description || "", priority: feature.priority === "高" || feature.priority === "低" ? feature.priority : "中", status: feature.status === "开发中" || feature.status === "已完成" ? feature.status : "未评估" })),
+            issues: (record.issues || []).map((issue) => ({ title: issue.title || "未命名问题", description: issue.description || "", resolution: issue.resolution || "", status: issue.status === "已解决" || issue.status === "处理中" ? issue.status : "未处理", date: issue.occurredAt || issue.date || "" })),
+            features: (record.featureRequests || []).map((feature) => ({ title: feature.title || "未命名需求", description: feature.description || "", status: feature.status === "已评估" || feature.status === "已上线" ? feature.status : "未评估" })),
           }];
         });
         setCustomers(normalized);
@@ -89,20 +90,74 @@ export function CustomerOverview() {
       </div>
       <Card className="overflow-hidden py-0"><div className="border-b px-5 py-4"><p className="font-semibold">客户列表</p><p className="text-xs text-muted-foreground">共 {filtered.length} 位客户</p></div><Table><TableHeader className="bg-muted/40"><TableRow><TableHead className="pl-5">联系人</TableHead><TableHead>团队 ID</TableHead><TableHead>联系方式</TableHead><TableHead>地区</TableHead><TableHead>使用场景</TableHead><TableHead>状态</TableHead><TableHead>最后同步</TableHead><TableHead /></TableRow></TableHeader><TableBody>{filtered.map((customer) => <TableRow key={customer.id} className="h-[74px] cursor-pointer" onClick={() => setSelectedId(customer.id)}><TableCell className="pl-5"><div className="flex items-center gap-3"><Avatar><AvatarFallback className="bg-blue-50 text-xs text-blue-700">{customer.initials}</AvatarFallback></Avatar><span className="font-medium">{customer.name}</span></div></TableCell><TableCell className="font-mono text-xs">{customer.teamId}</TableCell><TableCell><p>{customer.channel}</p><p className="text-xs text-muted-foreground">{customer.contact}</p></TableCell><TableCell>{customer.region}</TableCell><TableCell className="max-w-56 truncate">{customer.scenario}</TableCell><TableCell><Badge variant="outline" className={statusStyle[customer.status]}>{customer.status}</Badge></TableCell><TableCell className="text-xs text-muted-foreground">{customer.updatedAt}</TableCell><TableCell><Button variant="ghost" size="sm" className="text-blue-600">详情<ChevronRight /></Button></TableCell></TableRow>)}</TableBody></Table>{!loading && filtered.length === 0 ? <div className="py-16 text-center text-sm text-muted-foreground">暂无客户总结，请在扩展端打开会话并点击“生成总结”</div> : null}{loading ? <div className="py-16 text-center text-sm text-muted-foreground">正在加载 AI 客户总结…</div> : null}</Card>
     </div>
-    {selected && <CustomerDetail customer={selected} onClose={() => setSelectedId(null)} onSummarize={summarize} />}
+    {selected && <CustomerDetail customer={selected} onClose={() => setSelectedId(null)} onSummarize={summarize} onSave={(updated) => setCustomers((items) => items.map((item) => item.id === updated.id ? updated : item))} />}
   </div>;
 }
 
-function CustomerDetail({ customer, onClose, onSummarize }: { customer: Customer; onClose: () => void; onSummarize: () => void }) {
-  return <div className="absolute inset-0 z-30 bg-black/25" onMouseDown={onClose}><aside role="dialog" aria-modal="true" aria-label={`${customer.name}的客户详情`} className="ml-auto flex h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden bg-background shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="shrink-0 border-b p-4 md:p-6"><div className="mb-3 flex justify-between md:mb-4"><Button variant="ghost" size="sm" onClick={onClose}><X />关闭</Button><Button size="sm" onClick={onSummarize}><RefreshCw />重新 AI 总结</Button></div><div className="flex min-w-0 items-center gap-3 md:gap-4"><Avatar className="size-12 shrink-0 md:size-14"><AvatarFallback className="bg-blue-50 text-blue-700">{customer.initials}</AvatarFallback></Avatar><div className="min-w-0"><h3 className="truncate text-lg font-bold md:text-xl">{customer.name}</h3><p className="mt-1 flex items-center gap-2 truncate text-sm text-muted-foreground"><MessageCircle className="size-4 shrink-0" />{customer.channel} · {customer.contact} · {customer.region}</p></div></div></header>
-    <Tabs defaultValue="profile" className="min-h-0 flex-1 gap-0 overflow-hidden"><TabsList className="h-12 w-full shrink-0 justify-start overflow-x-auto rounded-none border-b bg-background px-2 md:px-6"><TabsTrigger className="flex-none" value="profile">客户信息</TabsTrigger><TabsTrigger className="flex-none" value="issues">历史问题 ({customer.issues.length})</TabsTrigger><TabsTrigger className="flex-none" value="features">功能需求 ({customer.features.length})</TabsTrigger><TabsTrigger className="flex-none" value="notes">备注</TabsTrigger></TabsList><div className="min-h-0 flex-1 touch-pan-y overscroll-contain overflow-y-auto bg-muted/20 p-4 md:p-6">
-      <TabsContent value="profile" className="mt-0 space-y-4"><InfoCard title="基础信息" items={[["联系人", customer.name], ["联系方式", `${customer.channel} · ${customer.contact}`], ["团队 ID", customer.teamId], ["所在地区", customer.region], ["客户类型", customer.type], ["客户状态", customer.status]]} /><InfoCard title="业务信息" items={[["使用场景", customer.scenario], ["用户规模", customer.users], ["账号规模", customer.accounts], ["当前套餐", customer.plan]]} /></TabsContent>
-      <TabsContent value="issues" className="mt-0 space-y-4">{customer.issues.map((issue) => <Card key={issue.title}><CardContent><div className="flex justify-between"><h4 className="font-semibold">{issue.title}</h4><Badge variant="outline">{issue.status}</Badge></div><p className="mt-3 text-sm text-muted-foreground">{issue.description}</p><p className="mt-2 text-sm">处理记录：{issue.resolution}</p><p className="mt-3 flex items-center gap-1 text-xs text-muted-foreground"><CalendarDays className="size-3" />{issue.date}</p></CardContent></Card>)}</TabsContent>
-      <TabsContent value="features" className="mt-0 space-y-4">{customer.features.map((feature) => <Card key={feature.title}><CardContent><div className="flex gap-3"><Sparkles className="size-5 text-violet-600" /><div><h4 className="font-semibold">{feature.title}</h4><p className="mt-2 text-sm text-muted-foreground">{feature.description}</p><div className="mt-3 flex gap-2"><Badge variant="outline">优先级：{feature.priority}</Badge><Badge variant="outline">{feature.status}</Badge></div></div><Button variant="ghost" size="icon" className="ml-auto"><MoreHorizontal /></Button></div></CardContent></Card>)}</TabsContent>
-      <TabsContent value="notes" className="mt-0"><Card><CardContent><p className="text-sm leading-7">{customer.note}</p></CardContent></Card></TabsContent>
+function CustomerDetail({ customer, onClose, onSummarize, onSave }: { customer: Customer; onClose: () => void; onSummarize: () => void; onSave: (customer: Customer) => void }) {
+  const [draft, setDraft] = useState(customer);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [editingFeature, setEditingFeature] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => setDraft(customer), [customer]);
+
+  const persist = async (next: Customer, message: string) => {
+    setSaving(true);
+    try {
+      const response = await fetch("/api/copilot/customer-summary", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          externalChatId: customer.id,
+          updates: {
+            contactName: next.name, contactMethod: next.channel, teamId: next.teamId, region: next.region,
+            customerType: next.type, customerStatus: next.status, useCase: next.scenario, userScale: next.users,
+            accountScale: next.accounts, currentPlan: next.plan, notes: next.note,
+            issues: next.issues.map(({ date, ...issue }) => ({ ...issue, occurredAt: date })),
+            featureRequests: next.features,
+          },
+        }),
+      });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "保存失败");
+      setDraft(next);
+      onSave(next);
+      toast.success(message);
+      return true;
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "保存失败");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const finishProfile = async () => {
+    if (!draft.name.trim()) return toast.error("联系人不能为空");
+    if (await persist({ ...draft, name: draft.name.trim(), initials: draft.name.trim().slice(0, 2).toUpperCase() }, "客户信息已保存")) setEditingProfile(false);
+  };
+  const updateIssueStatus = (index: number, status: IssueStatus) => {
+    const issues = draft.issues.map((issue, itemIndex) => itemIndex === index ? { ...issue, status } : issue);
+    void persist({ ...draft, issues }, "问题状态已更新");
+  };
+  const deleteIssue = (index: number) => void persist({ ...draft, issues: draft.issues.filter((_, itemIndex) => itemIndex !== index) }, "历史问题已删除");
+  const deleteFeature = (index: number) => void persist({ ...draft, features: draft.features.filter((_, itemIndex) => itemIndex !== index) }, "功能需求已删除");
+  const finishFeature = async (index: number) => {
+    if (!draft.features[index]?.title.trim()) return toast.error("需求标题不能为空");
+    if (await persist(draft, "功能需求已更新")) setEditingFeature(null);
+  };
+
+  return <div className="absolute inset-0 z-30 bg-black/25" onMouseDown={onClose}><aside role="dialog" aria-modal="true" aria-label={`${draft.name}的客户详情`} className="ml-auto flex h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden bg-background shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="shrink-0 border-b p-4 md:p-6"><div className="mb-3 flex justify-between md:mb-4"><Button variant="ghost" size="sm" onClick={onClose}><X />关闭</Button><Button size="sm" onClick={onSummarize}><RefreshCw />重新 AI 总结</Button></div><div className="flex min-w-0 items-center gap-3 md:gap-4"><Avatar className="size-12 shrink-0 md:size-14"><AvatarFallback className="bg-blue-50 text-blue-700">{draft.initials}</AvatarFallback></Avatar><div className="min-w-0"><h3 className="truncate text-lg font-bold md:text-xl">{draft.name}</h3><p className="mt-1 flex items-center gap-2 truncate text-sm text-muted-foreground"><MessageCircle className="size-4 shrink-0" />{draft.channel} · {draft.contact} · {draft.region}</p></div></div></header>
+    <Tabs defaultValue="profile" className="min-h-0 flex-1 gap-0 overflow-hidden"><TabsList className="h-12 w-full shrink-0 justify-start overflow-x-auto rounded-none border-b bg-background px-2 md:px-6"><TabsTrigger className="flex-none" value="profile">客户信息</TabsTrigger><TabsTrigger className="flex-none" value="issues">历史问题 ({draft.issues.length})</TabsTrigger><TabsTrigger className="flex-none" value="features">功能需求 ({draft.features.length})</TabsTrigger><TabsTrigger className="flex-none" value="notes">备注</TabsTrigger></TabsList><div className="min-h-0 flex-1 touch-pan-y overscroll-contain overflow-y-auto bg-muted/20 p-4 md:p-6">
+      <TabsContent value="profile" className="mt-0 space-y-4"><div className="flex justify-end">{editingProfile ? <Button size="sm" disabled={saving} onClick={() => void finishProfile()}><Check />完成</Button> : <Button size="sm" variant="outline" onClick={() => setEditingProfile(true)}><Pencil />编辑</Button>}</div><EditableInfoCard title="基础信息" editing={editingProfile} customer={draft} fields={[["联系人", "name"], ["联系方式", "contact"], ["渠道", "channel"], ["团队 ID", "teamId"], ["所在地区", "region"], ["客户类型", "type"], ["客户状态", "status"]]} onChange={(key, value) => setDraft((item) => ({ ...item, [key]: value }))} /><EditableInfoCard title="业务信息" editing={editingProfile} customer={draft} fields={[["使用场景", "scenario"], ["用户规模", "users"], ["账号规模", "accounts"], ["当前套餐", "plan"]]} onChange={(key, value) => setDraft((item) => ({ ...item, [key]: value }))} /></TabsContent>
+      <TabsContent value="issues" className="mt-0 space-y-4">{draft.issues.map((issue, index) => <Card key={`${issue.title}-${index}`}><CardContent><div className="flex items-start gap-3"><div className="min-w-0 flex-1"><h4 className="font-semibold">{issue.title}</h4><p className="mt-3 text-sm text-muted-foreground">{issue.description}</p><p className="mt-2 text-sm">处理记录：{issue.resolution}</p><p className="mt-3 flex items-center gap-1 text-xs text-muted-foreground"><CalendarDays className="size-3" />{issue.date}</p></div><Select disabled={saving} value={issue.status} onValueChange={(value: IssueStatus) => updateIssueStatus(index, value)}><SelectTrigger className="w-28"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="未处理">未处理</SelectItem><SelectItem value="处理中">处理中</SelectItem><SelectItem value="已解决">已解决</SelectItem></SelectContent></Select><Button aria-label="删除历史问题" variant="ghost" size="icon" disabled={saving} onClick={() => deleteIssue(index)}><Trash2 className="text-destructive" /></Button></div></CardContent></Card>)}</TabsContent>
+      <TabsContent value="features" className="mt-0 space-y-4">{draft.features.map((feature, index) => <Card key={`${feature.title}-${index}`}><CardContent><div className="flex gap-3"><Sparkles className="size-5 shrink-0 text-violet-600" /><div className="min-w-0 flex-1">{editingFeature === index ? <div className="space-y-3"><Input aria-label="需求标题" value={feature.title} onChange={(event) => setDraft((item) => ({ ...item, features: item.features.map((value, itemIndex) => itemIndex === index ? { ...value, title: event.target.value } : value) }))} /><Input aria-label="需求内容" value={feature.description} onChange={(event) => setDraft((item) => ({ ...item, features: item.features.map((value, itemIndex) => itemIndex === index ? { ...value, description: event.target.value } : value) }))} /><Select value={feature.status} onValueChange={(value: Feature["status"]) => setDraft((item) => ({ ...item, features: item.features.map((current, itemIndex) => itemIndex === index ? { ...current, status: value } : current) }))}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="未评估">未评估</SelectItem><SelectItem value="已评估">已评估</SelectItem><SelectItem value="已上线">已上线</SelectItem></SelectContent></Select></div> : <><h4 className="font-semibold">{feature.title}</h4><p className="mt-2 text-sm text-muted-foreground">{feature.description}</p><Badge className="mt-3" variant="outline">{feature.status}</Badge></>}</div><div className="flex shrink-0">{editingFeature === index ? <Button aria-label="完成编辑" variant="ghost" size="icon" disabled={saving} onClick={() => void finishFeature(index)}><Check /></Button> : <Button aria-label="编辑功能需求" variant="ghost" size="icon" onClick={() => setEditingFeature(index)}><Pencil /></Button>}<Button aria-label="删除功能需求" variant="ghost" size="icon" disabled={saving} onClick={() => deleteFeature(index)}><Trash2 className="text-destructive" /></Button></div></div></CardContent></Card>)}</TabsContent>
+      <TabsContent value="notes" className="mt-0"><Card><CardContent>{editingProfile ? <Input value={draft.note} onChange={(event) => setDraft((item) => ({ ...item, note: event.target.value }))} /> : <p className="text-sm leading-7">{draft.note}</p>}</CardContent></Card></TabsContent>
     </div></Tabs></aside></div>;
 }
 
-function InfoCard({ title, items }: { title: string; items: string[][] }) {
-  return <Card><CardContent><h4 className="mb-5 font-semibold">{title}</h4><div className="grid gap-5 sm:grid-cols-2">{items.map(([label, value]) => <div key={label}><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-sm font-medium">{value}</p></div>)}</div></CardContent></Card>;
+type EditableCustomerKey = "name" | "contact" | "channel" | "teamId" | "region" | "type" | "status" | "scenario" | "users" | "accounts" | "plan";
+function EditableInfoCard({ title, fields, customer, editing, onChange }: { title: string; fields: Array<[string, EditableCustomerKey]>; customer: Customer; editing: boolean; onChange: (key: EditableCustomerKey, value: string) => void }) {
+  return <Card><CardContent><h4 className="mb-5 font-semibold">{title}</h4><div className="grid gap-5 sm:grid-cols-2">{fields.map(([label, key]) => <div key={key}><p className="mb-1 text-xs text-muted-foreground">{label}</p>{editing ? key === "status" ? <Select value={customer.status} onValueChange={(value: Customer["status"]) => onChange(key, value)}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="活跃">活跃</SelectItem><SelectItem value="跟进中">跟进中</SelectItem><SelectItem value="潜在客户">潜在客户</SelectItem></SelectContent></Select> : <Input value={customer[key]} onChange={(event) => onChange(key, event.target.value)} /> : <p className="text-sm font-medium">{customer[key]}</p>}</div>)}</div></CardContent></Card>;
 }
