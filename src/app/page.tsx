@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { DragEvent, KeyboardEvent } from "react";
-import { Archive, ArrowRightLeft, Check, ChevronRight, Copy, Edit, Folder, GripVertical, Languages, Loader2, MessageSquare, Plus, Search, Settings, Trash2 } from "lucide-react";
+import { Archive, ArrowRightLeft, Check, ChevronRight, Copy, Edit, Folder, GripVertical, Languages, LayoutDashboard, Loader2, MessageCircle, MessageSquare, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConversationList } from "@/components/conversation-list";
 import { ChatArea } from "@/components/chat-area";
 import { KnowledgeManager } from "@/components/knowledge-manager";
+import { CustomerOverview } from "@/components/customer-overview";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -543,7 +544,8 @@ export default function Home() {
   const [currentConversationId, setCurrentConversationIdState] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationStatus, setGenerationStatus] = useState<GenerationStatus | null>(null);
-  const [activeTab, setActiveTab] = useState("chat");
+  const [activeTab, setActiveTab] = useState("customers");
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSettingsAuthOpen, setIsSettingsAuthOpen] = useState(false);
   const [settingsPassword, setSettingsPassword] = useState("");
@@ -824,8 +826,8 @@ export default function Home() {
         ? { success: false, isEmpty: true }
         : await systemRes.json();
       
-      const knowledgeData = knowledgeDataResult.success && !knowledgeDataResult.isEmpty 
-        ? knowledgeDataResult.data 
+      const knowledgeData = knowledgeDataResult.success && !knowledgeDataResult.isEmpty
+        ? knowledgeDataResult.data
         : getKnowledgeBase();
       const systemPrompt = systemDataResult.success && !systemDataResult.isEmpty && systemDataResult.data.systemPrompt
         ? systemDataResult.data.systemPrompt
@@ -1531,7 +1533,7 @@ export default function Home() {
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
             <MessageSquare className="w-5 h-5 text-white" />
           </div>
-          <h1 className="text-xl font-semibold">DICloak 客服助手</h1>
+          <div><h1 className="text-base font-semibold">DICloak</h1><p className="text-xs text-muted-foreground">客户运营助手</p></div>
         </div>
         <span className="text-xs text-muted-foreground bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
           内部版
@@ -1543,118 +1545,23 @@ export default function Home() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col min-h-0">
           <TabsList className="grid w-full grid-cols-2 rounded-none border-b bg-background h-12 shrink-0 p-0">
             <TabsTrigger
-              value="chat"
+              value="customers"
               className="h-full rounded-none data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600 data-[state=active]:border-b-2 data-[state=active]:border-blue-600"
             >
-              <MessageSquare className="w-4 h-4 mr-2" />
-              对话助手
+              <LayoutDashboard className="w-4 h-4 mr-2" />
+              客户概览
             </TabsTrigger>
             <TabsTrigger
               value="translate"
               className="h-full rounded-none data-[state=active]:bg-blue-50 data-[state=active]:text-blue-600 data-[state=active]:border-b-2 data-[state=active]:border-blue-600"
             >
               <Languages className="w-4 h-4 mr-2" />
-              翻译
+              翻译工具
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="chat" className="flex-1 min-h-0 m-0">
-            <div className="h-full flex min-h-0">
-              <aside className="w-72 border-r bg-gray-50/50 dark:bg-gray-900/50 hidden md:flex md:flex-col">
-                <div className="flex-1 min-h-0">
-                  <ConversationList
-                    conversations={conversations}
-                    currentConversationId={currentConversationId}
-                    onSelectConversation={handleSelectConversation}
-                    onCreateConversation={handleCreateConversation}
-                    onDeleteConversation={handleDeleteConversation}
-                    onRenameConversation={handleRenameConversation}
-                    onUpdateConversationRole={handleUpdateConversationRole}
-                  />
-                </div>
-                <div className="border-t p-3">
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-start text-muted-foreground hover:text-foreground"
-                    onClick={openSettings}
-                  >
-                    <Settings className="w-4 h-4 mr-2" />
-                    设置
-                  </Button>
-                </div>
-              </aside>
-
-              <section className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                {/* 移动端对话选择区域 */}
-                <div className="md:hidden p-4 border-b shrink-0 space-y-3">
-                  <select
-                    value={currentConversationId || ""}
-                    onChange={(e) => handleSelectConversation(e.target.value)}
-                    className="w-full p-2 border rounded-md bg-background"
-                  >
-                    <option value="" disabled>
-                      选择对话
-                    </option>
-                    {conversations.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.title}{c.context?.confirmedIdentity === "client" ? "（客户）" : c.context?.confirmedIdentity === "end_user" ? "（终端用户）" : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleCreateConversation}
-                      className="flex-1"
-                    >
-                      <Plus className="w-4 h-4 mr-1" />
-                      新建对话
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (currentConversation) {
-                          setEditConversationName(currentConversation.title);
-                          setIsEditDialogOpen(true);
-                        }
-                      }}
-                      disabled={!currentConversation}
-                    >
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (currentConversation && confirm(`确定要删除「${currentConversation.title}」吗？`)) {
-                          handleDeleteConversation(currentConversation.id);
-                        }
-                      }}
-                      disabled={!currentConversation}
-                      className="text-red-500 hover:text-red-600 hover:bg-red-50"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={openSettings}
-                    >
-                      <Settings className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-
-                <ChatArea
-                  messages={currentConversation?.messages || []}
-                  onSendMessage={handleSendMessage}
-                  isGenerating={isGenerating}
-                  generationStatus={generationStatus}
-                />
-              </section>
-            </div>
+          <TabsContent value="customers" className="flex-1 min-h-0 m-0 overflow-y-auto">
+            <CustomerOverview />
           </TabsContent>
 
           <TabsContent value="translate" className="flex-1 min-h-0 m-0 overflow-y-auto">
@@ -2118,6 +2025,53 @@ export default function Home() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <div className="fixed bottom-6 right-6 z-40">
+        {isAssistantOpen && (
+          <div className="absolute bottom-16 right-0 flex h-[min(680px,calc(100vh-100px))] w-[min(760px,calc(100vw-32px))] overflow-hidden rounded-2xl border bg-background shadow-2xl">
+            <aside className="hidden w-60 shrink-0 border-r bg-muted/30 md:flex md:flex-col">
+              <div className="flex-1 min-h-0">
+                <ConversationList
+                  conversations={conversations}
+                  currentConversationId={currentConversationId}
+                  onSelectConversation={handleSelectConversation}
+                  onCreateConversation={handleCreateConversation}
+                  onDeleteConversation={handleDeleteConversation}
+                  onRenameConversation={handleRenameConversation}
+                  onUpdateConversationRole={handleUpdateConversationRole}
+                />
+              </div>
+              <Button variant="ghost" className="m-3 justify-start" onClick={openSettings}>
+                <Settings className="mr-2 size-4" />设置
+              </Button>
+            </aside>
+            <section className="flex min-w-0 flex-1 flex-col">
+              <div className="flex h-14 shrink-0 items-center border-b px-4">
+                <div className="flex items-center gap-2">
+                  <span className="grid size-8 place-items-center rounded-lg bg-blue-600 text-white"><MessageSquare className="size-4" /></span>
+                  <div><p className="text-sm font-semibold">AI 助手</p><p className="text-[11px] text-muted-foreground">{currentConversation?.title || "新对话"}</p></div>
+                </div>
+                <Button variant="ghost" size="icon" className="ml-auto" onClick={() => setIsAssistantOpen(false)} aria-label="关闭 AI 助手"><X className="size-4" /></Button>
+              </div>
+              <div className="flex items-center gap-2 border-b p-2 md:hidden">
+                <select value={currentConversationId || ""} onChange={(event) => handleSelectConversation(event.target.value)} className="min-w-0 flex-1 rounded-md border bg-background p-2 text-sm">
+                  {conversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversation.title}</option>)}
+                </select>
+                <Button variant="outline" size="icon" onClick={handleCreateConversation} aria-label="新建对话"><Plus className="size-4" /></Button>
+              </div>
+              <ChatArea
+                messages={currentConversation?.messages || []}
+                onSendMessage={handleSendMessage}
+                isGenerating={isGenerating}
+                generationStatus={generationStatus}
+              />
+            </section>
+          </div>
+        )}
+        <Button className="h-14 rounded-full bg-blue-600 px-5 shadow-lg hover:bg-blue-700" onClick={() => setIsAssistantOpen((open) => !open)}>
+          <MessageCircle className="mr-2 size-5" />AI 助手
+        </Button>
+      </div>
 
       <Dialog open={isSavePhraseDialogOpen} onOpenChange={setIsSavePhraseDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">

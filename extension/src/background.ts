@@ -1,7 +1,7 @@
-import type { ConversationRole, ConversationRoleSource } from "./shared/types";
+import type { ConversationRole, ConversationRoleSource, CustomerSummary } from "./shared/types";
 type RuntimeMessage = {
   type?: string;
-  action?: "translate-clean" | "reply";
+  action?: "translate-clean" | "reply" | "summarize";
   endpoint?: string;
   payload?: unknown;
 };
@@ -22,7 +22,7 @@ declare const chrome: {
         callback: (
           message: RuntimeMessage,
           sender: unknown,
-          sendResponse: (response: { content?: string; error?: string; detectedRole?: ConversationRole | null; roleSource?: ConversationRoleSource }) => void,
+          sendResponse: (response: { content?: string; error?: string; detectedRole?: ConversationRole | null; roleSource?: ConversationRoleSource; summary?: CustomerSummary; webUrl?: string }) => void,
         ) => true | void,
       ): void;
     };
@@ -50,12 +50,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     body: JSON.stringify(message.payload),
   })
     .then(async (response) => {
-      const payload = await response.json() as { content?: string; error?: string; detectedRole?: ConversationRole | null; roleSource?: ConversationRoleSource };
-      if (!response.ok || !payload.content) {
+      const payload = await response.json() as { content?: string; error?: string; detectedRole?: ConversationRole | null; roleSource?: ConversationRoleSource; summary?: CustomerSummary; webUrl?: string };
+      if (!response.ok || (!payload.content && !payload.summary)) {
         sendResponse({ error: payload.error || "AI 请求失败" });
         return;
       }
-      sendResponse({ content: payload.content, detectedRole: payload.detectedRole ?? null, roleSource: payload.roleSource ?? null });
+      sendResponse({ content: payload.content, detectedRole: payload.detectedRole ?? null, roleSource: payload.roleSource ?? null, summary: payload.summary, webUrl: payload.webUrl });
     })
     .catch((error: unknown) => {
       sendResponse({ error: error instanceof Error ? error.message : "AI 请求失败" });

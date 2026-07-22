@@ -30,6 +30,27 @@ export interface CopilotReplyResponse {
   error?: string;
   detectedRole?: ConversationRole | null;
   roleSource?: ConversationRoleSource;
+  summary?: CustomerSummary;
+  webUrl?: string;
+}
+
+export interface CustomerSummary {
+  externalChatId: string;
+  platform: Platform;
+  contactName: string;
+  contactMethod: string;
+  teamId: string;
+  region: string;
+  customerType: string;
+  useCase: string;
+  userScale: string;
+  accountScale: string;
+  currentPlan: string;
+  customerStatus: string;
+  notes: string;
+  issues: Array<{ title: string; description: string; resolution: string; status: string; occurredAt: string }>;
+  featureRequests: Array<{ title: string; description: string; priority: string; source: string; status: string }>;
+  updatedAt: string;
 }
 
 export interface CopilotResult {

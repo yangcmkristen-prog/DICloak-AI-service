@@ -10,7 +10,7 @@ declare const chrome: {
       addListener(callback: (message: { type?: string }) => void): void;
     };
     sendMessage(
-      message: { type: string; endpoint: string; action: "translate-clean" | "reply"; payload: ChatSnapshot },
+      message: { type: string; endpoint: string; action: "translate-clean" | "reply" | "summarize"; payload: ChatSnapshot },
       callback: (response?: CopilotReplyResponse) => void,
     ): void;
     lastError?: { message?: string };
@@ -36,6 +36,8 @@ type RoleRecord = {
   updatedAt: number;
 };
 
+type SummaryRecord = { updatedAt: number; webUrl: string };
+
 type ParsedReplySection = {
   type: "question" | "main" | "supplement" | "info" | "common" | "client" | "end_user" | "identity" | "other";
   title: string;
@@ -55,13 +57,15 @@ const SIDEBAR_ID = "dicloak-ai-copilot-sidebar";
 const CONTENT_ROOT_ID = "dicloak-ai-copilot-root";
 const STORAGE_PREFIX = "dicloak_copilot_cache:";
 const ROLE_STORAGE_PREFIX = "dicloak_copilot_role:";
+const SUMMARY_STORAGE_PREFIX = "dicloak_customer_summary:";
 
 const state: {
   snapshot: ChatSnapshot | null;
   cache: CacheRecord | null;
   roleRecord: RoleRecord | null;
+  summaryRecord: SummaryRecord | null;
   activeResultId: string | null;
-  loadingAction: "translate-clean" | "reply" | null;
+  loadingAction: "translate-clean" | "reply" | "summarize" | null;
   error: string | null;
   collapsed: boolean;
   hidden: boolean;
@@ -70,6 +74,7 @@ const state: {
   snapshot: null,
   cache: null,
   roleRecord: null,
+  summaryRecord: null,
   activeResultId: null,
   loadingAction: null,
   error: null,
@@ -77,6 +82,16 @@ const state: {
   hidden: false,
   selectingResultText: false,
 };
+
+function getSummaryStorageKey(chatId: string): string { return `${SUMMARY_STORAGE_PREFIX}${chatId}`; }
+
+function readSummaryRecord(chatId: string): Promise<SummaryRecord | null> {
+  return new Promise((resolve) => chrome.storage.local.get(getSummaryStorageKey(chatId), (items) => resolve((items[getSummaryStorageKey(chatId)] as SummaryRecord | undefined) ?? null)));
+}
+
+function writeSummaryRecord(chatId: string, record: SummaryRecord): Promise<void> {
+  return new Promise((resolve) => chrome.storage.local.set({ [getSummaryStorageKey(chatId)]: record }, () => resolve()));
+}
 
 function textOf(element: Element | null): string {
   return element?.textContent?.replace(/\s+/g, " ").trim() ?? "";
@@ -562,6 +577,7 @@ function render(): void {
   const currentRole = state.roleRecord?.role ?? null;
   const currentRoleLabel = getRoleLabel(currentRole);
   const currentRoleSourceLabel = state.roleRecord?.source === "manual" ? "人工选择" : state.roleRecord?.source === "ai" ? "AI 推测" : "";
+  const summaryRecord = state.summaryRecord;
   const previousBodyScrollTop = root.querySelector<HTMLElement>(".dc-body")?.scrollTop ?? 0;
   const previousResultScrollTop = root.querySelector<HTMLElement>(".dc-result-detail pre")?.scrollTop ?? 0;
   const previousActiveResultId = root.querySelector<HTMLElement>("[data-active-result-id]")?.dataset.activeResultId ?? null;
@@ -592,6 +608,15 @@ function render(): void {
               <button class="dc-role-button" data-action="role-clear" title="清除角色">不确认</button>
             </div>
           ` : `<div class="dc-muted">请打开一个 WhatsApp 聊天。</div>`}
+        </section>
+
+        <section class="dc-summary-card">
+          <div class="dc-summary-head"><span>✨ AI 总结</span>${summaryRecord ? `<span class="dc-summary-updated">已更新 ${formatTime(summaryRecord.updatedAt)}</span>` : ""}</div>
+          <div class="dc-summary-body">
+            <div><strong>${summaryRecord ? "已生成客户画像" : "未生成"}</strong><small>${summaryRecord ? "已同步客户信息、历史问题和功能需求" : "读取全部聊天记录生成客户信息"}</small></div>
+            <button class="dc-summary-button" data-action="summary" ${!snapshot || state.loadingAction ? "disabled" : ""}>${state.loadingAction === "summarize" ? "总结中..." : summaryRecord ? "重新总结" : "生成总结"}</button>
+          </div>
+          ${summaryRecord ? `<button class="dc-summary-link" data-action="view-summary">查看总结 →</button>` : ""}
         </section>
 
         <section class="dc-cache dc-cache-${status.className}">
@@ -657,6 +682,7 @@ async function refreshSnapshot(): Promise<void> {
     state.snapshot = null;
     state.cache = null;
     state.roleRecord = null;
+    state.summaryRecord = null;
     state.activeResultId = null;
     if (shouldRender) render();
     return;
@@ -667,12 +693,14 @@ async function refreshSnapshot(): Promise<void> {
   state.snapshot = snapshot;
 
   if (!isSameChat || !state.cache) {
-    const [cache, roleRecord] = await Promise.all([
+    const [cache, roleRecord, summaryRecord] = await Promise.all([
       readCache(snapshot.chat.externalChatId),
       readRoleRecord(snapshot.chat.externalChatId),
+      readSummaryRecord(snapshot.chat.externalChatId),
     ]);
     state.cache = cache;
     state.roleRecord = roleRecord;
+    state.summaryRecord = summaryRecord;
     state.activeResultId = null;
     render();
     return;
@@ -683,8 +711,7 @@ async function refreshSnapshot(): Promise<void> {
   }
 }
 
-
-function sendCopilotRequest(endpoint: string, action: "translate-clean" | "reply", payload: ChatSnapshot): Promise<CopilotReplyResponse> {
+function sendCopilotRequest(endpoint: string, action: "translate-clean" | "reply" | "summarize", payload: ChatSnapshot): Promise<CopilotReplyResponse> {
   return new Promise((resolve) => {
     if (!isExtensionContextValid()) {
       resolve({ error: "扩展已重新加载，请刷新 WhatsApp 页面后重试" });
@@ -785,6 +812,29 @@ async function callCopilot(action: "translate-clean" | "reply"): Promise<void> {
   }
 }
 
+async function summarizeCustomer(): Promise<void> {
+  if (!state.snapshot) return;
+  const requestSnapshot = getSnapshotForRequest();
+  if (!requestSnapshot) return;
+  state.loadingAction = "summarize";
+  state.error = null;
+  render();
+  try {
+    // Unlike reply generation, the summary endpoint receives every message currently
+    // present in the snapshot; it deliberately applies no slice or message-count cap.
+    const response = await sendCopilotRequest("/api/copilot/customer-summary", "summarize", requestSnapshot);
+    if (!response.summary || !response.webUrl) throw new Error(response.error || "客户总结失败");
+    const record = { updatedAt: Date.parse(response.summary.updatedAt) || Date.now(), webUrl: response.webUrl };
+    await writeSummaryRecord(requestSnapshot.chat.externalChatId, record);
+    if (state.snapshot?.chat.externalChatId === requestSnapshot.chat.externalChatId) state.summaryRecord = record;
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : "客户总结失败";
+  } finally {
+    state.loadingAction = null;
+    render();
+  }
+}
+
 function injectStyles(): void {
   const style = document.createElement("style");
   style.textContent = `
@@ -813,6 +863,16 @@ function injectStyles(): void {
     .dc-role-button { border: 1px solid rgba(148,163,184,.2); color: #dbeafe; background: rgba(15,23,42,.72); border-radius: 999px; padding: 7px 9px; cursor: pointer; font-size: 12px; font-weight: 700; }
     .dc-role-button.active { border-color: rgba(96,165,250,.72); background: rgba(37,99,235,.36); color: #eff6ff; }
     .dc-cache-main { font-weight: 700; margin-bottom: 4px; }
+    .dc-summary-card { border: 1px solid rgba(139,92,246,.75); box-shadow: inset 0 0 0 1px rgba(99,102,241,.28); border-radius: 14px; background: rgba(30,41,59,.72); padding: 14px; }
+    .dc-summary-head { display: flex; align-items: center; gap: 8px; color: #f8fafc; font-size: 14px; font-weight: 700; }
+    .dc-summary-updated { border-radius: 5px; background: rgba(34,197,94,.2); color: #86efac; padding: 2px 5px; font-size: 10px; font-weight: 600; }
+    .dc-summary-body { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
+    .dc-summary-body strong, .dc-summary-body small { display: block; }
+    .dc-summary-body strong { font-size: 13px; color: #e2e8f0; }
+    .dc-summary-body small { margin-top: 4px; color: #94a3b8; font-size: 11px; }
+    .dc-summary-button { flex-shrink: 0; border: 0; border-radius: 9px; background: linear-gradient(135deg,#2563eb,#7c3aed); color: white; padding: 9px 13px; cursor: pointer; font-weight: 700; }
+    .dc-summary-button:disabled { opacity: .55; cursor: not-allowed; }
+    .dc-summary-link { margin-top: 10px; border: 0; background: transparent; color: #a5b4fc; padding: 0; cursor: pointer; font-size: 12px; }
     .dc-cache-cached { border-color: rgba(34,197,94,.35); background: rgba(21,128,61,.13); }
     .dc-cache-stale { border-color: rgba(234,179,8,.38); background: rgba(113,63,18,.18); }
     .dc-cache-empty { border-color: rgba(248,113,113,.25); }
@@ -878,6 +938,10 @@ function injectSidebar(): void {
       void callCopilot("translate-clean");
     } else if (action === "reply") {
       void callCopilot("reply");
+    } else if (action === "summary") {
+      void summarizeCustomer();
+    } else if (action === "view-summary") {
+      if (state.summaryRecord?.webUrl) window.open(state.summaryRecord.webUrl, "_blank", "noopener,noreferrer");
     } else if (action === "role-client") {
       void setConversationRole("client");
     } else if (action === "role-end-user") {

@@ -4,14 +4,14 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: {
-    default: 'DICloak 客服助手',
-    template: '%s | DICloak 客服助手',
+    default: 'DICloak 客户运营助手',
+    template: '%s | DICloak 客户运营助手',
   },
   description:
-    'DICloak 客服助手 - 智能生成推荐回复，提升客服效率',
+    'DICloak 客户运营助手 - AI 自动总结客户画像、历史问题和功能需求',
   keywords: [
     'DICloak',
-    '客服助手',
+    '客户运营助手',
     '智能客服',
     'AI 回复生成',
     '知识库',
@@ -22,10 +22,10 @@ export const metadata: Metadata = {
   //   icon: '',
   // },
   openGraph: {
-    title: 'DICloak 客服助手',
+    title: 'DICloak 客户运营助手',
     description:
-      '智能生成推荐回复，提升客服效率。支持多对话管理、知识库配置。',
-    siteName: 'DICloak 客服助手',
+      'AI 自动总结客户画像、历史问题和功能需求，帮助客服快速决策。',
+    siteName: 'DICloak 客户运营助手',
     locale: 'zh_CN',
     type: 'website',
   },
@@ -45,7 +45,7 @@ export default function RootLayout({
   const isDev = process.env.COZE_PROJECT_ENV === 'DEV';
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="zh-CN" suppressHydrationWarning>
       <body className={`antialiased`}>
         {isDev && <Inspector />}
         {children}
