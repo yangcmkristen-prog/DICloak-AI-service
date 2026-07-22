@@ -1560,7 +1560,7 @@ export default function Home() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="customers" className="flex-1 min-h-0 m-0 overflow-y-auto">
+          <TabsContent value="customers" className="relative flex-1 min-h-0 m-0 overflow-hidden">
             <CustomerOverview />
           </TabsContent>
 
