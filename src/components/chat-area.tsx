@@ -594,14 +594,17 @@ export function ChatArea({ messages, onSendMessage, isGenerating, generationStat
   const [translations, setTranslations] = useState<Record<string, string>>({});
   const [translatingIds, setTranslatingIds] = useState<Record<string, boolean>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const submittingRef = useRef(false);
 
   useEffect(() => {
-    // 自动滚动到底部
-    if (scrollRef.current) {
-      scrollRef.current.scrollIntoView({ behavior: "smooth" });
+    // 只滚动消息容器，避免 scrollIntoView 带动移动端整个页面偏离顶部。
+    if (messagesRef.current) {
+      messagesRef.current.scrollTo({
+        top: messagesRef.current.scrollHeight,
+        behavior: "smooth",
+      });
     }
   }, [messages, isGenerating, generationStatus]);
 
@@ -741,7 +744,7 @@ export function ChatArea({ messages, onSendMessage, isGenerating, generationStat
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* 消息列表 - 支持滚动 */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div ref={messagesRef} className="min-h-0 flex-1 overscroll-contain overflow-y-auto p-4">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
             <div className="text-center space-y-2">
@@ -822,7 +825,6 @@ export function ChatArea({ messages, onSendMessage, isGenerating, generationStat
               </div>
             )}
 
-            <div ref={scrollRef} />
           </div>
         )}
       </div>

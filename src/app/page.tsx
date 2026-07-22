@@ -1526,7 +1526,7 @@ export default function Home() {
   );
 
   return (
-    <div className="h-screen flex flex-col bg-background">
+    <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-background">
       {/* 顶部标题栏 */}
       <header className="border-b px-4 py-3 flex items-center justify-between bg-background">
         <div className="flex items-center gap-3">
@@ -2026,9 +2026,9 @@ export default function Home() {
         </DialogContent>
       </Dialog>
 
-      <div className="fixed bottom-6 right-6 z-40">
+      <div className="fixed right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-40 sm:right-6 sm:bottom-6">
         {isAssistantOpen && (
-          <div className="absolute bottom-16 right-0 flex h-[min(680px,calc(100vh-100px))] w-[min(760px,calc(100vw-32px))] overflow-hidden rounded-2xl border bg-background shadow-2xl">
+          <div className="fixed inset-x-3 top-[max(0.75rem,env(safe-area-inset-top))] bottom-[calc(5rem+max(1rem,env(safe-area-inset-bottom)))] flex min-h-0 overflow-hidden rounded-2xl border bg-background shadow-2xl sm:absolute sm:inset-auto sm:right-0 sm:bottom-16 sm:h-[min(680px,calc(100dvh-100px))] sm:w-[min(760px,calc(100vw-32px))]">
             <aside className="hidden w-60 shrink-0 border-r bg-muted/30 md:flex md:flex-col">
               <div className="flex-1 min-h-0">
                 <ConversationList
