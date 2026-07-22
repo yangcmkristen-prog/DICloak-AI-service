@@ -572,6 +572,9 @@ export default function Home() {
   const [editingFolderName, setEditingFolderName] = useState("");
   const [editingFolderParentId, setEditingFolderParentId] = useState("root");
   const [selectedPhrase, setSelectedPhrase] = useState<SavedPhrase | null>(null);
+  const [isEditingSavedPhraseContent, setIsEditingSavedPhraseContent] = useState(false);
+  const [editingSavedPhraseContent, setEditingSavedPhraseContent] = useState("");
+  const [isUpdatingSavedPhraseContent, setIsUpdatingSavedPhraseContent] = useState(false);
   const [copiedSavedPhraseLanguage, setCopiedSavedPhraseLanguage] = useState<PhraseLanguage | null>(null);
   const [otherPhraseLanguage, setOtherPhraseLanguage] = useState(OTHER_PHRASE_TRANSLATION_LANGUAGES[0]?.value || "");
   const [isTranslatingSavedPhrase, setIsTranslatingSavedPhrase] = useState(false);
@@ -1389,6 +1392,59 @@ export default function Home() {
     }
   };
 
+  const handleUpdateSavedPhraseContent = async (phrase: SavedPhrase) => {
+    const sourceText = editingSavedPhraseContent.trim();
+    if (!sourceText) {
+      toast.error("话术内容不能为空");
+      return;
+    }
+
+    if (sourceText === phrase.sourceText) {
+      setIsEditingSavedPhraseContent(false);
+      return;
+    }
+
+    setIsUpdatingSavedPhraseContent(true);
+    try {
+      const response = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: sourceText,
+          sourceLanguage: "auto",
+          targetLanguages: PHRASE_TRANSLATION_LANGUAGES.map((language) => language.value),
+        }),
+      });
+      const data = await response.json() as { translations?: Partial<Record<PhraseLanguage, string>>; error?: string };
+      if (!response.ok) throw new Error(data.error || "话术多语言翻译失败");
+
+      const translations = createEmptyPhraseTranslations();
+      for (const language of PHRASE_TRANSLATION_LANGUAGES) {
+        const translation = data.translations?.[language.value]?.trim();
+        if (!translation) throw new Error(`${language.label}翻译结果为空，请重试`);
+        translations[language.value] = translation;
+      }
+
+      const updatedPhrase: SavedPhrase = { ...phrase, sourceText, translations };
+      const nextState = {
+        ...savedPhraseState,
+        phrases: savedPhraseState.phrases.map((item) => item.id === phrase.id ? updatedPhrase : item),
+      };
+      await persistSavedPhraseState(nextState);
+      setSelectedPhrase(updatedPhrase);
+      setEditingSavedPhraseContent(sourceText);
+      setIsEditingSavedPhraseContent(false);
+      setCopiedSavedPhraseLanguage(null);
+      setCopiedOtherPhraseLanguage(null);
+      toast.success("话术内容及多语言版本已更新");
+    } catch (error) {
+      console.error("更新话术内容失败:", error);
+      toast.error(error instanceof Error ? error.message : "更新话术内容失败，请稍后重试");
+    } finally {
+      setIsUpdatingSavedPhraseContent(false);
+    }
+  };
+  
   const handleTranslateAndCopySavedPhrase = async (phrase: SavedPhrase) => {
     if (!otherPhraseLanguage) {
       toast.error("请选择要翻译的语言");
@@ -1448,7 +1504,11 @@ export default function Home() {
       phrase={phrase}
       editingPhraseId={editingPhraseId}
       editingPhraseName={editingPhraseName}
-      onOpen={setSelectedPhrase}
+      onOpen={(item) => {
+        setSelectedPhrase(item);
+        setEditingSavedPhraseContent(item.sourceText);
+        setIsEditingSavedPhraseContent(false);
+      }}
       onStartEdit={(item) => {
         setEditingPhraseId(item.id);
         setEditingPhraseName(item.name);
@@ -2091,8 +2151,11 @@ export default function Home() {
       </Dialog>
 
       <Dialog open={Boolean(selectedPhrase)} onOpenChange={(open) => {
+        if (!open && isUpdatingSavedPhraseContent) return;
         if (!open) {
           setSelectedPhrase(null);
+          setIsEditingSavedPhraseContent(false);
+          setEditingSavedPhraseContent("");
           setCopiedSavedPhraseLanguage(null);
           setCopiedOtherPhraseLanguage(null);
           setIsTranslatingSavedPhrase(false);
@@ -2106,8 +2169,58 @@ export default function Home() {
           {selectedPhrase && (
             <div className="min-w-0 space-y-4 overflow-y-auto py-4 pr-1">
               <div className="min-w-0">
-                <div className="mb-2 text-sm font-medium">完整内容</div>
-                <div className="max-h-40 overflow-auto rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{selectedPhrase.sourceText}</div>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-sm font-medium">完整内容</div>
+                  {!isEditingSavedPhraseContent && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setEditingSavedPhraseContent(selectedPhrase.sourceText);
+                        setIsEditingSavedPhraseContent(true);
+                      }}
+                    >
+                      <Edit className="mr-1 h-3.5 w-3.5" />
+                      编辑内容
+                    </Button>
+                  )}
+                </div>
+                {isEditingSavedPhraseContent ? (
+                  <div className="space-y-2">
+                    <Textarea
+                      value={editingSavedPhraseContent}
+                      onChange={(event) => setEditingSavedPhraseContent(event.target.value)}
+                      disabled={isUpdatingSavedPhraseContent}
+                      className="min-h-36 resize-y"
+                      placeholder="请输入话术内容"
+                      autoFocus
+                    />
+                    <p className="text-xs text-muted-foreground">点击完成后，将重新生成并保存所有常用语言版本。</p>
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isUpdatingSavedPhraseContent}
+                        onClick={() => {
+                          setEditingSavedPhraseContent(selectedPhrase.sourceText);
+                          setIsEditingSavedPhraseContent(false);
+                        }}
+                      >
+                        取消
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={isUpdatingSavedPhraseContent || !editingSavedPhraseContent.trim()}
+                        onClick={() => void handleUpdateSavedPhraseContent(selectedPhrase)}
+                      >
+                        {isUpdatingSavedPhraseContent && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {isUpdatingSavedPhraseContent ? "翻译并保存中" : "完成"}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="max-h-40 overflow-auto rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{selectedPhrase.sourceText}</div>
+                )}
               </div>
               <div className="space-y-2">
                 <div className="text-sm font-medium">所属文件夹</div>
