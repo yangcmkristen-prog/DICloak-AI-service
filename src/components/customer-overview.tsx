@@ -55,7 +55,7 @@ export function CustomerOverview() {
           const status: Customer["status"] = record.customerStatus === "流失风险" || record.customerStatus === "已停滞" || record.customerStatus === "潜在客户" ? record.customerStatus : "活跃";
           return [{
             id: record.externalChatId, name: record.contactName, initials: record.contactName.slice(0, 2).toUpperCase(),
-            teamId: record.teamId || "—", channel: record.contactMethod || "WhatsApp", contact: record.contactName,
+            teamId: record.teamId || "—", channel: record.contactMethod || "WhatsApp", contact: record.contactDetail || record.contactName,
             region: record.region || "未知", scenario: record.useCase || "待 AI 补充", type: record.customerType || "未分类",
             users: record.userScale || "未知", accounts: record.accountScale || "未知", plan: record.currentPlan || "未知",
             status, updatedAt: record.updatedAt || "—", note: record.notes || "暂无备注",
