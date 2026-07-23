@@ -1,5 +1,6 @@
 import { createHash } from "../shared/hash";
 import type { ChatSnapshot, ConversationRole, ConversationRoleSource, CopilotReplyResponse, CopilotResult, ExternalChatInfo, ExternalChatMessage } from "../shared/types";
+import { detectSensitiveInformation, redactUnapprovedFindings, type SensitiveFinding } from "../../../src/lib/sensitive-data";
 
 type ChromeStorageItems = Record<string, unknown>;
 
@@ -37,6 +38,8 @@ type RoleRecord = {
 };
 
 type SummaryRecord = { updatedAt: number; webUrl: string };
+type AiAction = "translate-clean" | "reply" | "summarize";
+type PendingSensitiveRequest = { action: AiAction; snapshot: ChatSnapshot; findings: SensitiveFinding[] };
 
 type ParsedReplySection = {
   type: "question" | "main" | "supplement" | "info" | "common" | "client" | "end_user" | "identity" | "other";
@@ -70,6 +73,7 @@ const state: {
   collapsed: boolean;
   hidden: boolean;
   selectingResultText: boolean;
+  pendingSensitiveRequest: PendingSensitiveRequest | null;
 } = {
   snapshot: null,
   cache: null,
@@ -81,6 +85,7 @@ const state: {
   collapsed: false,
   hidden: false,
   selectingResultText: false,
+  pendingSensitiveRequest: null,
 };
 
 function getSummaryStorageKey(chatId: string): string { return `${SUMMARY_STORAGE_PREFIX}${chatId}`; }
@@ -203,7 +208,8 @@ function getRoleEmoji(role: ConversationRole | null | undefined): string {
 
 function getCurrentChatInfo(): ExternalChatInfo | null {
   const main = document.querySelector("#main");
-  const header = main?.querySelector("header");
+  if (!main) return null;
+  const header = main.querySelector("header");
   if (!header) return null;
 
   const image = header.querySelector("img") as HTMLImageElement | null;
@@ -218,12 +224,20 @@ function getCurrentChatInfo(): ExternalChatInfo | null {
   const headerText = textOf(header);
   const onlineStatus = headerText.replace(displayName, "").trim() || undefined;
   const avatarUrl = image?.src;
+  const phoneFromName = displayName.match(/\+?[\d][\d\s()-]{6,}\d/)?.[0];
+  const remoteJid = Array.from(main.querySelectorAll<HTMLElement>("[data-id]"))
+    .map((element) => element.dataset.id?.match(/(?:^|_)(\d{7,15})@(?:c|s)\.us(?:_|$)/)?.[1])
+    .find((phone): phone is string => Boolean(phone));
+  const contactDetail = phoneFromName?.replace(/[^\d+]/g, "") || (remoteJid ? `+${remoteJid}` : undefined);
+  const teamId = displayName.match(/^DIC-([A-Za-z0-9]+)(?:\s|$)/i)?.[1];
   const externalChatId = createHash(["whatsapp", displayName, avatarUrl ?? ""].join("|"));
 
   return {
     platform: "whatsapp",
     externalChatId,
     displayName,
+    contactDetail,
+    teamId,
     avatarUrl,
     onlineStatus,
   };
@@ -654,6 +668,24 @@ function render(): void {
         </section>
 
         ${activeResultDetail}
+        ${state.pendingSensitiveRequest ? `
+          <section class="dc-sensitive-panel" role="dialog" aria-modal="true" aria-label="敏感信息确认">
+            <div class="dc-sensitive-title">⚠️ 检测到敏感信息</div>
+            <p>勾选表示允许将该项发送给 AI；未勾选的内容将在发送前替换为隐藏标记。</p>
+            <div class="dc-sensitive-list">
+              ${state.pendingSensitiveRequest.findings.map((finding) => `
+                <label class="dc-sensitive-item">
+                  <input type="checkbox" data-sensitive-id="${escapeHtml(finding.id)}" />
+                  <span><strong>${escapeHtml(finding.category)}</strong><small>${escapeHtml(finding.value)}</small></span>
+                </label>
+              `).join("")}
+            </div>
+            <div class="dc-sensitive-actions">
+              <button data-action="sensitive-cancel">取消</button>
+              <button class="primary" data-action="sensitive-confirm">确认并继续</button>
+            </div>
+          </section>
+        ` : ""}
       </div>
       <div class="dc-footer">
         <span>知识库/Prompt/模型配置沿用网页端</span>
@@ -744,11 +776,7 @@ async function setConversationRole(role: ConversationRole | null): Promise<void>
   render();
 }
 
-async function callCopilot(action: "translate-clean" | "reply"): Promise<void> {
-  if (!state.snapshot) return;
-
-  const requestSnapshot = getSnapshotForRequest();
-  if (!requestSnapshot) return;
+async function executeCopilot(action: "translate-clean" | "reply", requestSnapshot: ChatSnapshot): Promise<void> {
 
   state.loadingAction = action;
   state.error = null;
@@ -812,10 +840,7 @@ async function callCopilot(action: "translate-clean" | "reply"): Promise<void> {
   }
 }
 
-async function summarizeCustomer(): Promise<void> {
-  if (!state.snapshot) return;
-  const requestSnapshot = getSnapshotForRequest();
-  if (!requestSnapshot) return;
+async function executeCustomerSummary(requestSnapshot: ChatSnapshot): Promise<void> {
   state.loadingAction = "summarize";
   state.error = null;
   render();
@@ -833,6 +858,44 @@ async function summarizeCustomer(): Promise<void> {
     state.loadingAction = null;
     render();
   }
+}
+
+async function executeAiAction(action: AiAction, snapshot: ChatSnapshot): Promise<void> {
+  if (action === "summarize") {
+    await executeCustomerSummary(snapshot);
+  } else {
+    await executeCopilot(action, snapshot);
+  }
+}
+
+function requestAiAction(action: AiAction): void {
+  const snapshot = getSnapshotForRequest();
+  if (!snapshot) return;
+  const findings = detectSensitiveInformation(snapshot.messages);
+  if (findings.length === 0) {
+    void executeAiAction(action, snapshot);
+    return;
+  }
+  state.pendingSensitiveRequest = { action, snapshot, findings };
+  state.error = null;
+  render();
+}
+
+function confirmSensitiveRequest(root: HTMLElement): void {
+  const pending = state.pendingSensitiveRequest;
+  if (!pending) return;
+  const approvedIds = new Set(
+    Array.from(root.querySelectorAll<HTMLInputElement>("[data-sensitive-id]:checked"))
+      .map((input) => input.dataset.sensitiveId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const snapshot: ChatSnapshot = {
+    ...pending.snapshot,
+    messages: redactUnapprovedFindings(pending.snapshot.messages, pending.findings, approvedIds),
+  };
+  state.pendingSensitiveRequest = null;
+  render();
+  void executeAiAction(pending.action, snapshot);
 }
 
 function injectStyles(): void {
@@ -881,6 +944,18 @@ function injectStyles(): void {
     .dc-action-card:disabled { opacity: .55; cursor: not-allowed; }
     .dc-action-card small { color: #94a3b8; font-size: 11px; font-weight: 500; }
     .dc-action-icon { font-size: 24px; }
+    .dc-sensitive-panel { position: sticky; bottom: 0; z-index: 20; border: 1px solid rgba(251,191,36,.55); border-radius: 14px; background: #111827; box-shadow: 0 -12px 35px rgba(0,0,0,.45); padding: 14px; }
+    .dc-sensitive-title { color: #fde68a; font-weight: 800; }
+    .dc-sensitive-panel > p { color: #cbd5e1; font-size: 12px; line-height: 1.55; }
+    .dc-sensitive-list { max-height: 230px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+    .dc-sensitive-item { display: flex; align-items: flex-start; gap: 9px; border: 1px solid rgba(148,163,184,.18); border-radius: 9px; padding: 9px; cursor: pointer; }
+    .dc-sensitive-item input { margin-top: 3px; }
+    .dc-sensitive-item span, .dc-sensitive-item small { display: block; min-width: 0; }
+    .dc-sensitive-item strong { color: #f8fafc; font-size: 12px; }
+    .dc-sensitive-item small { margin-top: 3px; color: #94a3b8; word-break: break-all; }
+    .dc-sensitive-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+    .dc-sensitive-actions button { border: 1px solid rgba(148,163,184,.3); border-radius: 8px; padding: 7px 11px; background: #1e293b; color: #e2e8f0; cursor: pointer; }
+    .dc-sensitive-actions button.primary { border: 0; background: #2563eb; color: white; }
     .dc-error { border: 1px solid rgba(248,113,113,.35); background: rgba(127,29,29,.3); color: #fecaca; border-radius: 12px; padding: 10px; font-size: 12px; }
     .dc-results { display: flex; flex-direction: column; gap: 8px; }
     .dc-result-item { border: 1px solid rgba(148,163,184,.12); background: rgba(30,41,59,.7); border-radius: 12px; color: #e2e8f0; padding: 12px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
@@ -935,11 +1010,16 @@ function injectSidebar(): void {
       state.hidden = true;
       render();
     } else if (action === "translate") {
-      void callCopilot("translate-clean");
+      requestAiAction("translate-clean");
     } else if (action === "reply") {
-      void callCopilot("reply");
+      requestAiAction("reply");
     } else if (action === "summary") {
-      void summarizeCustomer();
+      requestAiAction("summarize");
+    } else if (action === "sensitive-cancel") {
+      state.pendingSensitiveRequest = null;
+      render();
+    } else if (action === "sensitive-confirm") {
+      confirmSensitiveRequest(sidebar);
     } else if (action === "view-summary") {
       if (state.summaryRecord?.webUrl) window.open(state.summaryRecord.webUrl, "_blank", "noopener,noreferrer");
     } else if (action === "role-client") {

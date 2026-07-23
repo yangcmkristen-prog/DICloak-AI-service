@@ -11,6 +11,8 @@ export interface CopilotChatInfo {
   platform: 'whatsapp';
   externalChatId: string;
   displayName: string;
+  contactDetail?: string;
+  teamId?: string;
   avatarUrl?: string;
   onlineStatus?: string;
   confirmedRole?: 'client' | 'end_user';
@@ -67,6 +69,8 @@ export function validateSnapshot(value: unknown): CopilotSnapshot | null {
       platform: 'whatsapp',
       externalChatId,
       displayName,
+      contactDetail: typeof chatRecord.contactDetail === 'string' ? chatRecord.contactDetail : undefined,
+      teamId: typeof chatRecord.teamId === 'string' ? chatRecord.teamId : undefined,
       avatarUrl: typeof chatRecord.avatarUrl === 'string' ? chatRecord.avatarUrl : undefined,
       onlineStatus: typeof chatRecord.onlineStatus === 'string' ? chatRecord.onlineStatus : undefined,
       confirmedRole: chatRecord.confirmedRole === 'client' || chatRecord.confirmedRole === 'end_user' ? chatRecord.confirmedRole : undefined,

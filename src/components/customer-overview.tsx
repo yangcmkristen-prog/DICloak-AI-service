@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Check, ChevronRight, Globe2, MessageCircle, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -22,14 +22,14 @@ type Customer = {
 };
 
 type SummaryPayload = Partial<Omit<Customer, "id" | "name" | "initials" | "channel" | "contact" | "scenario" | "users" | "accounts" | "type" | "issues" | "features">> & {
-  externalChatId?: string; contactName?: string; contactMethod?: string; useCase?: string; userScale?: string; accountScale?: string; customerType?: string;
+  externalChatId?: string; contactName?: string; contactMethod?: string; contactDetail?: string; useCase?: string; userScale?: string; accountScale?: string; customerType?: string;
   currentPlan?: string; customerStatus?: string; notes?: string;
   issues?: Array<Partial<Issue> & { occurredAt?: string }>;
   featureRequests?: Array<Partial<Feature>>;
 };
 
 const statusStyle: Record<Customer["status"], string> = {
-  活跃: "border-emerald-100 bg-emerald-50 text-emerald-700", 跟进中: "border-amber-100 bg-amber-50 text-amber-700", 潜在客户: "border-blue-100 bg-blue-50 text-blue-700",
+  活跃: "border-emerald-100 bg-emerald-50 text-emerald-700", 流失风险: "border-red-100 bg-red-50 text-red-700", 已停滞: "border-slate-200 bg-slate-100 text-slate-700", 潜在客户: "border-blue-100 bg-blue-50 text-blue-700",
 };
 
 export function CustomerOverview() {
@@ -41,8 +41,10 @@ export function CustomerOverview() {
   const [status, setStatus] = useState("all");
   const selected = customers.find((customer) => customer.id === selectedId) ?? null;
 
-  useEffect(() => {
-    void fetch("/api/copilot/customer-summary", { cache: "no-store" })
+  const loadCustomers = useCallback(async (showSuccess = false) => {
+    setLoading(true);
+    try {
+      await fetch("/api/copilot/customer-summary", { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("客户数据加载失败");
         return await response.json() as { customers?: SummaryPayload[] };
@@ -50,7 +52,7 @@ export function CustomerOverview() {
       .then(({ customers: records = [] }) => {
         const normalized = records.flatMap((record): Customer[] => {
           if (!record.externalChatId || !record.contactName) return [];
-          const status: Customer["status"] = record.customerStatus === "跟进中" || record.customerStatus === "潜在客户" ? record.customerStatus : "活跃";
+          const status: Customer["status"] = record.customerStatus === "流失风险" || record.customerStatus === "已停滞" || record.customerStatus === "潜在客户" ? record.customerStatus : "活跃";
           return [{
             id: record.externalChatId, name: record.contactName, initials: record.contactName.slice(0, 2).toUpperCase(),
             teamId: record.teamId || "—", channel: record.contactMethod || "WhatsApp", contact: record.contactName,
@@ -64,10 +66,18 @@ export function CustomerOverview() {
         setCustomers(normalized);
         const deepLinkedId = new URLSearchParams(window.location.search).get("customer");
         if (deepLinkedId && normalized.some((customer) => customer.id === deepLinkedId)) setSelectedId(deepLinkedId);
-      })
-      .catch((error: unknown) => toast.error(error instanceof Error ? error.message : "客户数据加载失败"))
-      .finally(() => setLoading(false));
+      });
+      if (showSuccess) toast.success("客户列表已刷新");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "客户数据加载失败");
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadCustomers();
+  }, [loadCustomers]);
   const filtered = useMemo(() => customers.filter((customer) => {
     const keyword = query.trim().toLowerCase();
     return (!keyword || [customer.name, customer.teamId, customer.contact].some((value) => value.toLowerCase().includes(keyword)))
@@ -86,9 +96,9 @@ export function CustomerOverview() {
       <div className="mb-4 grid gap-3 md:grid-cols-[1fr_180px_180px]">
         <div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(event) => setQuery(event.target.value)} className="bg-background pl-9" placeholder="搜索联系人、团队 ID 或联系方式" /></div>
         <Select value={region} onValueChange={setRegion}><SelectTrigger className="w-full bg-background"><Globe2 className="size-4" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部地区</SelectItem>{[...new Set(customers.map((customer) => customer.region))].map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
-        <Select value={status} onValueChange={setStatus}><SelectTrigger className="w-full bg-background"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem><SelectItem value="活跃">活跃</SelectItem><SelectItem value="跟进中">跟进中</SelectItem><SelectItem value="潜在客户">潜在客户</SelectItem></SelectContent></Select>
+        <Select value={status} onValueChange={setStatus}><SelectTrigger className="w-full bg-background"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem><SelectItem value="活跃">活跃</SelectItem><SelectItem value="流失风险">流失风险</SelectItem><SelectItem value="已停滞">已停滞</SelectItem><SelectItem value="潜在客户">潜在客户</SelectItem></SelectContent></Select>
       </div>
-      <Card className="overflow-hidden py-0"><div className="border-b px-5 py-4"><p className="font-semibold">客户列表</p><p className="text-xs text-muted-foreground">共 {filtered.length} 位客户</p></div><Table><TableHeader className="bg-muted/40"><TableRow><TableHead className="pl-5">联系人</TableHead><TableHead>团队 ID</TableHead><TableHead>联系方式</TableHead><TableHead>地区</TableHead><TableHead>使用场景</TableHead><TableHead>状态</TableHead><TableHead>最后同步</TableHead><TableHead /></TableRow></TableHeader><TableBody>{filtered.map((customer) => <TableRow key={customer.id} className="h-[74px] cursor-pointer" onClick={() => setSelectedId(customer.id)}><TableCell className="pl-5"><div className="flex items-center gap-3"><Avatar><AvatarFallback className="bg-blue-50 text-xs text-blue-700">{customer.initials}</AvatarFallback></Avatar><span className="font-medium">{customer.name}</span></div></TableCell><TableCell className="font-mono text-xs">{customer.teamId}</TableCell><TableCell><p>{customer.channel}</p><p className="text-xs text-muted-foreground">{customer.contact}</p></TableCell><TableCell>{customer.region}</TableCell><TableCell className="max-w-56 truncate">{customer.scenario}</TableCell><TableCell><Badge variant="outline" className={statusStyle[customer.status]}>{customer.status}</Badge></TableCell><TableCell className="text-xs text-muted-foreground">{customer.updatedAt}</TableCell><TableCell><Button variant="ghost" size="sm" className="text-blue-600">详情<ChevronRight /></Button></TableCell></TableRow>)}</TableBody></Table>{!loading && filtered.length === 0 ? <div className="py-16 text-center text-sm text-muted-foreground">暂无客户总结，请在扩展端打开会话并点击“生成总结”</div> : null}{loading ? <div className="py-16 text-center text-sm text-muted-foreground">正在加载 AI 客户总结…</div> : null}</Card>
+      <Card className="overflow-hidden py-0"><div className="flex items-start gap-2 border-b px-5 py-4"><div><p className="font-semibold">客户列表</p><p className="text-xs text-muted-foreground">共 {filtered.length} 位客户</p></div><Button aria-label="刷新客户列表" title="刷新客户列表" variant="ghost" size="icon-sm" disabled={loading} onClick={() => void loadCustomers(true)}><RefreshCw className={loading ? "animate-spin" : ""} /></Button></div><Table><TableHeader className="bg-muted/40"><TableRow><TableHead className="pl-5">联系人</TableHead><TableHead>团队 ID</TableHead><TableHead>联系方式</TableHead><TableHead>地区</TableHead><TableHead>使用场景</TableHead><TableHead>状态</TableHead><TableHead>最后同步</TableHead><TableHead /></TableRow></TableHeader><TableBody>{filtered.map((customer) => <TableRow key={customer.id} className="h-[74px] cursor-pointer" onClick={() => setSelectedId(customer.id)}><TableCell className="pl-5"><div className="flex items-center gap-3"><Avatar><AvatarFallback className="bg-blue-50 text-xs text-blue-700">{customer.initials}</AvatarFallback></Avatar><span className="font-medium">{customer.name}</span></div></TableCell><TableCell className="font-mono text-xs">{customer.teamId}</TableCell><TableCell><p>{customer.channel}</p><p className="text-xs text-muted-foreground">{customer.contact}</p></TableCell><TableCell>{customer.region}</TableCell><TableCell className="max-w-56 truncate">{customer.scenario}</TableCell><TableCell><Badge variant="outline" className={statusStyle[customer.status]}>{customer.status}</Badge></TableCell><TableCell className="text-xs text-muted-foreground">{customer.updatedAt}</TableCell><TableCell><Button variant="ghost" size="sm" className="text-blue-600">详情<ChevronRight /></Button></TableCell></TableRow>)}</TableBody></Table>{!loading && filtered.length === 0 ? <div className="py-16 text-center text-sm text-muted-foreground">暂无客户总结，请在扩展端打开会话并点击“生成总结”</div> : null}{loading ? <div className="py-16 text-center text-sm text-muted-foreground">正在加载 AI 客户总结…</div> : null}</Card>
     </div>
     {selected && <CustomerDetail customer={selected} onClose={() => setSelectedId(null)} onSummarize={summarize} onSave={(updated) => setCustomers((items) => items.map((item) => item.id === updated.id ? updated : item))} />}
   </div>;
@@ -111,7 +121,7 @@ function CustomerDetail({ customer, onClose, onSummarize, onSave }: { customer: 
         body: JSON.stringify({
           externalChatId: customer.id,
           updates: {
-            contactName: next.name, contactMethod: next.channel, teamId: next.teamId, region: next.region,
+            contactName: next.name, contactMethod: next.channel, contactDetail: next.contact, teamId: next.teamId, region: next.region,
             customerType: next.type, customerStatus: next.status, useCase: next.scenario, userScale: next.users,
             accountScale: next.accounts, currentPlan: next.plan, notes: next.note,
             issues: next.issues.map(({ date, ...issue }) => ({ ...issue, occurredAt: date })),
@@ -159,5 +169,5 @@ function CustomerDetail({ customer, onClose, onSummarize, onSave }: { customer: 
 
 type EditableCustomerKey = "name" | "contact" | "channel" | "teamId" | "region" | "type" | "status" | "scenario" | "users" | "accounts" | "plan";
 function EditableInfoCard({ title, fields, customer, editing, onChange }: { title: string; fields: Array<[string, EditableCustomerKey]>; customer: Customer; editing: boolean; onChange: (key: EditableCustomerKey, value: string) => void }) {
-  return <Card><CardContent><h4 className="mb-5 font-semibold">{title}</h4><div className="grid gap-5 sm:grid-cols-2">{fields.map(([label, key]) => <div key={key}><p className="mb-1 text-xs text-muted-foreground">{label}</p>{editing ? key === "status" ? <Select value={customer.status} onValueChange={(value: Customer["status"]) => onChange(key, value)}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="活跃">活跃</SelectItem><SelectItem value="跟进中">跟进中</SelectItem><SelectItem value="潜在客户">潜在客户</SelectItem></SelectContent></Select> : <Input value={customer[key]} onChange={(event) => onChange(key, event.target.value)} /> : <p className="text-sm font-medium">{customer[key]}</p>}</div>)}</div></CardContent></Card>;
+  return <Card><CardContent><h4 className="mb-5 font-semibold">{title}</h4><div className="grid gap-5 sm:grid-cols-2">{fields.map(([label, key]) => <div key={key}><p className="mb-1 text-xs text-muted-foreground">{label}</p>{editing ? key === "status" ? <Select value={customer.status} onValueChange={(value: Customer["status"]) => onChange(key, value)}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="活跃">活跃</SelectItem><SelectItem value="流失风险">流失风险</SelectItem><SelectItem value="已停滞">已停滞</SelectItem><SelectItem value="潜在客户">潜在客户</SelectItem></SelectContent></Select> : <Input value={customer[key]} onChange={(event) => onChange(key, event.target.value)} /> : <p className="text-sm font-medium">{customer[key]}</p>}</div>)}</div></CardContent></Card>;
 }

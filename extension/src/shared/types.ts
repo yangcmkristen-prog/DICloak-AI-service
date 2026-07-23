@@ -14,6 +14,8 @@ export interface ExternalChatInfo {
   platform: Platform;
   externalChatId: string;
   displayName: string;
+  contactDetail?: string;
+  teamId?: string;
   avatarUrl?: string;
   onlineStatus?: string;
   confirmedRole?: ConversationRole;
@@ -39,6 +41,7 @@ export interface CustomerSummary {
   platform: Platform;
   contactName: string;
   contactMethod: string;
+  contactDetail?: string;
   teamId: string;
   region: string;
   customerType: string;

@@ -14,6 +14,16 @@ function parseJsonObject(content: string): Record<string, unknown> {
   return JSON.parse(normalized.slice(start, end + 1)) as Record<string, unknown>;
 }
 
+function extractTeamId(displayName: string): string {
+  return displayName.match(/^DIC-([A-Za-z0-9]+)(?:\s|$)/i)?.[1] ?? "";
+}
+
+function normalizePlan(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const plans = ["Free", "Base", "Plus", "Share+", "Share"] as const;
+  return plans.find((plan) => plan.toLowerCase() === value.trim().toLowerCase()) ?? "";
+}
+
 export async function GET() {
   try {
     const { data, error } = await getSupabaseClient().from("customer_summaries").select("summary_data").order("updated_at", { ascending: false });
@@ -28,10 +38,11 @@ export async function GET() {
 type EditableSummary = {
   contactName?: string;
   contactMethod?: string;
+  contactDetail?: string;
   teamId?: string;
   region?: string;
   customerType?: string;
-  customerStatus?: "活跃" | "跟进中" | "潜在客户";
+  customerStatus?: "活跃" | "流失风险" | "已停滞" | "潜在客户";
   useCase?: string;
   userScale?: string;
   accountScale?: string;
@@ -58,7 +69,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const allowedKeys: Array<keyof EditableSummary> = [
-      "contactName", "contactMethod", "teamId", "region", "customerType", "customerStatus", "useCase",
+      "contactName", "contactMethod", "contactDetail", "teamId", "region", "customerType", "customerStatus", "useCase",
       "userScale", "accountScale", "currentPlan", "notes", "issues", "featureRequests",
     ];
     const requested = body.updates as Record<string, unknown>;
@@ -95,23 +106,27 @@ export async function POST(request: NextRequest) {
     // the complete snapshot rather than the 20-message window used by replies.
     const transcript = snapshotToTranscript(snapshot);
     const content = await callTextModel(
-      "你是 DICloak 客户运营分析师。仅根据完整聊天记录提取客户画像、历史问题和功能需求。未知字段填空字符串，不得编造。只输出 JSON。",
+      "你是 DICloak 客户运营分析师。仅根据完整聊天记录提取客户画像、历史问题和功能需求。所有总结性、描述性内容必须使用简体中文；品牌名、套餐名、团队 ID、电话号码等专有信息保留原文。未知字段填空字符串，不得编造。只输出 JSON。",
       `请分析以下完整会话（共 ${snapshot.messages.length} 条），输出 JSON：\n{
-  "teamId":"", "region":"", "customerType":"", "useCase":"", "userScale":"", "accountScale":"",
-  "currentPlan":"", "customerStatus":"", "notes":"",
+  "region":"", "customerType":"", "useCase":"", "userScale":"", "accountScale":"",
+  "currentPlan":"", "customerStatus":"活跃/流失风险/已停滞/潜在客户", "notes":"",
   "issues":[{"title":"","description":"","resolution":"","status":"已解决/处理中/未处理","occurredAt":""}],
   "featureRequests":[{"title":"","description":"","source":"客户聊天","status":"未评估/已评估/已上线"}]
-}\n\n完整聊天记录：\n${transcript}`,
+}\n\n识别规则：\n1. 除品牌名和套餐名外，所有字段内容必须用简体中文填写。\n2. 不要提取或输出联系人名称、WhatsApp 号码和团队 ID，这些字段由系统直接采集。\n3. currentPlan 仅允许填写 Free、Base、Plus、Share+、Share。聊天中明确提及其中一种套餐时使用对应的标准名称；未提及或无法确认时留空，不得猜测。\n\n完整聊天记录：\n${transcript}`,
       0.2,
     );
     const analysis = parseJsonObject(content);
     const updatedAt = new Date().toISOString();
+    const inferredTeamId = extractTeamId(snapshot.chat.displayName);
     const summary = {
       externalChatId: snapshot.chat.externalChatId,
       platform: snapshot.chat.platform,
-      contactName: snapshot.chat.displayName,
       contactMethod: snapshot.chat.platform === "whatsapp" ? "WhatsApp" : snapshot.chat.platform,
       ...analysis,
+      contactName: snapshot.chat.displayName,
+      teamId: snapshot.chat.teamId || inferredTeamId,
+      contactDetail: snapshot.chat.contactDetail || "",
+      currentPlan: normalizePlan(analysis.currentPlan),
       updatedAt,
     };
     const { error } = await getSupabaseClient().from("customer_summaries").upsert({
