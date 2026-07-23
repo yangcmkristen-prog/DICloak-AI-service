@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 
 type IssueStatus = "未处理" | "处理中" | "已解决";
@@ -32,11 +34,19 @@ const statusStyle: Record<Customer["status"], string> = {
   活跃: "border-emerald-100 bg-emerald-50 text-emerald-700", 流失风险: "border-red-100 bg-red-50 text-red-700", 已停滞: "border-slate-200 bg-slate-100 text-slate-700", 潜在客户: "border-blue-100 bg-blue-50 text-blue-700",
 };
 
+function formatDateTime(value: string): string {
+  if (!value || value === "—") return "—";
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]} ${match[4]}:${match[5]}:${match[6]}` : value;
+}
+
 export function CustomerOverview() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [issueQuery, setIssueQuery] = useState("");
+  const [featureQuery, setFeatureQuery] = useState("");
   const [region, setRegion] = useState("all");
   const [status, setStatus] = useState("all");
   const selected = customers.find((customer) => customer.id === selectedId) ?? null;
@@ -58,7 +68,7 @@ export function CustomerOverview() {
             teamId: record.teamId || "—", channel: record.contactMethod || "WhatsApp", contact: record.contactDetail || record.contactName,
             region: record.region || "未知", scenario: record.useCase || "待 AI 补充", type: record.customerType || "未分类",
             users: record.userScale || "未知", accounts: record.accountScale || "未知", plan: record.currentPlan || "未知",
-            status, updatedAt: record.updatedAt || "—", note: record.notes || "暂无备注",
+            status, updatedAt: formatDateTime(record.updatedAt || "—"), note: record.notes || "",
             issues: (record.issues || []).map((issue) => ({ title: issue.title || "未命名问题", description: issue.description || "", resolution: issue.resolution || "", status: issue.status === "已解决" || issue.status === "处理中" ? issue.status : "未处理", date: issue.occurredAt || issue.date || "" })),
             features: (record.featureRequests || []).map((feature) => ({ title: feature.title || "未命名需求", description: feature.description || "", status: feature.status === "已评估" || feature.status === "已上线" ? feature.status : "未评估" })),
           }];
@@ -80,13 +90,17 @@ export function CustomerOverview() {
   }, [loadCustomers]);
   const filtered = useMemo(() => customers.filter((customer) => {
     const keyword = query.trim().toLowerCase();
+    const issueKeyword = issueQuery.trim().toLowerCase();
+    const featureKeyword = featureQuery.trim().toLowerCase();
     return (!keyword || [customer.name, customer.teamId, customer.contact].some((value) => value.toLowerCase().includes(keyword)))
+      && (!issueKeyword || customer.issues.some((issue) => [issue.title, issue.description].some((value) => value.toLowerCase().includes(issueKeyword))))
+      && (!featureKeyword || customer.features.some((feature) => [feature.title, feature.description].some((value) => value.toLowerCase().includes(featureKeyword))))
       && (region === "all" || customer.region === region) && (status === "all" || customer.status === status);
-  }), [customers, query, region, status]);
+  }), [customers, featureQuery, issueQuery, query, region, status]);
 
   const summarize = () => {
     if (!selected) return;
-    setCustomers((items) => items.map((item) => item.id === selected.id ? { ...item, updatedAt: "刚刚" } : item));
+    setCustomers((items) => items.map((item) => item.id === selected.id ? { ...item, updatedAt: formatDateTime(new Date().toISOString()) } : item));
     toast.success("AI 已开始重新分析该客户的聊天记录");
   };
 
@@ -98,7 +112,11 @@ export function CustomerOverview() {
         <Select value={region} onValueChange={setRegion}><SelectTrigger className="w-full bg-background"><Globe2 className="size-4" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部地区</SelectItem>{[...new Set(customers.map((customer) => customer.region))].map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
         <Select value={status} onValueChange={setStatus}><SelectTrigger className="w-full bg-background"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem><SelectItem value="活跃">活跃</SelectItem><SelectItem value="流失风险">流失风险</SelectItem><SelectItem value="已停滞">已停滞</SelectItem><SelectItem value="潜在客户">潜在客户</SelectItem></SelectContent></Select>
       </div>
-      <Card className="overflow-hidden py-0"><div className="flex items-start gap-2 border-b px-5 py-4"><div><p className="font-semibold">客户列表</p><p className="text-xs text-muted-foreground">共 {filtered.length} 位客户</p></div><Button aria-label="刷新客户列表" title="刷新客户列表" variant="ghost" size="icon-sm" disabled={loading} onClick={() => void loadCustomers(true)}><RefreshCw className={loading ? "animate-spin" : ""} /></Button></div><Table><TableHeader className="bg-muted/40"><TableRow><TableHead className="pl-5">联系人</TableHead><TableHead>团队 ID</TableHead><TableHead>联系方式</TableHead><TableHead>地区</TableHead><TableHead>使用场景</TableHead><TableHead>状态</TableHead><TableHead>最后同步</TableHead><TableHead /></TableRow></TableHeader><TableBody>{filtered.map((customer) => <TableRow key={customer.id} className="h-[74px] cursor-pointer" onClick={() => setSelectedId(customer.id)}><TableCell className="pl-5"><div className="flex items-center gap-3"><Avatar><AvatarFallback className="bg-blue-50 text-xs text-blue-700">{customer.initials}</AvatarFallback></Avatar><span className="font-medium">{customer.name}</span></div></TableCell><TableCell className="font-mono text-xs">{customer.teamId}</TableCell><TableCell><p>{customer.channel}</p><p className="text-xs text-muted-foreground">{customer.contact}</p></TableCell><TableCell>{customer.region}</TableCell><TableCell className="max-w-56 truncate">{customer.scenario}</TableCell><TableCell><Badge variant="outline" className={statusStyle[customer.status]}>{customer.status}</Badge></TableCell><TableCell className="text-xs text-muted-foreground">{customer.updatedAt}</TableCell><TableCell><Button variant="ghost" size="sm" className="text-blue-600">详情<ChevronRight /></Button></TableCell></TableRow>)}</TableBody></Table>{!loading && filtered.length === 0 ? <div className="py-16 text-center text-sm text-muted-foreground">暂无客户总结，请在扩展端打开会话并点击“生成总结”</div> : null}{loading ? <div className="py-16 text-center text-sm text-muted-foreground">正在加载 AI 客户总结…</div> : null}</Card>
+      <div className="mb-4 grid gap-3 md:grid-cols-2">
+        <SearchInput value={issueQuery} onChange={setIssueQuery} placeholder="按历史问题标题或内容筛选客户" />
+        <SearchInput value={featureQuery} onChange={setFeatureQuery} placeholder="按功能需求标题或内容筛选客户" />
+      </div>
+      <Card className="overflow-hidden py-0"><div className="flex items-start gap-2 border-b px-5 py-4"><div><p className="font-semibold">客户列表</p><p className="text-xs text-muted-foreground">共 {filtered.length} 位客户</p></div><Button aria-label="刷新客户列表" title="刷新客户列表" variant="ghost" size="icon-sm" disabled={loading} onClick={() => void loadCustomers(true)}><RefreshCw className={loading ? "animate-spin" : ""} /></Button></div><Table><TableHeader className="bg-muted/40"><TableRow><TableHead className="w-32 pl-5">联系人</TableHead><TableHead>团队 ID</TableHead><TableHead>联系方式</TableHead><TableHead>地区</TableHead><TableHead>当前套餐</TableHead><TableHead>使用场景</TableHead><TableHead>状态</TableHead><TableHead>最后同步</TableHead><TableHead /></TableRow></TableHeader><TableBody>{filtered.map((customer) => <TableRow key={customer.id} className="h-[74px] cursor-pointer" onClick={() => setSelectedId(customer.id)}><TableCell className="w-32 max-w-32 pl-5"><div className="flex min-w-0 items-center gap-3"><Avatar className="shrink-0"><AvatarFallback className="bg-blue-50 text-xs text-blue-700">{customer.initials}</AvatarFallback></Avatar><Tooltip><TooltipTrigger asChild><span className="min-w-0 truncate font-medium">{customer.name}</span></TooltipTrigger><TooltipContent className="max-w-80 select-text break-all" sideOffset={6} onClick={(event) => event.stopPropagation()}>{customer.name}</TooltipContent></Tooltip></div></TableCell><TableCell className="font-mono text-xs">{customer.teamId}</TableCell><TableCell className="max-w-40"><p>{customer.channel}</p><Tooltip><TooltipTrigger asChild><p className="truncate text-xs text-muted-foreground">{customer.contact}</p></TooltipTrigger><TooltipContent className="max-w-80 select-text break-all" sideOffset={6} onClick={(event) => event.stopPropagation()}>{customer.contact}</TooltipContent></Tooltip></TableCell><TableCell>{customer.region}</TableCell><TableCell>{customer.plan}</TableCell><TableCell className="max-w-56 truncate">{customer.scenario}</TableCell><TableCell><Badge variant="outline" className={statusStyle[customer.status]}>{customer.status}</Badge></TableCell><TableCell className="text-xs text-muted-foreground">{customer.updatedAt}</TableCell><TableCell><Button variant="ghost" size="sm" className="text-blue-600">详情<ChevronRight /></Button></TableCell></TableRow>)}</TableBody></Table>{!loading && filtered.length === 0 ? <div className="py-16 text-center text-sm text-muted-foreground">暂无客户总结，请在扩展端打开会话并点击“生成总结”</div> : null}{loading ? <div className="py-16 text-center text-sm text-muted-foreground">正在加载 AI 客户总结…</div> : null}</Card>
     </div>
     {selected && <CustomerDetail customer={selected} onClose={() => setSelectedId(null)} onSummarize={summarize} onSave={(updated) => setCustomers((items) => items.map((item) => item.id === updated.id ? updated : item))} />}
   </div>;
@@ -108,6 +126,7 @@ function CustomerDetail({ customer, onClose, onSummarize, onSave }: { customer: 
   const [draft, setDraft] = useState(customer);
   const [editingProfile, setEditingProfile] = useState(false);
   const [editingFeature, setEditingFeature] = useState<number | null>(null);
+  const [editingNote, setEditingNote] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => setDraft(customer), [customer]);
@@ -157,14 +176,21 @@ function CustomerDetail({ customer, onClose, onSummarize, onSave }: { customer: 
     if (!draft.features[index]?.title.trim()) return toast.error("需求标题不能为空");
     if (await persist(draft, "功能需求已更新")) setEditingFeature(null);
   };
+  const finishNote = async () => {
+    if (await persist(draft, "备注已保存")) setEditingNote(false);
+  };
 
   return <div className="absolute inset-0 z-30 bg-black/25" onMouseDown={onClose}><aside role="dialog" aria-modal="true" aria-label={`${draft.name}的客户详情`} className="ml-auto flex h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden bg-background shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="shrink-0 border-b p-4 md:p-6"><div className="mb-3 flex justify-between md:mb-4"><Button variant="ghost" size="sm" onClick={onClose}><X />关闭</Button><Button size="sm" onClick={onSummarize}><RefreshCw />重新 AI 总结</Button></div><div className="flex min-w-0 items-center gap-3 md:gap-4"><Avatar className="size-12 shrink-0 md:size-14"><AvatarFallback className="bg-blue-50 text-blue-700">{draft.initials}</AvatarFallback></Avatar><div className="min-w-0"><h3 className="truncate text-lg font-bold md:text-xl">{draft.name}</h3><p className="mt-1 flex items-center gap-2 truncate text-sm text-muted-foreground"><MessageCircle className="size-4 shrink-0" />{draft.channel} · {draft.contact} · {draft.region}</p></div></div></header>
     <Tabs defaultValue="profile" className="min-h-0 flex-1 gap-0 overflow-hidden"><TabsList className="h-12 w-full shrink-0 justify-start overflow-x-auto rounded-none border-b bg-background px-2 md:px-6"><TabsTrigger className="flex-none" value="profile">客户信息</TabsTrigger><TabsTrigger className="flex-none" value="issues">历史问题 ({draft.issues.length})</TabsTrigger><TabsTrigger className="flex-none" value="features">功能需求 ({draft.features.length})</TabsTrigger><TabsTrigger className="flex-none" value="notes">备注</TabsTrigger></TabsList><div className="min-h-0 flex-1 touch-pan-y overscroll-contain overflow-y-auto bg-muted/20 p-4 md:p-6">
       <TabsContent value="profile" className="mt-0 space-y-4"><div className="flex justify-end">{editingProfile ? <Button size="sm" disabled={saving} onClick={() => void finishProfile()}><Check />完成</Button> : <Button size="sm" variant="outline" onClick={() => setEditingProfile(true)}><Pencil />编辑</Button>}</div><EditableInfoCard title="基础信息" editing={editingProfile} customer={draft} fields={[["联系人", "name"], ["联系方式", "contact"], ["渠道", "channel"], ["团队 ID", "teamId"], ["所在地区", "region"], ["客户类型", "type"], ["客户状态", "status"]]} onChange={(key, value) => setDraft((item) => ({ ...item, [key]: value }))} /><EditableInfoCard title="业务信息" editing={editingProfile} customer={draft} fields={[["使用场景", "scenario"], ["用户规模", "users"], ["账号规模", "accounts"], ["当前套餐", "plan"]]} onChange={(key, value) => setDraft((item) => ({ ...item, [key]: value }))} /></TabsContent>
       <TabsContent value="issues" className="mt-0 space-y-4">{draft.issues.map((issue, index) => <Card key={`${issue.title}-${index}`}><CardContent><div className="flex items-start gap-3"><div className="min-w-0 flex-1"><h4 className="font-semibold">{issue.title}</h4><p className="mt-3 text-sm text-muted-foreground">{issue.description}</p><p className="mt-2 text-sm">处理记录：{issue.resolution}</p><p className="mt-3 flex items-center gap-1 text-xs text-muted-foreground"><CalendarDays className="size-3" />{issue.date}</p></div><Select disabled={saving} value={issue.status} onValueChange={(value: IssueStatus) => updateIssueStatus(index, value)}><SelectTrigger className="w-28"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="未处理">未处理</SelectItem><SelectItem value="处理中">处理中</SelectItem><SelectItem value="已解决">已解决</SelectItem></SelectContent></Select><Button aria-label="删除历史问题" variant="ghost" size="icon" disabled={saving} onClick={() => deleteIssue(index)}><Trash2 className="text-destructive" /></Button></div></CardContent></Card>)}</TabsContent>
       <TabsContent value="features" className="mt-0 space-y-4">{draft.features.map((feature, index) => <Card key={`${feature.title}-${index}`}><CardContent><div className="flex gap-3"><Sparkles className="size-5 shrink-0 text-violet-600" /><div className="min-w-0 flex-1">{editingFeature === index ? <div className="space-y-3"><Input aria-label="需求标题" value={feature.title} onChange={(event) => setDraft((item) => ({ ...item, features: item.features.map((value, itemIndex) => itemIndex === index ? { ...value, title: event.target.value } : value) }))} /><Input aria-label="需求内容" value={feature.description} onChange={(event) => setDraft((item) => ({ ...item, features: item.features.map((value, itemIndex) => itemIndex === index ? { ...value, description: event.target.value } : value) }))} /><Select value={feature.status} onValueChange={(value: Feature["status"]) => setDraft((item) => ({ ...item, features: item.features.map((current, itemIndex) => itemIndex === index ? { ...current, status: value } : current) }))}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="未评估">未评估</SelectItem><SelectItem value="已评估">已评估</SelectItem><SelectItem value="已上线">已上线</SelectItem></SelectContent></Select></div> : <><h4 className="font-semibold">{feature.title}</h4><p className="mt-2 text-sm text-muted-foreground">{feature.description}</p><Badge className="mt-3" variant="outline">{feature.status}</Badge></>}</div><div className="flex shrink-0">{editingFeature === index ? <Button aria-label="完成编辑" variant="ghost" size="icon" disabled={saving} onClick={() => void finishFeature(index)}><Check /></Button> : <Button aria-label="编辑功能需求" variant="ghost" size="icon" onClick={() => setEditingFeature(index)}><Pencil /></Button>}<Button aria-label="删除功能需求" variant="ghost" size="icon" disabled={saving} onClick={() => deleteFeature(index)}><Trash2 className="text-destructive" /></Button></div></div></CardContent></Card>)}</TabsContent>
-      <TabsContent value="notes" className="mt-0"><Card><CardContent>{editingProfile ? <Input value={draft.note} onChange={(event) => setDraft((item) => ({ ...item, note: event.target.value }))} /> : <p className="text-sm leading-7">{draft.note}</p>}</CardContent></Card></TabsContent>
+      <TabsContent value="notes" className="mt-0 space-y-4"><div className="flex justify-end">{editingNote ? <Button size="sm" disabled={saving} onClick={() => void finishNote()}><Check />保存</Button> : <Button size="sm" variant="outline" onClick={() => setEditingNote(true)}><Pencil />编辑备注</Button>}</div><Card><CardContent>{editingNote ? <Textarea aria-label="备注内容" className="min-h-32 resize-y" value={draft.note} onChange={(event) => setDraft((item) => ({ ...item, note: event.target.value }))} placeholder="输入客户备注" /> : <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{draft.note || "暂无备注"}</p>}</CardContent></Card></TabsContent>
     </div></Tabs></aside></div>;
+}
+
+function SearchInput({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }) {
+  return <div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={value} onChange={(event) => onChange(event.target.value)} className="bg-background pl-9" placeholder={placeholder} /></div>;
 }
 
 type EditableCustomerKey = "name" | "contact" | "channel" | "teamId" | "region" | "type" | "status" | "scenario" | "users" | "accounts" | "plan";
