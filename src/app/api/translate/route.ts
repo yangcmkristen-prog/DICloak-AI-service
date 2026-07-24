@@ -41,6 +41,10 @@ const QWEN_MT_LANGUAGE_NAMES: Record<string, string> = {
   ko: "Korean",
 };
 
+const KNOWLEDGE_TERMS_CACHE_TTL_MS = 60_000;
+let knowledgeTermsCache: { terms: TermRecord[]; expiresAt: number } | null = null;
+let knowledgeTermsRequest: Promise<TermRecord[]> | null = null;
+
 const LANGUAGE_PROMPT_NAMES: Record<string, string> = {
   auto: "Auto Detect",
   zh: "Simplified Chinese (中文简体, zh-Hans)",
@@ -215,7 +219,7 @@ function readTermField(term: TermRecord, language: string): string {
   return "";
 }
 
-async function getKnowledgeTerms(): Promise<TermRecord[]> {
+async function fetchKnowledgeTerms(): Promise<TermRecord[]> {
   try {
     const client = getSupabaseClient();
     const { data, error } = await client
@@ -233,6 +237,29 @@ async function getKnowledgeTerms(): Promise<TermRecord[]> {
     console.error("获取术语库失败:", error);
     return [];
   }
+}
+
+async function getKnowledgeTerms(): Promise<TermRecord[]> {
+  const now = Date.now();
+  if (knowledgeTermsCache && knowledgeTermsCache.expiresAt > now) {
+    return knowledgeTermsCache.terms;
+  }
+
+  if (!knowledgeTermsRequest) {
+    knowledgeTermsRequest = fetchKnowledgeTerms()
+      .then((terms) => {
+        knowledgeTermsCache = {
+          terms,
+          expiresAt: Date.now() + KNOWLEDGE_TERMS_CACHE_TTL_MS,
+        };
+        return terms;
+      })
+      .finally(() => {
+        knowledgeTermsRequest = null;
+      });
+  }
+
+  return knowledgeTermsRequest;
 }
 
 function buildTranslationTerms(terms: TermRecord[], text: string, sourceLanguage: string | null, targetLanguage: string): TranslationTerm[] {

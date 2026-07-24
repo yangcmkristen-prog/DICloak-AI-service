@@ -31,6 +31,50 @@ export interface ApiConfig {
   baseUrl: string;
 }
 
+const SYSTEM_CONFIG_CACHE_TTL_MS = 60_000;
+let systemConfigCache: { value: Record<string, unknown>; expiresAt: number } | null = null;
+let systemConfigRequest: Promise<Record<string, unknown> | null> | null = null;
+
+async function fetchSystemConfigValue(): Promise<Record<string, unknown> | null> {
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from('system_configs')
+    .select('config_value')
+    .eq('config_key', 'default')
+    .maybeSingle();
+
+  if (error || !data?.config_value || typeof data.config_value !== 'object' || Array.isArray(data.config_value)) {
+    return null;
+  }
+
+  return data.config_value as Record<string, unknown>;
+}
+
+async function getSystemConfigValue(): Promise<Record<string, unknown> | null> {
+  const now = Date.now();
+  if (systemConfigCache && systemConfigCache.expiresAt > now) {
+    return systemConfigCache.value;
+  }
+
+  if (!systemConfigRequest) {
+    systemConfigRequest = fetchSystemConfigValue()
+      .then((value) => {
+        if (value) {
+          systemConfigCache = {
+            value,
+            expiresAt: Date.now() + SYSTEM_CONFIG_CACHE_TTL_MS,
+          };
+        }
+        return value;
+      })
+      .finally(() => {
+        systemConfigRequest = null;
+      });
+  }
+
+  return systemConfigRequest;
+}
+
 export function validateSnapshot(value: unknown): CopilotSnapshot | null {
   if (!value || typeof value !== 'object') return null;
   const record = value as Record<string, unknown>;
@@ -101,18 +145,12 @@ export function getLatestCustomerMessage(snapshot: CopilotSnapshot): string {
 
 export async function getBackendApiConfig(): Promise<ApiConfig | null> {
   try {
-    const client = getSupabaseClient();
-    const { data, error } = await client
-      .from('system_configs')
-      .select('*')
-      .eq('config_key', 'default')
-      .maybeSingle();
-
-    if (error || !data?.config_value?.apiConfig) {
+    const configValue = await getSystemConfigValue();
+    if (!configValue?.apiConfig) {
       return null;
     }
 
-    return data.config_value.apiConfig as ApiConfig;
+    return configValue.apiConfig as ApiConfig;
   } catch (error) {
     console.error('[Copilot] 获取后端配置失败:', error);
     return null;
@@ -121,18 +159,12 @@ export async function getBackendApiConfig(): Promise<ApiConfig | null> {
 
 export async function getExtensionTranslateApiConfig(): Promise<ApiConfig | null> {
   try {
-    const client = getSupabaseClient();
-    const { data, error } = await client
-      .from('system_configs')
-      .select('*')
-      .eq('config_key', 'default')
-      .maybeSingle();
-
-    if (error || !data?.config_value?.extensionTranslateApiConfig) {
+    const configValue = await getSystemConfigValue();
+    if (!configValue?.extensionTranslateApiConfig) {
       return null;
     }
 
-    return data.config_value.extensionTranslateApiConfig as ApiConfig;
+    return configValue.extensionTranslateApiConfig as ApiConfig;
   } catch (error) {
     console.error('[Copilot] 获取扩展翻译配置失败:', error);
     return null;
