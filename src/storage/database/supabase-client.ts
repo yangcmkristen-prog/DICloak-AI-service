@@ -11,7 +11,13 @@ interface SupabaseCredentials {
 }
 
 function loadEnv(): void {
-  if (envLoaded || (process.env.COZE_SUPABASE_URL && process.env.COZE_SUPABASE_ANON_KEY)) {
+  if (
+    envLoaded ||
+    (
+      (process.env.SUPABASE_URL || process.env.COZE_SUPABASE_URL) &&
+      (process.env.SUPABASE_ANON_KEY || process.env.COZE_SUPABASE_ANON_KEY)
+    )
+  ) {
     return;
   }
 
@@ -72,8 +78,13 @@ except Exception as e:
 function getSupabaseCredentials(): SupabaseCredentials {
   loadEnv();
 
-  const url = process.env.COZE_SUPABASE_URL;
-  const anonKey = process.env.COZE_SUPABASE_ANON_KEY;
+  const url =
+    process.env.SUPABASE_URL ??
+    process.env.COZE_SUPABASE_URL;
+
+  const anonKey =
+    process.env.SUPABASE_ANON_KEY ??
+    process.env.COZE_SUPABASE_ANON_KEY;
 
   if (!url) {
     throw new Error('COZE_SUPABASE_URL is not set');
@@ -87,7 +98,10 @@ function getSupabaseCredentials(): SupabaseCredentials {
 
 function getSupabaseServiceRoleKey(): string | undefined {
   loadEnv();
-  return process.env.COZE_SUPABASE_SERVICE_ROLE_KEY;
+  return (
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??
+    process.env.COZE_SUPABASE_SERVICE_ROLE_KEY
+  );
 }
 
 function getSupabaseClient(token?: string): SupabaseClient {
