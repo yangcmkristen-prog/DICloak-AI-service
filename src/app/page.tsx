@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { DragEvent, KeyboardEvent } from "react";
 import { Archive, ArrowRightLeft, Check, ChevronRight, Copy, Edit, Folder, GripVertical, Languages, LayoutDashboard, Loader2, MessageCircle, MessageSquare, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -137,6 +137,32 @@ type SavedPhraseState = { folders: SavedPhraseFolder[]; phrases: SavedPhrase[] }
 type SavedPhraseDragItem = { type: "phrase" | "folder"; id: string };
 
 const getTranslationLanguageLabel = (value: string | null) => TRANSLATION_LANGUAGES.find((language) => language.value === value)?.label || value || "未知语言";
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // 移动端浏览器可能在异步翻译完成后丢失用户激活状态，继续使用兼容方案。
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.readOnly = true;
+  textarea.style.position = "fixed";
+  textarea.style.inset = "0";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("浏览器未允许复制");
+}
 
 function createEmptyPhraseTranslations(): Record<PhraseLanguage, string> {
   return PHRASE_TRANSLATION_LANGUAGES.reduce((result, language) => {
@@ -558,6 +584,8 @@ export default function Home() {
   const [detectedSourceLanguage, setDetectedSourceLanguage] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isTranslationCopied, setIsTranslationCopied] = useState(false);
+  const [isTranslationInputFocused, setIsTranslationInputFocused] = useState(false);
+  const translationInputRef = useRef<HTMLTextAreaElement>(null);
   const [savedPhraseState, setSavedPhraseState] = useState<SavedPhraseState>({ folders: [], phrases: [] });
   const [phraseSearch, setPhraseSearch] = useState("");
   const [isSavePhraseDialogOpen, setIsSavePhraseDialogOpen] = useState(false);
@@ -1057,9 +1085,18 @@ export default function Home() {
         throw new Error(data.error || "翻译失败");
       }
 
-      setTranslationResult(data.translation || text);
+      const translatedText = data.translation || text;
+      setTranslationResult(translatedText);
       setDetectedSourceLanguage(data.detectedSourceLanguage || null);
-      toast.success(data.message || "翻译成功");
+      try {
+        await copyTextToClipboard(translatedText);
+        setIsTranslationCopied(true);
+        window.setTimeout(() => setIsTranslationCopied(false), 1500);
+        toast.success(data.message ? `${data.message}，结果已复制` : "翻译并复制成功");
+      } catch (copyError) {
+        console.error("自动复制失败:", copyError);
+        toast.error("翻译成功，但自动复制失败，请手动复制");
+      }
     } catch (error) {
       console.error("翻译失败:", error);
       toast.error(error instanceof Error ? error.message : "翻译失败，请稍后重试");
@@ -1079,6 +1116,24 @@ export default function Home() {
     }
   };
 
+  const handleInsertTranslationLineBreak = () => {
+    const textarea = translationInputRef.current;
+    if (!textarea) return;
+
+    const selectionStart = textarea.selectionStart;
+    const selectionEnd = textarea.selectionEnd;
+    if (selectionStart === selectionEnd && translationInput.length >= 5000) return;
+
+    const nextValue = `${translationInput.slice(0, selectionStart)}\n${translationInput.slice(selectionEnd)}`.slice(0, 5000);
+    const nextCursorPosition = Math.min(selectionStart + 1, nextValue.length);
+    setTranslationInput(nextValue);
+
+    window.requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(nextCursorPosition, nextCursorPosition);
+    });
+  };
+
   const handleCopyTranslation = async () => {
     if (!translationResult) {
       toast.error("暂无可复制的翻译结果");
@@ -1086,7 +1141,7 @@ export default function Home() {
     }
 
     try {
-      await navigator.clipboard.writeText(translationResult);
+      await copyTextToClipboard(translationResult);
       setIsTranslationCopied(true);
       toast.success("翻译结果已复制");
       window.setTimeout(() => setIsTranslationCopied(false), 1500);
@@ -1633,11 +1688,28 @@ export default function Home() {
                       </div>
                       <span className="shrink-0 text-xs text-muted-foreground">{translationInput.length} / 5000</span>
                     </div>
+                    {isTranslationInputFocused && (
+                      <div className="flex sm:hidden">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onPointerDown={(event) => event.preventDefault()}
+                          onClick={handleInsertTranslationLineBreak}
+                        >
+                          换行
+                        </Button>
+                      </div>
+                    )}
                     <Textarea
+                      ref={translationInputRef}
                       value={translationInput}
                       onChange={(e) => setTranslationInput(e.target.value.slice(0, 5000))}
                       onKeyDown={handleTranslationInputKeyDown}
-                      placeholder="请输入要翻译的内容，按 Enter 开始翻译，Shift + Enter 换行..."
+                      onFocus={() => setIsTranslationInputFocused(true)}
+                      onBlur={() => setIsTranslationInputFocused(false)}
+                      placeholder="请输入要翻译的内容，按 Enter 翻译并复制；手机端点按文本框后可选择换行..."
+                      enterKeyHint="send"
                       className="min-h-40 resize-none bg-background"
                     />
                   </div>
@@ -1649,7 +1721,7 @@ export default function Home() {
                       ) : (
                         <Languages className="w-4 h-4 mr-2" />
                       )}
-                      翻译
+                      翻译并复制
                     </Button>
                   </div>
 
