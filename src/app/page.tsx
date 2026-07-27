@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { DragEvent, KeyboardEvent } from "react";
 import { Archive, ArrowRightLeft, Check, ChevronRight, Copy, Edit, Folder, GripVertical, Languages, LayoutDashboard, Loader2, MessageCircle, MessageSquare, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -584,8 +584,6 @@ export default function Home() {
   const [detectedSourceLanguage, setDetectedSourceLanguage] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isTranslationCopied, setIsTranslationCopied] = useState(false);
-  const [isTranslationInputFocused, setIsTranslationInputFocused] = useState(false);
-  const translationInputRef = useRef<HTMLTextAreaElement>(null);
   const [savedPhraseState, setSavedPhraseState] = useState<SavedPhraseState>({ folders: [], phrases: [] });
   const [phraseSearch, setPhraseSearch] = useState("");
   const [isSavePhraseDialogOpen, setIsSavePhraseDialogOpen] = useState(false);
@@ -1059,7 +1057,8 @@ export default function Home() {
     }
   };
 
-    const text = translationInput.trim();
+const handleTranslate = async () => {  
+  const text = translationInput.trim();
     if (!text) {
       toast.error("请输入需要翻译的内容");
       return;
