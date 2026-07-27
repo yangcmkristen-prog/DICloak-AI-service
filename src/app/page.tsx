@@ -1059,7 +1059,6 @@ export default function Home() {
     }
   };
 
-  const handleTranslate = async () => {
     const text = translationInput.trim();
     if (!text) {
       toast.error("请输入需要翻译的内容");
@@ -1110,28 +1109,15 @@ export default function Home() {
       return;
     }
 
+    // 手机端保留 textarea 的原生换行，电脑端 Enter 执行翻译并复制。
+    if (window.matchMedia("(hover: none) and (pointer: coarse)").matches) {
+      return;
+    }
+
     event.preventDefault();
     if (!isTranslating && translationInput.trim()) {
       void handleTranslate();
     }
-  };
-
-  const handleInsertTranslationLineBreak = () => {
-    const textarea = translationInputRef.current;
-    if (!textarea) return;
-
-    const selectionStart = textarea.selectionStart;
-    const selectionEnd = textarea.selectionEnd;
-    if (selectionStart === selectionEnd && translationInput.length >= 5000) return;
-
-    const nextValue = `${translationInput.slice(0, selectionStart)}\n${translationInput.slice(selectionEnd)}`.slice(0, 5000);
-    const nextCursorPosition = Math.min(selectionStart + 1, nextValue.length);
-    setTranslationInput(nextValue);
-
-    window.requestAnimationFrame(() => {
-      textarea.focus();
-      textarea.setSelectionRange(nextCursorPosition, nextCursorPosition);
-    });
   };
 
   const handleCopyTranslation = async () => {
@@ -1688,28 +1674,12 @@ export default function Home() {
                       </div>
                       <span className="shrink-0 text-xs text-muted-foreground">{translationInput.length} / 5000</span>
                     </div>
-                    {isTranslationInputFocused && (
-                      <div className="flex sm:hidden">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onPointerDown={(event) => event.preventDefault()}
-                          onClick={handleInsertTranslationLineBreak}
-                        >
-                          换行
-                        </Button>
-                      </div>
-                    )}
                     <Textarea
-                      ref={translationInputRef}
                       value={translationInput}
                       onChange={(e) => setTranslationInput(e.target.value.slice(0, 5000))}
                       onKeyDown={handleTranslationInputKeyDown}
-                      onFocus={() => setIsTranslationInputFocused(true)}
-                      onBlur={() => setIsTranslationInputFocused(false)}
-                      placeholder="请输入要翻译的内容，按 Enter 翻译并复制；手机端点按文本框后可选择换行..."
-                      enterKeyHint="send"
+                      placeholder="电脑端：Enter 提交，Shift + Enter 换行；手机端：Enter 换行，点击按钮提交。"
+                      enterKeyHint="enter"
                       className="min-h-40 resize-none bg-background"
                     />
                   </div>
