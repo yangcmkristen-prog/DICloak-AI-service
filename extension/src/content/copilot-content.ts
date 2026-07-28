@@ -295,10 +295,11 @@ function getTelegramMessageTimestamp(node: Element): number | undefined {
 const TELEGRAM_MESSAGE_SELECTOR = [
   ".Message",
   ".bubble",
-  ".messages-container .message",
-  ".message-list .message",
+  ".message-list-item",
+  "[class~='message-list-item']",
   "[data-message-id]",
   "[data-mid]",
+  "[id^='message'][class*='message' i]",
 ].join(", ");
 
 function getTelegramMessageText(node: Element): string {
@@ -351,14 +352,24 @@ function extractTelegramMessages(): ExternalChatMessage[] {
   // Prefer the innermost matching node so one visible message is read only once.
   const nodes = uniqueElements(candidates.filter((node) => !node.querySelector(TELEGRAM_MESSAGE_SELECTOR)));
 
-  console.debug("[DICloak Copilot] Telegram message candidates", {
+  const diagnostics = {
     location: window.location.href,
     root: main.id ? `#${main.id}` : main.className,
     scopedCandidateCount: scopedCandidates.length,
     candidateCount: candidates.length,
     messageCount: nodes.length,
+    genericMessageClassCount: document.querySelectorAll("[class*='message' i]").length,
     selector: TELEGRAM_MESSAGE_SELECTOR,
-  });
+  };
+  if (nodes.length === 0) {
+    // `console.debug` is hidden by Chrome's default console levels. A warning is
+    // intentional here so a zero-message failure is visible without enabling
+    // Verbose logs in DevTools.
+    console.warn("[DICloak Copilot] Telegram scan found no messages", diagnostics);
+  } else {
+    console.info("[DICloak Copilot] Telegram message candidates", diagnostics);
+  }
+  
   return nodes.map((node, index): ExternalChatMessage | null => {
     const text = getTelegramMessageText(node);
     if (!text) return null;
@@ -714,6 +725,10 @@ function render(): void {
   const activeResult = getActiveResult();
   const activeResultDetail = activeResult ? renderResultDetail(activeResult) : "";
   const messageCount = snapshot?.messages.length ?? 0;
+  const telegramRoot = isTelegram ? getTelegramChatRoot() : null;
+  const telegramZeroMessageDiagnostic = isTelegram && snapshot && messageCount === 0
+    ? `诊断：root=${telegramRoot?.id ? `#${telegramRoot.id}` : telegramRoot?.className || "none"}，message 类节点=${document.querySelectorAll("[class*='message' i]").length}`
+    : null;
   const currentRole = state.roleRecord?.role ?? null;
   const currentRoleLabel = getRoleLabel(currentRole);
   const currentRoleSourceLabel = state.roleRecord?.source === "manual" ? "人工选择" : state.roleRecord?.source === "ai" ? "AI 推测" : "";
@@ -763,6 +778,7 @@ function render(): void {
           <div class="dc-cache-main">${escapeHtml(status.label)}</div>
           <div class="dc-cache-detail">${escapeHtml(status.detail)}</div>
           <div class="dc-cache-detail">已读取 ${messageCount} 条当前已加载消息</div>
+          ${telegramZeroMessageDiagnostic ? `<div class="dc-cache-detail">${escapeHtml(telegramZeroMessageDiagnostic)}</div>` : ""}
         </section>
 
         <section class="dc-actions">
