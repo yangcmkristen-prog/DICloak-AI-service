@@ -62,6 +62,12 @@ function normalizePlan(value: unknown): string {
   return plans.find((plan) => plan.toLowerCase() === value.trim().toLowerCase()) ?? "";
 }
 
+function sixMonthsAgoTimestamp(now = new Date()): number {
+  const cutoff = new Date(now);
+  cutoff.setMonth(cutoff.getMonth() - 6);
+  return cutoff.getTime();
+}
+
 export async function GET() {
   try {
     const { data, error } = await getSupabaseClient().from("customer_summaries").select("summary_data").order("updated_at", { ascending: false });
@@ -179,7 +185,14 @@ export async function POST(request: NextRequest) {
     const existingRow = teamId ? (rows ?? []).find((row) => normalizedTeamId((row.summary_data as SummaryRecord).teamId) === normalizedTeamId(teamId)) : undefined;
     const existing = existingRow?.summary_data as SummaryRecord | undefined;
     const lastSyncedAt = existing && typeof existing.updatedAt === "string" ? Date.parse(existing.updatedAt) : 0;
-    const messages = lastSyncedAt > 0 ? snapshot.messages.filter((message) => typeof message.timestamp !== "number" || message.timestamp > lastSyncedAt) : snapshot.messages;
+    const recentMessages = snapshot.chat.platform === "telegram"
+      ? snapshot.messages.filter((message) => typeof message.timestamp !== "number" || message.timestamp >= sixMonthsAgoTimestamp())
+      : snapshot.messages;
+    const messages = snapshot.chat.platform === "telegram"
+      ? recentMessages
+      : lastSyncedAt > 0
+        ? recentMessages.filter((message) => typeof message.timestamp !== "number" || message.timestamp > lastSyncedAt)
+        : recentMessages;
     if (existing && messages.length === 0) {
       return NextResponse.json({ summary: existing, webUrl: `${request.nextUrl.origin}/?customer=${encodeURIComponent(String(existing.externalChatId))}`, noNewMessages: true }, { headers: CORS_HEADERS });
     }
@@ -191,7 +204,7 @@ export async function POST(request: NextRequest) {
   "currentPlan":"", "customerStatus":"活跃/流失风险/已停滞/潜在客户", "notes":"",
   "issues":[{"title":"","description":"","resolution":"","status":"已解决/处理中/未处理","occurredAt":""}],
   "featureRequests":[{"title":"","description":"","source":"客户聊天","status":"未评估/已评估/已上线"}]
-}\n\n识别规则：\n1. 除品牌名和套餐名外，所有字段内容必须用简体中文填写。\n2. 不要提取或输出联系人名称、WhatsApp 号码和团队 ID，这些字段由系统直接采集。\n3. currentPlan 仅允许填写 Free、Base、Plus、Share+、Share。聊天中明确提及其中一种套餐时使用对应的标准名称；未提及或无法确认时留空，不得猜测。\n4. 只有与 DICloak 产品直接相关、且必须由技术人员开发或改造产品才能实现的诉求，才可放入 featureRequests；咨询、故障、套餐诉求、第三方网站或代理需求一律不要归为功能需求。\n\n新增聊天记录：\n${transcript}`,
+}\n\n识别规则：\n1. 除品牌名和套餐名外，所有字段内容必须用简体中文填写。\n2. 不要提取或输出联系人名称、${snapshot.chat.platform === "telegram" ? "Telegram 联系方式" : "WhatsApp 号码"}和团队 ID，这些字段由系统直接采集。\n3. currentPlan 仅允许填写 Free、Base、Plus、Share+、Share。聊天中明确提及其中一种套餐时使用对应的标准名称；未提及或无法确认时留空，不得猜测。\n4. 只有与 DICloak 产品直接相关、且必须由技术人员开发或改造产品才能实现的诉求，才可放入 featureRequests；咨询、故障、套餐诉求、第三方网站或代理需求一律不要归为功能需求。\n\n新增聊天记录：\n${transcript}`,
       0.2,
     );
     const analysis = parseJsonObject(content);
@@ -199,7 +212,7 @@ export async function POST(request: NextRequest) {
     const generated: SummaryRecord = {
       externalChatId: snapshot.chat.externalChatId,
       platform: snapshot.chat.platform,
-      contactMethod: snapshot.chat.platform === "whatsapp" ? "WhatsApp" : snapshot.chat.platform,
+      contactMethod: snapshot.chat.platform === "telegram" ? "Telegram" : "WhatsApp",
       ...analysis,
       contactName: snapshot.chat.displayName,
       teamId,
@@ -209,6 +222,10 @@ export async function POST(request: NextRequest) {
     };
     const summary = existing ? {
       ...existing,
+      platform: generated.platform,
+      contactMethod: generated.contactMethod,
+      contactName: generated.contactName,
+      contactDetail: generated.contactDetail,
       issues: mergeUnique(existing.issues, generated.issues),
       featureRequests: mergeUnique(existing.featureRequests, generated.featureRequests),
       updatedAt,
@@ -220,7 +237,7 @@ export async function POST(request: NextRequest) {
       contact_name: snapshot.chat.displayName,
       summary_data: summary,
       source_message_hash: snapshot.sourceMessageHash,
-      message_count: (existingRow?.message_count ?? 0) + messages.length,
+      message_count: snapshot.chat.platform === "telegram" ? messages.length : (existingRow?.message_count ?? 0) + messages.length,
       updated_at: updatedAt,
     }, { onConflict: "external_chat_id" });
     if (error) throw error;

@@ -9,7 +9,7 @@ export interface CopilotChatMessage {
 }
 
 export interface CopilotChatInfo {
-  platform: 'whatsapp';
+  platform: 'whatsapp' | 'telegram';
   externalChatId: string;
   displayName: string;
   contactDetail?: string;
@@ -90,7 +90,9 @@ export function validateSnapshot(value: unknown): CopilotSnapshot | null {
   const chatRecord = chat as Record<string, unknown>;
   const displayName = chatRecord.displayName;
   const externalChatId = chatRecord.externalChatId;
+  const platform = chatRecord.platform;
   if (typeof displayName !== 'string' || typeof externalChatId !== 'string') return null;
+  if (platform !== 'whatsapp' && platform !== 'telegram') return null;
 
   const normalizedMessages = messages
     .map((message): CopilotChatMessage | null => {
@@ -112,7 +114,7 @@ export function validateSnapshot(value: unknown): CopilotSnapshot | null {
 
   return {
     chat: {
-      platform: 'whatsapp',
+      platform,
       externalChatId,
       displayName,
       contactDetail: typeof chatRecord.contactDetail === 'string' ? chatRecord.contactDetail : undefined,

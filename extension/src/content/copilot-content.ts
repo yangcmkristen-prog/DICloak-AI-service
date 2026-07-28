@@ -207,6 +207,7 @@ function getRoleEmoji(role: ConversationRole | null | undefined): string {
 }
 
 const isTelegram = window.location.hostname === "web.telegram.org";
+const telegramMessagesByChat = new Map<string, ExternalChatMessage[]>();
 
 function getTelegramChatRoot(): Element | null {
   // `querySelector("#column-center, ...")` still returns the first match in
@@ -236,8 +237,10 @@ function getTelegramChatInfo(): ExternalChatInfo | null {
   const subtitle = header.querySelector(".info .subtitle, .peer-subtitle, .status, .subtitle");
   const contactDetail = Array.from(header.querySelectorAll<HTMLElement>("[href^='https://t.me/'], [href^='tg://user'], .username"))
     .map((element) => element.getAttribute("href") || textOf(element)).find(Boolean);
-  const peerId = main.getAttribute("data-peer-id") || document.querySelector(".chatlist-chat.active, .chatlist-chat-selected")?.getAttribute("data-peer-id");
-  return { platform: "telegram", externalChatId: createHash(["telegram", peerId || displayName, image?.src || ""].join("|")), displayName, contactDetail: contactDetail || undefined, teamId: extractTeamId(displayName), avatarUrl: image?.src, onlineStatus: textOf(subtitle) || undefined };
+  const peerId = window.location.hash.match(/#(?:-?\d+|@[^/?]+)/)?.[0]
+    || main.getAttribute("data-peer-id")
+    || document.querySelector(".chatlist-chat.active, .chatlist-chat-selected")?.getAttribute("data-peer-id");
+  return { platform: "telegram", externalChatId: createHash(["telegram", peerId || displayName].join("|")), displayName, contactDetail: contactDetail || undefined, teamId: extractTeamId(displayName), avatarUrl: image?.src, onlineStatus: textOf(subtitle) || undefined };
 }
 
 function getCurrentChatInfo(): ExternalChatInfo | null {
@@ -279,12 +282,14 @@ function getCurrentChatInfo(): ExternalChatInfo | null {
 }
 
 function getTelegramMessageTimestamp(node: Element): number | undefined {
-  const value = node.getAttribute("data-timestamp") || node.querySelector("[data-timestamp]")?.getAttribute("data-timestamp");
+  const value = node.getAttribute("data-timestamp")
+    || node.closest("[data-timestamp]")?.getAttribute("data-timestamp")
+    || node.querySelector("[data-timestamp]")?.getAttribute("data-timestamp");
   if (value) {
     const parsed = Number(value);
     if (Number.isFinite(parsed)) return parsed < 10_000_000_000 ? parsed * 1000 : parsed;
   }
-  const dateTime = node.querySelector("time")?.getAttribute("datetime");
+  const dateTime = node.matches("time") ? node.getAttribute("datetime") : node.querySelector("time")?.getAttribute("datetime");
   if (dateTime) {
     const parsed = Date.parse(dateTime);
     if (Number.isFinite(parsed)) return parsed;
@@ -302,7 +307,20 @@ const TELEGRAM_MESSAGE_SELECTOR = [
   "[id^='message'][class*='message' i]",
 ].join(", ");
 
+const TELEGRAM_MESSAGE_TEXT_SELECTOR = [
+  "[class*='text-content' i]",
+  "[class*='message-text' i]",
+  "[class*='translatable-message' i]",
+  "[class*='message-content' i]",
+  "[data-testid='message-text']",
+].join(", ");
+
 function getTelegramMessageText(node: Element): string {
+  if (node.matches(TELEGRAM_MESSAGE_TEXT_SELECTOR)) {
+    const directText = textOf(node);
+    if (directText) return directText;
+  }
+
   const contentSelectors = [
     ".text-content",
     ".message-text",
@@ -334,34 +352,69 @@ function getTelegramMessageRole(node: Element): ExternalChatMessage["role"] {
   const incoming = container.closest(".is-in, .incoming, .message-in, [data-is-outgoing='false']");
   if (incoming) return "customer";
 
-  return "customer";
+  const main = getTelegramChatRoot();
+  const nodeRect = container.getBoundingClientRect();
+  const mainRect = main?.getBoundingClientRect();
+  if (mainRect && nodeRect.width > 0 && mainRect.width > 0) {
+    return nodeRect.left + nodeRect.width / 2 > mainRect.left + mainRect.width / 2 ? "agent" : "customer";
+  }
+
+  return "unknown";
 }
 
 function extractTelegramMessages(): ExternalChatMessage[] {
   const main = getTelegramChatRoot();
   if (!main) return [];
   const scopedCandidates = Array.from(main.querySelectorAll(TELEGRAM_MESSAGE_SELECTOR));
+  const scopedTextCandidates = Array.from(main.querySelectorAll(TELEGRAM_MESSAGE_TEXT_SELECTOR));
   // Some Telegram Web A releases render the message list in a transition/portal
   // outside the element containing the chat header. If the resolved chat root
   // has no messages, fall back to document-level message nodes while excluding
   // this extension's own sidebar.
-  const candidates = scopedCandidates.length > 0
+  const documentCandidates = Array.from(document.querySelectorAll(TELEGRAM_MESSAGE_SELECTOR)).filter((node) => !node.closest(`#${SIDEBAR_ID}`));
+  const documentTextCandidates = Array.from(document.querySelectorAll(TELEGRAM_MESSAGE_TEXT_SELECTOR)).filter((node) => !node.closest(`#${SIDEBAR_ID}`));
+  const primaryCandidates = scopedCandidates.length > 0
     ? scopedCandidates
-    : Array.from(document.querySelectorAll(TELEGRAM_MESSAGE_SELECTOR)).filter((node) => !node.closest(`#${SIDEBAR_ID}`));
-  // A Telegram message can match both its outer `.message` and inner `.bubble`.
-  // Prefer the innermost matching node so one visible message is read only once.
-  const nodes = uniqueElements(candidates.filter((node) => !node.querySelector(TELEGRAM_MESSAGE_SELECTOR)));
+    : documentCandidates;
+  const fallbackCandidates = scopedTextCandidates.length > 0 ? scopedTextCandidates : documentTextCandidates;
+
+  const extractFromCandidates = (candidates: Element[]): ExternalChatMessage[] => {
+    // A Telegram message can match both an outer container and an inner text
+    // wrapper. Prefer the innermost match so one visible message is read once.
+    const nodes = uniqueElements(candidates.filter((node, index) => (
+      !candidates.some((other, otherIndex) => otherIndex !== index && node.contains(other))
+    )));
+
+    return nodes.map((node): ExternalChatMessage | null => {
+      const text = getTelegramMessageText(node);
+      if (!text) return null;
+      const messageContainer = node.closest("[data-message-id], [data-mid], [id^='message'], .Message, .bubble, .message-list-item") || node;
+      const role = getTelegramMessageRole(node);
+      const rawTimeText = textOf(messageContainer.querySelector("time, .time, .message-time")) || undefined;
+      const timestamp = getTelegramMessageTimestamp(messageContainer);
+      const stableId = messageContainer.getAttribute("data-message-id") || messageContainer.getAttribute("data-mid") || messageContainer.id || `${role}|${rawTimeText ?? ""}|${text}`;
+      return { id: createHash(`${stableId}|${role}|${text}`), role, text, rawTimeText, timestamp };
+    }).filter((message): message is ExternalChatMessage => message !== null);
+  };
+
+  const primaryMessages = extractFromCandidates(primaryCandidates);
+  const textMessages = extractFromCandidates(fallbackCandidates);
+  const usedTextFallback = textMessages.length > primaryMessages.length;
+  const messages = usedTextFallback ? textMessages : primaryMessages;
 
   const diagnostics = {
     location: window.location.href,
     root: main.id ? `#${main.id}` : main.className,
     scopedCandidateCount: scopedCandidates.length,
-    candidateCount: candidates.length,
-    messageCount: nodes.length,
+    scopedTextCandidateCount: scopedTextCandidates.length,
+    candidateCount: primaryCandidates.length,
+    textCandidateCount: fallbackCandidates.length,
+    usedTextFallback,
+    messageCount: messages.length,
     genericMessageClassCount: document.querySelectorAll("[class*='message' i]").length,
     selector: TELEGRAM_MESSAGE_SELECTOR,
   };
-  if (nodes.length === 0) {
+  if (messages.length === 0) {
     // `console.debug` is hidden by Chrome's default console levels. A warning is
     // intentional here so a zero-message failure is visible without enabling
     // Verbose logs in DevTools.
@@ -369,16 +422,8 @@ function extractTelegramMessages(): ExternalChatMessage[] {
   } else {
     console.info("[DICloak Copilot] Telegram message candidates", diagnostics);
   }
-  
-  return nodes.map((node, index): ExternalChatMessage | null => {
-    const text = getTelegramMessageText(node);
-    if (!text) return null;
-    const role = getTelegramMessageRole(node);
-    const rawTimeText = textOf(node.querySelector("time, .time, .message-time")) || undefined;
-    const timestamp = getTelegramMessageTimestamp(node);
-    const stableId = node.getAttribute("data-message-id") || node.getAttribute("data-mid") || node.id || `${index}`;
-    return { id: createHash(`${stableId}|${role}|${text}`), role, text, rawTimeText, timestamp };
-  }).filter((message): message is ExternalChatMessage => message !== null);
+
+  return messages;
 }
 
 function getCopyableElement(container: Element): Element | null {
@@ -470,11 +515,39 @@ function extractMessages(): ExternalChatMessage[] {
     .filter((message): message is ExternalChatMessage => message !== null);
 }
 
+function mergeObservedTelegramMessages(chatId: string, visibleMessages: ExternalChatMessage[]): ExternalChatMessage[] {
+  const accumulated = [...(telegramMessagesByChat.get(chatId) ?? [])];
+  const knownIds = new Set(accumulated.map((message) => message.id));
+
+  for (let currentIndex = 0; currentIndex < visibleMessages.length; currentIndex += 1) {
+    const message = visibleMessages[currentIndex];
+    if (knownIds.has(message.id)) continue;
+
+    const nextKnown = visibleMessages.slice(currentIndex + 1).find((candidate) => knownIds.has(candidate.id));
+    if (nextKnown) {
+      const insertionIndex = accumulated.findIndex((candidate) => candidate.id === nextKnown.id);
+      accumulated.splice(insertionIndex, 0, message);
+    } else {
+      const previousKnown = [...visibleMessages.slice(0, currentIndex)].reverse().find((candidate) => knownIds.has(candidate.id));
+      const previousIndex = previousKnown ? accumulated.findIndex((candidate) => candidate.id === previousKnown.id) : -1;
+      accumulated.splice(previousIndex >= 0 ? previousIndex + 1 : accumulated.length, 0, message);
+    }
+
+    knownIds.add(message.id);
+  }
+
+  telegramMessagesByChat.set(chatId, accumulated);
+  return accumulated;
+}
+
 function createSnapshot(): ChatSnapshot | null {
   const chat = getCurrentChatInfo();
   if (!chat) return null;
 
-  const messages = extractMessages();
+  const visibleMessages = extractMessages();
+  const messages = isTelegram
+    ? mergeObservedTelegramMessages(chat.externalChatId, visibleMessages)
+    : visibleMessages;
   const sourceMessageHash = createHash(JSON.stringify(messages.map((message) => ({ role: message.role, text: message.text, time: message.rawTimeText }))));
   return { chat, messages, sourceMessageHash };
 }
@@ -727,7 +800,7 @@ function render(): void {
   const messageCount = snapshot?.messages.length ?? 0;
   const telegramRoot = isTelegram ? getTelegramChatRoot() : null;
   const telegramZeroMessageDiagnostic = isTelegram && snapshot && messageCount === 0
-    ? `诊断：root=${telegramRoot?.id ? `#${telegramRoot.id}` : telegramRoot?.className || "none"}，message 类节点=${document.querySelectorAll("[class*='message' i]").length}`
+    ? `诊断：root=${telegramRoot?.id ? `#${telegramRoot.id}` : telegramRoot?.className || "none"}，正文候选=${document.querySelectorAll(TELEGRAM_MESSAGE_TEXT_SELECTOR).length}`
     : null;
   const currentRole = state.roleRecord?.role ?? null;
   const currentRoleLabel = getRoleLabel(currentRole);
@@ -768,7 +841,7 @@ function render(): void {
         <section class="dc-summary-card">
           <div class="dc-summary-head"><span>✨ AI 总结</span>${summaryRecord ? `<span class="dc-summary-updated">已更新 ${formatTime(summaryRecord.updatedAt)}</span>` : ""}</div>
           <div class="dc-summary-body">
-            <div><strong>${summaryRecord ? "已生成客户画像" : "未生成"}</strong><small>${summaryRecord ? "已同步客户信息、历史问题和功能需求" : "读取全部聊天记录生成客户信息"}</small></div>
+            <div><strong>${summaryRecord ? "已生成客户画像" : "未生成"}</strong><small>${summaryRecord ? "已同步客户信息、历史问题和功能需求" : isTelegram ? "读取近半年聊天生成客户信息" : "读取全部聊天记录生成客户信息"}</small></div>
             <button class="dc-summary-button" data-action="summary" ${!snapshot || state.loadingAction ? "disabled" : ""}>${state.loadingAction === "summarize" ? "总结中..." : summaryRecord ? "重新总结" : "生成总结"}</button>
           </div>
           ${summaryRecord ? `<button class="dc-summary-link" data-action="view-summary">查看总结 →</button>` : ""}
@@ -777,7 +850,7 @@ function render(): void {
         <section class="dc-cache dc-cache-${status.className}">
           <div class="dc-cache-main">${escapeHtml(status.label)}</div>
           <div class="dc-cache-detail">${escapeHtml(status.detail)}</div>
-          <div class="dc-cache-detail">已读取 ${messageCount} 条当前已加载消息</div>
+          <div class="dc-cache-detail">${isTelegram ? "已累计读取" : "已读取"} ${messageCount} 条当前已加载消息</div>
           ${telegramZeroMessageDiagnostic ? `<div class="dc-cache-detail">${escapeHtml(telegramZeroMessageDiagnostic)}</div>` : ""}
         </section>
 
