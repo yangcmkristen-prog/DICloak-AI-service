@@ -5,6 +5,7 @@ export interface CopilotChatMessage {
   role: 'customer' | 'agent' | 'system' | 'unknown';
   text: string;
   rawTimeText?: string;
+  timestamp?: number;
 }
 
 export interface CopilotChatInfo {
@@ -104,6 +105,7 @@ export function validateSnapshot(value: unknown): CopilotSnapshot | null {
         role: normalizedRole,
         text: text.trim(),
         rawTimeText: typeof messageRecord.rawTimeText === 'string' ? messageRecord.rawTimeText : undefined,
+        timestamp: typeof messageRecord.timestamp === 'number' ? messageRecord.timestamp : undefined,
       };
     })
     .filter((message): message is CopilotChatMessage => message !== null);
