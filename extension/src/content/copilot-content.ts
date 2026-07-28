@@ -209,7 +209,13 @@ function getRoleEmoji(role: ConversationRole | null | undefined): string {
 const isTelegram = window.location.hostname === "web.telegram.org";
 
 function getTelegramChatRoot(): Element | null {
-  return document.querySelector("#column-center, .chat.active, .chat[data-peer-id], .middle-column");
+  // `querySelector("#column-center, ...")` still returns the first match in
+  // document order, which can be a selected chat-list item before the center
+  // column. Resolve the known conversation roots in priority order instead.
+  return document.querySelector("#column-center")
+    || document.querySelector(".middle-column")
+    || document.querySelector(".chat.active")
+    || document.querySelector(".chat[data-peer-id]");
 }
 
 function extractTeamId(displayName: string): string | undefined {
@@ -284,18 +290,69 @@ function getTelegramMessageTimestamp(node: Element): number | undefined {
   return undefined;
 }
 
+const TELEGRAM_MESSAGE_SELECTOR = [
+  ".Message",
+  ".bubble",
+  ".messages-container .message",
+  ".message-list .message",
+  "[data-message-id]",
+  "[data-mid]",
+].join(", ");
+
+function getTelegramMessageText(node: Element): string {
+  const contentSelectors = [
+    ".text-content",
+    ".message-text",
+    ".translatable-message",
+    ".message-content",
+    ".message-content-wrapper",
+    "[data-testid='message-text']",
+  ];
+
+  for (const selector of contentSelectors) {
+    const content = node.matches(selector) ? node : node.querySelector(selector);
+    const text = textOf(content);
+    if (text) return text;
+  }
+
+  // Telegram Web A has changed its text wrapper class several times. The dir
+  // attribute remains on the actual message text and is a safer final fallback.
+  const directionalText = Array.from(node.querySelectorAll("[dir='auto'], [dir='ltr'], [dir='rtl']"))
+    .map((element) => textOf(element))
+    .find(Boolean);
+  return directionalText || "";
+}
+
+function getTelegramMessageRole(node: Element): ExternalChatMessage["role"] {
+  const container = node.closest(".Message, .message, .bubble, [data-message-id], [data-mid]") || node;
+  const outgoing = container.closest(".own, .is-out, .outgoing, .message-out, [data-is-outgoing='true']");
+  if (outgoing) return "agent";
+
+  const incoming = container.closest(".is-in, .incoming, .message-in, [data-is-outgoing='false']");
+  if (incoming) return "customer";
+
+  return "customer";
+}
+
 function extractTelegramMessages(): ExternalChatMessage[] {
   const main = getTelegramChatRoot();
   if (!main) return [];
-  const nodes = uniqueElements(Array.from(main.querySelectorAll(".Message, .bubble, [data-message-id]")));
+  const candidates = Array.from(main.querySelectorAll(TELEGRAM_MESSAGE_SELECTOR));
+  // A Telegram message can match both its outer `.message` and inner `.bubble`.
+  // Prefer the innermost matching node so one visible message is read only once.
+  const nodes = uniqueElements(candidates.filter((node) => !node.querySelector(TELEGRAM_MESSAGE_SELECTOR)));
+
+  console.debug("[DICloak Copilot] Telegram message candidates", {
+    candidateCount: candidates.length,
+    messageCount: nodes.length,
+  });
   return nodes.map((node, index): ExternalChatMessage | null => {
-    const content = node.querySelector(".text-content, .message, .message-text, .translatable-message, [dir='auto']");
-    const text = textOf(content);
+    const text = getTelegramMessageText(node);
     if (!text) return null;
-    const role: ExternalChatMessage["role"] = node.matches(".own, .is-out, .outgoing, [data-is-outgoing='true']") ? "agent" : "customer";
+    const role = getTelegramMessageRole(node);
     const rawTimeText = textOf(node.querySelector("time, .time, .message-time")) || undefined;
     const timestamp = getTelegramMessageTimestamp(node);
-    const stableId = node.getAttribute("data-message-id") || node.id || `${index}`;
+    const stableId = node.getAttribute("data-message-id") || node.getAttribute("data-mid") || node.id || `${index}`;
     return { id: createHash(`${stableId}|${role}|${text}`), role, text, rawTimeText, timestamp };
   }).filter((message): message is ExternalChatMessage => message !== null);
 }
