@@ -212,7 +212,9 @@ function getTelegramChatRoot(): Element | null {
   // `querySelector("#column-center, ...")` still returns the first match in
   // document order, which can be a selected chat-list item before the center
   // column. Resolve the known conversation roots in priority order instead.
-  return document.querySelector("#column-center")
+  return document.querySelector("#MiddleColumn")
+    || document.querySelector("#column-center")
+    || document.querySelector(".MiddleColumn")
     || document.querySelector(".middle-column")
     || document.querySelector(".chat.active")
     || document.querySelector(".chat[data-peer-id]");
@@ -225,7 +227,7 @@ function extractTeamId(displayName: string): string | undefined {
 function getTelegramChatInfo(): ExternalChatInfo | null {
   const main = getTelegramChatRoot();
   if (!main) return null;
-  const header = main.querySelector(".chat-info, .topbar, header");
+  const header = main.querySelector(".MiddleHeader, .middle-header, .chat-info, .topbar, header");
   if (!header) return null;
   const title = header.querySelector(".peer-title, .user-title, [data-testid='chat-title'], .title");
   const displayName = title?.getAttribute("title") || textOf(title);
@@ -337,14 +339,25 @@ function getTelegramMessageRole(node: Element): ExternalChatMessage["role"] {
 function extractTelegramMessages(): ExternalChatMessage[] {
   const main = getTelegramChatRoot();
   if (!main) return [];
-  const candidates = Array.from(main.querySelectorAll(TELEGRAM_MESSAGE_SELECTOR));
+  const scopedCandidates = Array.from(main.querySelectorAll(TELEGRAM_MESSAGE_SELECTOR));
+  // Some Telegram Web A releases render the message list in a transition/portal
+  // outside the element containing the chat header. If the resolved chat root
+  // has no messages, fall back to document-level message nodes while excluding
+  // this extension's own sidebar.
+  const candidates = scopedCandidates.length > 0
+    ? scopedCandidates
+    : Array.from(document.querySelectorAll(TELEGRAM_MESSAGE_SELECTOR)).filter((node) => !node.closest(`#${SIDEBAR_ID}`));
   // A Telegram message can match both its outer `.message` and inner `.bubble`.
   // Prefer the innermost matching node so one visible message is read only once.
   const nodes = uniqueElements(candidates.filter((node) => !node.querySelector(TELEGRAM_MESSAGE_SELECTOR)));
 
   console.debug("[DICloak Copilot] Telegram message candidates", {
+    location: window.location.href,
+    root: main.id ? `#${main.id}` : main.className,
+    scopedCandidateCount: scopedCandidates.length,
     candidateCount: candidates.length,
     messageCount: nodes.length,
+    selector: TELEGRAM_MESSAGE_SELECTOR,
   });
   return nodes.map((node, index): ExternalChatMessage | null => {
     const text = getTelegramMessageText(node);

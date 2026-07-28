@@ -21,3 +21,15 @@
 - “收起”会完全隐藏 Sidebar；需要再次显示时，点击浏览器工具栏中的扩展图标。
 - WhatsApp Web 和 Telegram Web 的 DOM 都不是公开稳定 API，如果网站更新页面结构，抓取选择器可能需要维护。
 - AI 总结不再限制为最近 40 条，而是抓取当前会话已加载到页面 DOM 中的全部聊天消息；网页端尚未加载的更早记录仍需先在聊天窗口向上滚动加载，扩展不会后台批量抓取服务端历史。
+
+## Telegram 显示“已读取 0 条”的排查方法
+
+1. 重新运行 `pnpm extension:build`，在扩展管理页点击“重新加载”，然后刷新 Telegram 标签页。仅重新构建不会更新已经注入页面的脚本。
+2. 在 Telegram 页面按 `F12` 打开 Console，筛选 `DICloak Copilot`。扩展每次扫描都会输出 `Telegram message candidates`，其中：
+   - `root` 应为 `#MiddleColumn`（Web A）或 `#column-center`（其他版本）；
+   - `scopedCandidateCount` 是聊天区域内匹配的节点数；
+   - `candidateCount` 是应用全页面兜底后的节点数；
+   - `messageCount` 是嵌套节点去重后的消息数。
+3. 如果没有任何日志，说明当前标签页仍运行旧脚本，或内容脚本没有注入；请确认地址是 `https://web.telegram.org/`，并在扩展管理页检查该扩展的“错误”。
+4. 如果 `candidateCount` 大于 0、`messageCount` 也大于 0，但侧栏仍显示 0，请复制整条日志以及一条消息节点的 `outerHTML`（先删除昵称、消息正文等敏感信息）用于定位文本选择器问题。
+5. 如果 `candidateCount` 为 0，请在 Elements 面板选中一条消息，复制脱敏后的 `class`、`id` 和 `data-*` 属性。Telegram 的 DOM 不是稳定 API，这些信息是补充新选择器所必需的。
