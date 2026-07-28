@@ -1,4 +1,4 @@
-export type Platform = "whatsapp";
+export type Platform = "whatsapp" | "telegram";
 export type ConversationRole = "client" | "end_user";
 export type ConversationRoleSource = "manual" | "ai" | null;
 

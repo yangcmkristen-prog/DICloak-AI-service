@@ -206,7 +206,34 @@ function getRoleEmoji(role: ConversationRole | null | undefined): string {
   return "👥";
 }
 
+const isTelegram = window.location.hostname === "web.telegram.org";
+
+function getTelegramChatRoot(): Element | null {
+  return document.querySelector("#column-center, .chat.active, .chat[data-peer-id], .middle-column");
+}
+
+function extractTeamId(displayName: string): string | undefined {
+  return displayName.match(/^DIC-([A-Za-z0-9]+)(?:\s|$)/i)?.[1];
+}
+
+function getTelegramChatInfo(): ExternalChatInfo | null {
+  const main = getTelegramChatRoot();
+  if (!main) return null;
+  const header = main.querySelector(".chat-info, .topbar, header");
+  if (!header) return null;
+  const title = header.querySelector(".peer-title, .user-title, [data-testid='chat-title'], .title");
+  const displayName = title?.getAttribute("title") || textOf(title);
+  if (!displayName) return null;
+  const image = header.querySelector("img") as HTMLImageElement | null;
+  const subtitle = header.querySelector(".info .subtitle, .peer-subtitle, .status, .subtitle");
+  const contactDetail = Array.from(header.querySelectorAll<HTMLElement>("[href^='https://t.me/'], [href^='tg://user'], .username"))
+    .map((element) => element.getAttribute("href") || textOf(element)).find(Boolean);
+  const peerId = main.getAttribute("data-peer-id") || document.querySelector(".chatlist-chat.active, .chatlist-chat-selected")?.getAttribute("data-peer-id");
+  return { platform: "telegram", externalChatId: createHash(["telegram", peerId || displayName, image?.src || ""].join("|")), displayName, contactDetail: contactDetail || undefined, teamId: extractTeamId(displayName), avatarUrl: image?.src, onlineStatus: textOf(subtitle) || undefined };
+}
+
 function getCurrentChatInfo(): ExternalChatInfo | null {
+  if (isTelegram) return getTelegramChatInfo();
   const main = document.querySelector("#main");
   if (!main) return null;
   const header = main.querySelector("header");
@@ -229,7 +256,7 @@ function getCurrentChatInfo(): ExternalChatInfo | null {
     .map((element) => element.dataset.id?.match(/(?:^|_)(\d{7,15})@(?:c|s)\.us(?:_|$)/)?.[1])
     .find((phone): phone is string => Boolean(phone));
   const contactDetail = phoneFromName?.replace(/[^\d+]/g, "") || (remoteJid ? `+${remoteJid}` : undefined);
-  const teamId = displayName.match(/^DIC-([A-Za-z0-9]+)(?:\s|$)/i)?.[1];
+  const teamId = extractTeamId(displayName);
   const externalChatId = createHash(["whatsapp", displayName, avatarUrl ?? ""].join("|"));
 
   return {
@@ -243,6 +270,35 @@ function getCurrentChatInfo(): ExternalChatInfo | null {
   };
 }
 
+function getTelegramMessageTimestamp(node: Element): number | undefined {
+  const value = node.getAttribute("data-timestamp") || node.querySelector("[data-timestamp]")?.getAttribute("data-timestamp");
+  if (value) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed < 10_000_000_000 ? parsed * 1000 : parsed;
+  }
+  const dateTime = node.querySelector("time")?.getAttribute("datetime");
+  if (dateTime) {
+    const parsed = Date.parse(dateTime);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function extractTelegramMessages(): ExternalChatMessage[] {
+  const main = getTelegramChatRoot();
+  if (!main) return [];
+  const nodes = uniqueElements(Array.from(main.querySelectorAll(".Message, .bubble, [data-message-id]")));
+  return nodes.map((node, index): ExternalChatMessage | null => {
+    const content = node.querySelector(".text-content, .message, .message-text, .translatable-message, [dir='auto']");
+    const text = textOf(content);
+    if (!text) return null;
+    const role: ExternalChatMessage["role"] = node.matches(".own, .is-out, .outgoing, [data-is-outgoing='true']") ? "agent" : "customer";
+    const rawTimeText = textOf(node.querySelector("time, .time, .message-time")) || undefined;
+    const timestamp = getTelegramMessageTimestamp(node);
+    const stableId = node.getAttribute("data-message-id") || node.id || `${index}`;
+    return { id: createHash(`${stableId}|${role}|${text}`), role, text, rawTimeText, timestamp };
+  }).filter((message): message is ExternalChatMessage => message !== null);
+}
 
 function getCopyableElement(container: Element): Element | null {
   if (container.matches("div.copyable-text, [data-pre-plain-text]")) return container;
@@ -299,6 +355,7 @@ function getMessageTime(container: Element): string | undefined {
 }
 
 function extractMessages(): ExternalChatMessage[] {
+  if (isTelegram) return extractTelegramMessages();
   const main = document.querySelector("#main");
   if (!main) return [];
 
@@ -329,8 +386,7 @@ function extractMessages(): ExternalChatMessage[] {
       const id = createHash(`${role}|${rawTimeText ?? ""}|${text}|${index}`);
       return { id, role, text, rawTimeText };
     })
-    .filter((message): message is ExternalChatMessage => message !== null)
-    .slice(-40);
+    .filter((message): message is ExternalChatMessage => message !== null);
 }
 
 function createSnapshot(): ChatSnapshot | null {
@@ -537,7 +593,7 @@ function renderResultDetail(result: CopilotResult): string {
 }
 
 function getCacheStatus(): { label: string; className: string; detail: string } {
-  if (!state.snapshot) return { label: "🔴 未识别", className: "empty", detail: "请先打开一个 WhatsApp 聊天" };
+  if (!state.snapshot) return { label: "🔴 未识别", className: "empty", detail: `请先打开一个 ${isTelegram ? "Telegram" : "WhatsApp"} 聊天` };
   if (!state.cache) return { label: "🔴 未生成", className: "empty", detail: "点击下方能力开始生成" };
   if (state.cache.sourceMessageHash !== state.snapshot.sourceMessageHash) {
     return { label: "🟡 有新消息，需要更新", className: "stale", detail: `上次更新：${formatTime(state.cache.updatedAt)}` };
@@ -612,7 +668,7 @@ function render(): void {
               ${snapshot.chat.avatarUrl ? `<img class="dc-avatar" src="${escapeHtml(snapshot.chat.avatarUrl)}" alt="" />` : `<div class="dc-avatar dc-avatar-fallback">${escapeHtml(snapshot.chat.displayName.slice(0, 1))}</div>`}
               <div class="dc-chat-meta">
                 <div class="dc-chat-name">${escapeHtml(snapshot.chat.displayName)}</div>
-                <div class="dc-chat-status">${escapeHtml(snapshot.chat.onlineStatus || "WhatsApp 当前聊天")}</div>
+                <div class="dc-chat-status">${escapeHtml(snapshot.chat.onlineStatus || `${isTelegram ? "Telegram" : "WhatsApp"} 当前聊天`)}</div>
                 ${currentRole ? `<div class="dc-chat-role">${escapeHtml(getRoleEmoji(currentRole))} ${escapeHtml(currentRoleLabel)} · ${escapeHtml(currentRoleSourceLabel)}</div>` : ""}
               </div>
             </div>
@@ -621,7 +677,7 @@ function render(): void {
               <button class="dc-role-button ${currentRole === "end_user" ? "active" : ""}" data-action="role-end-user" title="设置为终端用户">🙋 终端用户</button>
               <button class="dc-role-button" data-action="role-clear" title="清除角色">不确认</button>
             </div>
-          ` : `<div class="dc-muted">请打开一个 WhatsApp 聊天。</div>`}
+          ` : `<div class="dc-muted">请打开一个 ${isTelegram ? "Telegram" : "WhatsApp"} 聊天。</div>`}
         </section>
 
         <section class="dc-summary-card">
@@ -746,7 +802,7 @@ async function refreshSnapshot(): Promise<void> {
 function sendCopilotRequest(endpoint: string, action: "translate-clean" | "reply" | "summarize", payload: ChatSnapshot): Promise<CopilotReplyResponse> {
   return new Promise((resolve) => {
     if (!isExtensionContextValid()) {
-      resolve({ error: "扩展已重新加载，请刷新 WhatsApp 页面后重试" });
+      resolve({ error: `扩展已重新加载，请刷新 ${isTelegram ? "Telegram" : "WhatsApp"} 页面后重试` });
       return;
     }
 
@@ -759,7 +815,7 @@ function sendCopilotRequest(endpoint: string, action: "translate-clean" | "reply
         resolve(response ?? { error: "AI 请求失败" });
       });
     } catch {
-      resolve({ error: "扩展已重新加载，请刷新 WhatsApp 页面后重试" });
+      resolve({ error: `扩展已重新加载，请刷新 ${isTelegram ? "Telegram" : "WhatsApp"} 页面后重试` });
     }
   });
 }
@@ -784,7 +840,9 @@ async function executeCopilot(action: "translate-clean" | "reply", requestSnapsh
 
   try {
     const endpoint = action === "reply" ? "/api/copilot/reply" : "/api/copilot/translate-clean";
-    const payload = await sendCopilotRequest(endpoint, action, requestSnapshot);
+    // Keep the existing short context window for interactive reply/translation
+    // requests. Customer summaries use the uncapped snapshot separately.
+    const payload = await sendCopilotRequest(endpoint, action, { ...requestSnapshot, messages: requestSnapshot.messages.slice(-40) });
     if (!payload.content) {
       throw new Error(payload.error || "AI 请求失败");
     }
@@ -1071,7 +1129,7 @@ function injectSidebar(): void {
 function runRefreshSnapshot(): void {
   void refreshSnapshot().catch(() => {
     // The extension context can be invalidated when the extension is reloaded
-    // while WhatsApp remains open. Ignore stale content-script refreshes.
+    // while the messaging site remains open. Ignore stale content-script refreshes.
   });
 }
 
