@@ -12,14 +12,44 @@ function normalizedTeamId(value: unknown): string {
 
 function mergeUnique(existing: unknown, incoming: unknown): unknown[] {
   const items = [...(Array.isArray(existing) ? existing : []), ...(Array.isArray(incoming) ? incoming : [])];
-  const seen = new Set<string>();
-  return items.filter((item) => {
+  const merged = new Map<string, unknown>();
+  for (const item of items) {
     const value = item && typeof item === "object" ? item as Record<string, unknown> : {};
     const key = `${String(value.title ?? "").trim().toLowerCase()}|${String(value.description ?? "").trim().toLowerCase()}`;
-    if (!key.replace("|", "") || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+    if (!key.replace("|", "")) continue;
+    const previous = merged.get(key);
+    if (!previous || typeof previous !== "object" || Array.isArray(previous)) {
+      merged.set(key, item);
+      continue;
+    }
+    merged.set(key, Object.fromEntries(
+      Object.entries({ ...value, ...previous }).map(([field, fieldValue]) => [field, fieldValue || value[field]]),
+    ));
+  }
+  return [...merged.values()];
+}
+
+function utc8Date(value: number | string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(date);
+  const getPart = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${getPart("year")}-${getPart("month")}-${getPart("day")}`;
+}
+
+function addMissingItemDates(analysis: Record<string, unknown>, fallbackDate: string): Record<string, unknown> {
+  const withDate = (items: unknown, field: "occurredAt" | "requestedAt") => Array.isArray(items)
+    ? items.map((item) => item && typeof item === "object" && !Array.isArray(item)
+      ? { ...(item as Record<string, unknown>), [field]: String((item as Record<string, unknown>)[field] || fallbackDate) }
+      : item)
+    : items;
+  return {
+    ...analysis,
+    issues: withDate(analysis.issues, "occurredAt"),
+    featureRequests: withDate(analysis.featureRequests, "requestedAt"),
+  };
 }
 
 function mergeLegacySummaries(records: SummaryRecord[]): SummaryRecord[] {
@@ -70,9 +100,12 @@ function sixMonthsAgoTimestamp(now = new Date()): number {
 
 export async function GET() {
   try {
-    const { data, error } = await getSupabaseClient().from("customer_summaries").select("summary_data").order("updated_at", { ascending: false });
+    const { data, error } = await getSupabaseClient().from("customer_summaries").select("summary_data, created_at").order("updated_at", { ascending: false });
     if (error) throw error;
-    const records = (data ?? []).map((row) => row.summary_data as SummaryRecord);
+    const records = (data ?? []).map((row) => {
+      const summary = row.summary_data as SummaryRecord;
+      return { ...summary, createdAt: summary.createdAt || row.created_at };
+    });
     return NextResponse.json({ customers: mergeLegacySummaries(records) }, { headers: CORS_HEADERS });
   } catch (error) {
     console.error("[Customer Summary] 读取失败:", error);
@@ -92,6 +125,8 @@ type EditableSummary = {
   userScale?: string;
   accountScale?: string;
   currentPlan?: string;
+  monthlyFee?: string;
+  createdAt?: string;
   notes?: string;
   issues?: unknown[];
   featureRequests?: unknown[];
@@ -115,7 +150,7 @@ export async function PATCH(request: NextRequest) {
 
     const allowedKeys: Array<keyof EditableSummary> = [
       "contactName", "contactMethod", "contactDetail", "teamId", "region", "customerType", "customerStatus", "useCase",
-      "userScale", "accountScale", "currentPlan", "notes", "issues", "featureRequests",
+      "userScale", "accountScale", "currentPlan", "monthlyFee", "createdAt", "notes", "issues", "featureRequests",
     ];
     const requested = body.updates as Record<string, unknown>;
     if (typeof requested.teamId === "string" && requested.teamId.trim()) {
@@ -166,7 +201,8 @@ export async function POST(request: NextRequest) {
       const duplicate = (rows ?? []).find((row) => normalizedTeamId((row.summary_data as SummaryRecord).teamId) === normalizedTeamId(teamId));
       if (duplicate) return NextResponse.json({ error: "该团队 ID 已有客户记录", existingId: duplicate.external_chat_id }, { status: 409, headers: CORS_HEADERS });
       const externalChatId = `manual-${crypto.randomUUID()}`;
-      const summary = { ...input, externalChatId, teamId, contactName, platform: "manual", updatedAt: "" };
+      const createdAt = new Date().toISOString();
+      const summary = { ...input, externalChatId, teamId, contactName, platform: "manual", createdAt, updatedAt: createdAt };
       const { error } = await client.from("customer_summaries").insert({ external_chat_id: externalChatId, platform: "manual", contact_name: contactName, summary_data: summary, source_message_hash: "manual", message_count: 0 });
       if (error) throw error;
       return NextResponse.json({ summary }, { headers: CORS_HEADERS });
@@ -201,13 +237,16 @@ export async function POST(request: NextRequest) {
       "你是 DICloak 客户运营分析师。仅根据完整聊天记录提取客户画像、历史问题和功能需求。所有总结性、描述性内容必须使用简体中文；品牌名、套餐名、团队 ID、电话号码等专有信息保留原文。未知字段填空字符串，不得编造。只输出 JSON。",
       `请分析以下新增会话（共 ${messages.length} 条），输出 JSON：\n{
   "region":"", "customerType":"", "useCase":"", "userScale":"", "accountScale":"",
-  "currentPlan":"", "customerStatus":"活跃/流失风险/已停滞/潜在客户", "notes":"",
+  "currentPlan":"", "monthlyFee":"", "customerStatus":"活跃/流失风险/已停滞/潜在客户", "notes":"",
   "issues":[{"title":"","description":"","resolution":"","status":"已解决/处理中/未处理","occurredAt":""}],
-  "featureRequests":[{"title":"","description":"","source":"客户聊天","status":"未评估/已评估/已上线"}]
-}\n\n识别规则：\n1. 除品牌名和套餐名外，所有字段内容必须用简体中文填写。\n2. 不要提取或输出联系人名称、${snapshot.chat.platform === "telegram" ? "Telegram 联系方式" : "WhatsApp 号码"}和团队 ID，这些字段由系统直接采集。\n3. currentPlan 仅允许填写 Free、Base、Plus、Share+、Share。聊天中明确提及其中一种套餐时使用对应的标准名称；未提及或无法确认时留空，不得猜测。\n4. 只有与 DICloak 产品直接相关、且必须由技术人员开发或改造产品才能实现的诉求，才可放入 featureRequests；咨询、故障、套餐诉求、第三方网站或代理需求一律不要归为功能需求。\n\n新增聊天记录：\n${transcript}`,
+  "featureRequests":[{"title":"","description":"","source":"客户聊天","status":"未评估/已评估/已有可实现方案/暂无法实现/已上线","requestedAt":""}]
+}\n\n识别规则：\n1. 除品牌名和套餐名外，所有字段内容必须用简体中文填写。\n2. 不要提取或输出联系人名称、${snapshot.chat.platform === "telegram" ? "Telegram 联系方式" : "WhatsApp 号码"}和团队 ID，这些字段由系统直接采集。\n3. currentPlan 仅允许填写 Free、Base、Plus、Share+、Share。聊天中明确提及其中一种套餐时使用对应的标准名称；未提及或无法确认时留空，不得猜测。monthlyFee 仅在聊天明确提及月费时填写金额和币种，否则留空。\n4. 只有与 DICloak 产品直接相关、且必须由技术人员开发或改造产品才能实现的诉求，才可放入 featureRequests；咨询、故障、套餐诉求、第三方网站或代理需求一律不要归为功能需求。\n5. occurredAt 和 requestedAt 必须根据聊天记录填写对应问题或需求首次出现的日期，格式为 YYYY-MM-DD；无法精确判断时填写最接近的消息日期，不得留空。\n\n新增聊天记录：\n${transcript}`,
       0.2,
     );
-    const analysis = parseJsonObject(content);
+    const latestMessageTimestamp = messages.reduce<number>((latest, message) =>
+      typeof message.timestamp === "number" ? Math.max(latest, message.timestamp) : latest, 0);
+    const fallbackItemDate = utc8Date(latestMessageTimestamp || Date.now());
+    const analysis = addMissingItemDates(parseJsonObject(content), fallbackItemDate);
     const updatedAt = new Date().toISOString();
     const generated: SummaryRecord = {
       externalChatId: snapshot.chat.externalChatId,
@@ -218,6 +257,7 @@ export async function POST(request: NextRequest) {
       teamId,
       contactDetail: snapshot.chat.contactDetail || "",
       currentPlan: normalizePlan(analysis.currentPlan),
+      createdAt: existing?.createdAt || updatedAt,
       updatedAt,
     };
     const summary = existing ? {
@@ -226,6 +266,8 @@ export async function POST(request: NextRequest) {
       contactMethod: generated.contactMethod,
       contactName: generated.contactName,
       contactDetail: generated.contactDetail,
+      currentPlan: generated.currentPlan || existing.currentPlan,
+      monthlyFee: generated.monthlyFee || existing.monthlyFee,
       issues: mergeUnique(existing.issues, generated.issues),
       featureRequests: mergeUnique(existing.featureRequests, generated.featureRequests),
       updatedAt,

@@ -49,11 +49,13 @@ export interface CustomerSummary {
   userScale: string;
   accountScale: string;
   currentPlan: string;
+  monthlyFee: string;
   customerStatus: string;
   notes: string;
   issues: Array<{ title: string; description: string; resolution: string; status: string; occurredAt: string }>;
-  featureRequests: Array<{ title: string; description: string; priority: string; source: string; status: string }>;
+  featureRequests: Array<{ title: string; description: string; priority: string; source: string; status: string; requestedAt: string }>;
   updatedAt: string;
+  createdAt: string;
 }
 
 export interface CopilotResult {

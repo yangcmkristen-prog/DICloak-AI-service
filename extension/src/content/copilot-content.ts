@@ -807,6 +807,13 @@ function render(): void {
   const currentRoleSourceLabel = state.roleRecord?.source === "manual" ? "人工选择" : state.roleRecord?.source === "ai" ? "AI 推测" : "";
   const summaryRecord = state.summaryRecord;
   const previousBodyScrollTop = root.querySelector<HTMLElement>(".dc-body")?.scrollTop ?? 0;
+  const previousSensitiveList = root.querySelector<HTMLElement>(".dc-sensitive-list");
+  const previousSensitiveListScrollTop = previousSensitiveList?.scrollTop ?? 0;
+  const approvedSensitiveIds = new Set(
+    Array.from(root.querySelectorAll<HTMLInputElement>("[data-sensitive-id]:checked"))
+      .map((input) => input.dataset.sensitiveId)
+      .filter((id): id is string => Boolean(id)),
+  );
   const previousResultScrollTop = root.querySelector<HTMLElement>(".dc-result-detail pre")?.scrollTop ?? 0;
   const previousActiveResultId = root.querySelector<HTMLElement>("[data-active-result-id]")?.dataset.activeResultId ?? null;
   document.getElementById(SIDEBAR_ID)?.classList.toggle("dc-hidden", state.hidden);
@@ -911,6 +918,14 @@ function render(): void {
 
   const nextBody = root.querySelector<HTMLElement>(".dc-body");
   if (nextBody) nextBody.scrollTop = previousBodyScrollTop;
+
+  const nextSensitiveList = root.querySelector<HTMLElement>(".dc-sensitive-list");
+  if (nextSensitiveList) {
+    nextSensitiveList.scrollTop = previousSensitiveListScrollTop;
+    nextSensitiveList.querySelectorAll<HTMLInputElement>("[data-sensitive-id]").forEach((input) => {
+      input.checked = Boolean(input.dataset.sensitiveId && approvedSensitiveIds.has(input.dataset.sensitiveId));
+    });
+  }
 
   const nextResult = root.querySelector<HTMLElement>(".dc-result-detail pre");
   if (nextResult && previousActiveResultId === activeResult?.id) {
