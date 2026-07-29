@@ -341,10 +341,9 @@ function detectCustomerBusinessType(message: string): CustomerBusinessType {
     '账号共享', '共享账号', '账号分享', '分发', '分享', '订阅', '团队使用',
     'share account', 'account sharing', 'subscription', 'team access', 'distribute',
     'раздать', 'поделиться', 'доступ', 'подписк', 'команда', 'команде',
-    'claude', 'chatgpt',
   ];
   const multiAccountSignals = [
-    '多账号', '多账户', '批量账号', '账号矩阵', '店铺', '社媒', '社交媒体', '电商',
+    '多账号', '多账户', '批量账号', '账号矩阵', '店铺', '社媒', '社交媒体', '电商', '评论', '测评',
     'multi-account', 'multiple accounts', 'account management', 'e-commerce', 'social media',
     'много аккаунтов', 'несколько аккаунтов', 'управление аккаунтами',
   ];
@@ -1644,6 +1643,20 @@ function buildUncoveredKnowledgePolicy(
   const bestInternalScore = Math.max(scores.faq, scores.functionKnowledge, scores.troubleshooting, scores.outOfScope);
   const noRelevantInternalKnowledge = bestInternalScore < 10 && !scores.apiFound && !scores.pricingFound;
 
+  // Questions about whether a third-party platform will accept an otherwise normal
+  // operation are answered by the stable product boundary below, not treated as an
+  // unknown DICloak implementation detail that requires engineering confirmation.
+  const normalizedOutcomeQuestion = question.toLowerCase();
+  const thirdPartyOutcomeSignals = [
+    '能过不', '能不能过', '能成功吗', '能发出去吗', '会被封吗', '能刷评论吗', '能刷评吗',
+    '绕过', '规避检测', '风控', '拒付', 'bypass', 'guarantee', 'get past', 'pass detection',
+  ];
+  const asksAboutThirdPartyOutcome = thirdPartyOutcomeSignals.some((signal) => normalizedOutcomeQuestion.includes(signal));
+
+  if (asksAboutThirdPartyOutcome) {
+    return { isRelevant: false, isDICloakTechnicalLogic: false, isGeneralNetworkOrWebsite: false, prompt: '' };
+  }
+  
   if (!isFeatureOrTroubleshooting || !noRelevantInternalKnowledge) {
     return { isRelevant: false, isDICloakTechnicalLogic: false, isGeneralNetworkOrWebsite: false, prompt: '' };
   }
@@ -1854,7 +1867,10 @@ The customer requested step-by-step setup instructions. Before giving any number
       : "";
 
     const supportResponsibilityGuardrail = `## DICloak 产品背景与客户运营职责（最高优先级）
-1. DICloak 是用于管理和共享平台/工具账号的指纹浏览器。DICloak 只提供浏览器工具；客户注册 DICloak、创建环境，并在环境中管理客户自己拥有的工具账号和信息。
+1. DICloak 是用于多账号管理、团队协作和账号共享的指纹浏览器。客户可创建相互隔离的浏览器环境，为自己的平台/工具账号配置不同的浏览器指纹与代理，并进行环境、成员、权限及账号信息的统一管理。产品不只用于账号共享；电商、社交媒体、广告营销及其他需要分离运营多个账号的正常业务场景也是核心用途。
+1.1 DICloak 提供的是浏览器环境和账号管理能力，不代替客户在第三方平台上执行业务，不销售平台账号，不提供刷评、绕过风控或规避支付审核服务。
+1.2 客户可以在 DICloak 环境内尝试其合规、正常的业务操作，但不得承诺一定能绕过特定平台的环境检测、风控、内容审核或支付审核，也不得承诺账号、评论、付款或其他操作一定成功。结果受第三方平台规则、账号状态、代理质量、操作行为、内容及支付信息等多种因素影响。
+1.3 对“能否过检测/风控”、“能否发布评论”、“能否解决拒付”等结果性问题，回复必须同时说清：DICloak 能提供什么环境/管理能力、DICloak 不提供什么代操或规避服务、为什么不能保证第三方结果，并建议客户先用免费版本或创建少量环境做合规测试。不要因为提到 Trustpilot、Claude、ChatGPT 等第三方平台就判定为账号共享或超出支持范围。
 2. 你的身份是 DICloak 客户运营。你的职责是协助直接客户解决 DICloak 软件问题、顺利运营其平台账号、了解功能与套餐；不要把本应由我们协助的直接客户推给其管理员。
 3. 终端用户是从共享业务客户/管理员处购买或获配工具服务的人。对终端用户，我们协助 DICloak 软件崩溃、DICloak 登录故障、环境打不开、浏览器黑屏/卡顿及软件内操作报错；工具风控、工具账号登录、账号停用、订阅、退款等服务问题应引导其联系提供服务的管理员。
 4. 除上述共享业务终端用户外，DICloak 直接客户的相关问题都应由我们协助。身份不明且答案会因身份不同而变化时，只确认账号来源/是否为管理员，不重复询问用户已经明确的工具名称。
