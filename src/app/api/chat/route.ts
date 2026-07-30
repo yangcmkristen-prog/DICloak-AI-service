@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { LLMClient, Config } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import type { KnowledgeBase, ProductName, SupportedProduct } from '@/lib/types';
+import { rewriteProductDomains } from '@/lib/product-url';
 import { callExtensionTranslateModel } from "../copilot/shared";
 
-function sanitizeCustomerFacingContent(content: string, language: string = 'zh'): string {
+function sanitizeCustomerFacingContent(content: string, language: string = 'zh', product: ProductName = 'dicloak'): string {
   let sanitized = content
     .replace(/\[(?:FAQ_ID|TS_ID|FUNCTION_ID):\s*[^\]]+\]\s*/gi, '')
     .replace(/\bDIClo\b(?!ak)/g, 'DICloak')
@@ -34,7 +35,7 @@ function sanitizeCustomerFacingContent(content: string, language: string = 'zh')
       .replace(/共享版\+\s*[（(](Share\+)[）)]/gi, '$1');
   }
 
-  return sanitized;
+  return rewriteProductDomains(sanitized, product);
 }
 
 function extractActualUserCount(message: string): number | null {
@@ -1560,15 +1561,15 @@ ${problemTypeLabel}
 [[/question]]
 
 [[main]]
-完整主回复。若命中标准答案，必须严格基于标准答案改写/翻译，不得新增标准答案没有的按钮、路径、权限、密码、有效期、限制或操作步骤。主回复必须完整，不要拆分到补充建议中。
+简洁、完整且可直接发送的主回复。自然组织内容，不得使用“结论、依据、下一步”等固定小标题，也不得重复表达同一结论。若命中标准答案，必须严格基于标准答案改写/翻译，不得新增标准答案没有的按钮、路径、权限、密码、有效期、限制或操作步骤。
 [[/main]]
 
 [[supplement]]
-独立的补充建议；不得继续补充主回复没有依据的操作步骤。没有合适补充建议时写：无。
+仅填写主回复未包含且确有价值的独立补充建议，不得复述主回复，也不得补充没有依据的操作步骤。没有必要时写：无。
 [[/supplement]]
 
 [[info]]
-需要客户补充的信息；不需要补充信息时写：无。
+仅填写回答当前问题所必需、且主回复尚未询问的信息；不得重复主回复。无需补充时写：无。
 [[/info]]`;
   }
   
@@ -1791,7 +1792,7 @@ export async function POST(request: NextRequest) {
 - Choose the FAQ with HIGHEST Score
 - Prefer FAQs with Score >= 10
 - Use provided knowledge IDs only for internal source selection. Do NOT output [FAQ_ID: xxx], [TS_ID: xxx], [FUNCTION_ID: xxx], file names, or any other source marker in customer-facing replies
-- Preserve punctuation, decimal points, product/function names, and URLs exactly as provided by the knowledge base or pricing data. Do not shorten DICloak to DIClo, do not change Open API to Open, do not drop the decimal point in prices such as 28.8, and copy help-center URLs verbatim
+- Preserve punctuation, decimal points, and product/function names exactly as provided by the knowledge base or pricing data. Do not shorten DICloak to DIClo, do not change Open API to Open, or drop the decimal point in prices such as 28.8. Preserve URL paths, query strings, and fragments; when the selected product is Paraturbo, change DICloak website domains to their Paraturbo equivalents (for example, dicloak.com to paraturbo.com and help.dicloak.com to help.paraturbo.com)
 
 ## Term Translation
 - Replace {{UI terms}} with translated terms
@@ -1816,7 +1817,8 @@ export async function POST(request: NextRequest) {
     5. 标签行本身禁止翻译、禁止添加 emoji、禁止添加 Markdown 标题符号；前端会隐藏标签并按 type 显示固定中文标题。
     6. 只能翻译正文内容，禁止翻译 section 标签。
     7. 正文必须是纯文本，不要使用 Markdown 加粗/斜体/标题符号，例如不要输出 **文本**、__文本__、# 标题。
-    8. 正文不得保留术语占位符花括号；如果内部资料出现 {{Equipo}}、{{Members}}，输出时必须变成 Equipo、Members 或目标语言译文。`;
+    8. 正文不得保留术语占位符花括号；如果内部资料出现 {{Equipo}}、{{Members}}，输出时必须变成 Equipo、Members 或目标语言译文。
+    9. 回复应有条理且精炼，通常使用 1-3 个短段落即可。禁止使用“结论：”“依据：”“下一步：”或其外语对应标题，禁止为了填满板块而重复相同事实；supplement 和 info 没有新增价值时必须写“无”。`;
 
     const evidenceGuardrail = `## 知识依据与防编造硬性要求
     1. 回复只能基于上方提供的内部资料和同会话历史；这些资料名称仅供内部生成使用。
@@ -1857,14 +1859,10 @@ The customer requested step-by-step setup instructions. Before giving any number
     const intentGuardrail = (classification?.intents && classification.intents.length > 0)
       ? `
     ## Intent Coverage Rules (MUST)
-    You MUST address ALL intents below in one response, each with a clear subsection:
+    You MUST address ALL intents below in one concise, naturally organized response:
     ${classification.intents.map((it, idx) => `${idx + 1}. ${it.type}`).join("\n")}
-    For EACH intent include:
-    - conclusion
-    - evidence from knowledge context
-    - actionable next step
-    If evidence is insufficient for any intent, explicitly ask follow-up for that intent.
-    Do NOT skip any intent.
+    Cover each intent once without creating fixed "conclusion / evidence / next step" subsections and without repeating facts across sections. Include a follow-up only when it is genuinely needed to answer an intent.
+    Do NOT skip any intent, but keep the combined reply concise.
     `
       : "";
 
@@ -1882,13 +1880,14 @@ The customer requested step-by-step setup instructions. Before giving any number
 
     const selectedProductGuardrail = selectedProduct === 'paraturbo'
       ? `## 当前对话产品：Paraturbo（最高优先级）
-1. 本对话已明确选择 Paraturbo。客户回复必须以 Paraturbo 为主体，禁止写成 DICloak，除非客户明确要求比较两个产品。
+1. 本对话已明确选择 Paraturbo。客户回复必须只以 Paraturbo 为主体，禁止写成 DICloak，除非客户明确要求比较两个产品。若某功能不支持，只说明 Paraturbo 当前不支持，不得说该功能“仅适用于其他产品”、不得提及其他产品是否支持，也不得解释内部产品适用范围。
 2. Paraturbo 与 DICloak 使用相同的指纹浏览器底层能力，同样用于多账号管理、隔离浏览器环境、团队协作和账号共享。知识资料中两者共通的功能可用于 Paraturbo，但对外必须使用 Paraturbo 产品名。
 3. Paraturbo 在“代理管理 > Paraturbo 代理”模块提供代理 IP 售卖服务；不得套用“DICloak 不提供代理”的结论。
 4. Paraturbo 没有 Open API 功能，也没有推广返现板块。即使知识资料中有 DICloak 的相关说明，也不得将其作为 Paraturbo 功能回复。
-5. Paraturbo 和 DICloak 的客户端版本号不同。禁止在 Paraturbo 回复中引用 DICloak 版本号；如资料没有 Paraturbo 版本号，请客户提供其 Paraturbo 当前版本号。`
+5. Paraturbo 和 DICloak 的客户端版本号不同。禁止在 Paraturbo 回复中引用 DICloak 版本号；如资料没有 Paraturbo 版本号，请客户提供其 Paraturbo 当前版本号。
+6. 知识资料中的 DICloak 官网和帮助中心链接可共用于 Paraturbo，但对外链接必须替换为对应的 Paraturbo 域名：dicloak.com 替换为 paraturbo.com，help.dicloak.com 替换为 help.paraturbo.com；必须保留原路径、查询参数和锚点。`
       : `## 当前对话产品：DICloak（最高优先级）
-1. 本对话已明确选择 DICloak。客户回复必须以 DICloak 为主体，禁止写成 Paraturbo，除非客户明确要求比较两个产品。
+1. 本对话已明确选择 DICloak。客户回复必须只以 DICloak 为主体，禁止写成 Paraturbo，除非客户明确要求比较两个产品。若某功能不支持，只说明 DICloak 当前不支持，不得说该功能“仅适用于其他产品”、不得提及其他产品是否支持，也不得解释内部产品适用范围。
 2. DICloak 不售卖代理 IP；代理由第三方服务商提供，我们只协助配置和检查可用性。不得将 Paraturbo 的代理 IP 售卖服务用于 DICloak 回复。
 3. DICloak 可根据内部知识资料回答 Open API 和推广返现功能；不得套用 Paraturbo “没有 Open API/推广返现”的限制。
 4. 回答 DICloak 问题时禁止引用 Paraturbo 版本号。`;
@@ -2636,10 +2635,9 @@ The customer requested step-by-step setup instructions. Before giving any number
       // 构建功能知识库上下文
       const shouldUseFunctionKnowledge = problemType === 'feature_faq' || selectedTables.has('function_knowledge') || matchedFunctionKnowledge.length > 0;
       if (unsupportedFunctionMatch) {
-        const unsupportedFunctionName = unsupportedFunctionMatch.item.functionName || unsupportedFunctionMatch.item.functionId || '该功能';
         knowledgeContext += `## Product Feature Support Decision (HIGHEST PRIORITY)\n`;
-        knowledgeContext += `The function knowledge row matching "${unsupportedFunctionName}" explicitly supports only "${unsupportedFunctionMatch.item.supportedProduct}". The selected product is "${selectedProduct}".\n`;
-        knowledgeContext += `You MUST reply that the selected product currently does not support this function. Do not provide its description, entry path, UI position, prerequisites, steps, workaround, or instructions from FAQ or any other product. Do not claim it is planned unless separately documented.\n\n`;
+        knowledgeContext += `Internal decision: the matched function is unavailable for the selected product "${selectedProduct}".\n`;
+        knowledgeContext += `You MUST only tell the customer that their selected product currently does not support this function. Never say it is supported by, limited to, or available in another/other product; never reveal any other product name or internal product applicability. Do not provide its description, entry path, UI position, prerequisites, steps, workaround, or instructions. Do not claim it is planned unless separately documented.\n\n`;
       }
       if (shouldUseFunctionKnowledge && matchedFunctionKnowledge.length > 0) {
         knowledgeContext += "## Function Knowledge Base (sorted by relevance score)\n";
@@ -3091,7 +3089,7 @@ MANDATORY EXECUTION RULES:
           console.error('[Language QA] 回复语言纠正失败，使用原始回复:', languageError);
           return correctedContent;
         });
-        const sanitizedContent = sanitizeCustomerFacingContent(languageCorrectedContent, effectiveLanguage);
+        const sanitizedContent = sanitizeCustomerFacingContent(languageCorrectedContent, effectiveLanguage, selectedProduct);
         controller.enqueue(encoder.encode(`${sanitizedContent}${buildStructuredReplyPayload(sanitizedContent)}`));
       }
       controller.close();
