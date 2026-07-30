@@ -189,6 +189,9 @@ export function ConversationList({
                     <span className="flex-1 min-w-0 text-sm truncate">
                       {conversation.title}
                     </span>
+                    <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] ${conversation.product === "paraturbo" ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-200" : "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-200"}`}>
+                      {conversation.product === "paraturbo" ? "Paraturbo" : "DICloak"}
+                    </span>
                     {getConversationRole(conversation) ? (
                       <span className="shrink-0 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700 dark:bg-blue-950 dark:text-blue-200">
                         {ROLE_LABELS[getConversationRole(conversation)!]}

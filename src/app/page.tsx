@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Conversation, ConversationRole, FAQItem, GenerationStatus, ImageAttachment, KnowledgeBase, Message, TroubleshootingItem, generateId } from "@/lib/types";
+import { Conversation, ConversationRole, FAQItem, GenerationStatus, ImageAttachment, KnowledgeBase, Message, ProductName, TroubleshootingItem, generateId } from "@/lib/types";
 import {
   getConversations,
   saveConversations,
@@ -63,6 +63,10 @@ const OTHER_PHRASE_TRANSLATION_LANGUAGES = TARGET_TRANSLATION_LANGUAGES.filter(
   (language) => !PHRASE_TRANSLATION_LANGUAGES.some((savedLanguage) => savedLanguage.value === language.value),
 );
 const SAVED_PHRASES_STORAGE_KEY = "diclok_saved_phrases";
+const PRODUCT_LABELS: Record<ProductName, string> = {
+  dicloak: "DICloak",
+  paraturbo: "Paraturbo",
+};
 
 type ReplySectionType = "question" | "identity" | "main" | "common" | "client" | "end_user" | "supplement" | "info";
 
@@ -609,6 +613,8 @@ export default function Home() {
   const [copiedOtherPhraseLanguage, setCopiedOtherPhraseLanguage] = useState<string | null>(null);
   const [savedPhraseDragItem, setSavedPhraseDragItem] = useState<SavedPhraseDragItem | null>(null);
   const [isSavedPhraseSyncing, setIsSavedPhraseSyncing] = useState(false);
+  const [isCreateConversationDialogOpen, setIsCreateConversationDialogOpen] = useState(false);
+  const [newConversationProduct, setNewConversationProduct] = useState<ProductName>('dicloak');
 
   const handlePrimaryFolderToggle = (folderId: string) => {
     if (selectedPrimaryFolderId === folderId) {
@@ -660,10 +666,7 @@ export default function Home() {
     
     // 如果没有对话，自动创建一个
     if (loadedConversations.length === 0) {
-      const newConversation = createConversation();
-      setConversations([newConversation]);
-      setCurrentConversationIdState(newConversation.id);
-      setCurrentConversationId(newConversation.id);
+      setIsCreateConversationDialogOpen(true);
     } else {
       setConversations(loadedConversations);
       const currentId = getCurrentConversationId();
@@ -686,11 +689,24 @@ export default function Home() {
 
   // 创建新对话
   const handleCreateConversation = () => {
-    const newConversation = createConversation();
+    setNewConversationProduct('dicloak');
+    setIsCreateConversationDialogOpen(true);
+  };
+
+  const handleConfirmCreateConversation = () => {
+    const newConversation = createConversation(newConversationProduct);
     setConversations((prev) => [newConversation, ...prev]);
     setCurrentConversationIdState(newConversation.id);
     setCurrentConversationId(newConversation.id);
-    toast.success("新对话已创建");
+    setIsCreateConversationDialogOpen(false);
+    toast.success(`${PRODUCT_LABELS[newConversationProduct]} 对话已创建`);
+  };
+
+  const handleUpdateConversationProduct = (product: ProductName) => {
+    if (!currentConversationId) return;
+    updateConversation(currentConversationId, { product });
+    setConversations(getConversations());
+    toast.success(`当前对话已切换为 ${PRODUCT_LABELS[product]}`);
   };
 
   // 选择对话
@@ -951,6 +967,7 @@ export default function Home() {
             ? currentConversation.context.confirmedIdentity || undefined
             : undefined,
           roleSource: currentConversation?.context?.roleSource === "manual" ? "manual" : undefined,
+          product: currentConversation?.product || 'dicloak',
         }),
       });
 
@@ -2006,6 +2023,33 @@ const handleTranslate = async () => {
       </main>
 
       {/* 移动端编辑对话框 */}
+      <Dialog open={isCreateConversationDialogOpen} onOpenChange={(open) => {
+        if (conversations.length > 0 || open) setIsCreateConversationDialogOpen(open);
+      }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>新建对话</DialogTitle>
+            <DialogDescription>请选择客户正在使用的产品，AI 将按照该产品的功能和术语回复。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-4">
+            <label className="text-sm font-medium" htmlFor="new-conversation-product">产品名</label>
+            <Select value={newConversationProduct} onValueChange={(value) => setNewConversationProduct(value as ProductName)}>
+              <SelectTrigger id="new-conversation-product" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="dicloak">DICloak</SelectItem>
+                <SelectItem value="paraturbo">Paraturbo</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            {conversations.length > 0 ? <Button variant="outline" onClick={() => setIsCreateConversationDialogOpen(false)}>取消</Button> : null}
+            <Button onClick={handleConfirmCreateConversation}>创建对话</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -2092,7 +2136,18 @@ const handleTranslate = async () => {
                   <span className="grid size-8 place-items-center rounded-lg bg-blue-600 text-white"><MessageSquare className="size-4" /></span>
                   <div><p className="text-sm font-semibold">AI 助手</p><p className="text-[11px] text-muted-foreground">{currentConversation?.title || "新对话"}</p></div>
                 </div>
-                <Button variant="ghost" size="icon" className="ml-auto" onClick={() => setIsAssistantOpen(false)} aria-label="关闭 AI 助手"><X className="size-4" /></Button>
+                {currentConversation ? (
+                  <Select value={currentConversation.product} onValueChange={(value) => handleUpdateConversationProduct(value as ProductName)}>
+                    <SelectTrigger className="ml-auto h-8 w-[130px]" aria-label="当前对话产品">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="dicloak">DICloak</SelectItem>
+                      <SelectItem value="paraturbo">Paraturbo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : null}
+                <Button variant="ghost" size="icon" className={currentConversation ? "ml-2" : "ml-auto"} onClick={() => setIsAssistantOpen(false)} aria-label="关闭 AI 助手"><X className="size-4" /></Button>
               </div>
               <div className="flex items-center gap-2 border-b p-2 md:hidden">
                 <select value={currentConversationId || ""} onChange={(event) => handleSelectConversation(event.target.value)} className="min-w-0 flex-1 rounded-md border bg-background p-2 text-sm">

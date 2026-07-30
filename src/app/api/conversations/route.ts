@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getConversations, createConversation, updateConversation, deleteConversation } from "@/lib/store";
+import type { ProductName } from "@/lib/types";
 
 export async function GET() {
   try {
@@ -13,8 +14,9 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const { title } = await request.json();
-    const conversation = createConversation(title);
+    const body = await request.json() as { title?: string; product?: ProductName };
+    const product: ProductName = body.product === 'paraturbo' ? 'paraturbo' : 'dicloak';
+    const conversation = createConversation(product, body.title);
     return NextResponse.json({ conversation });
   } catch (error) {
     console.error("Create conversation error:", error);

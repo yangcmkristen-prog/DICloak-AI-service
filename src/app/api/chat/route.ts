@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LLMClient, Config } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from '@/storage/database/supabase-client';
-import type { KnowledgeBase } from '@/lib/types';
+import type { KnowledgeBase, ProductName, SupportedProduct } from '@/lib/types';
 import { callExtensionTranslateModel } from "../copilot/shared";
 
 function sanitizeCustomerFacingContent(content: string, language: string = 'zh'): string {
@@ -1696,7 +1696,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     console.log(`[PERF][CHAT] body_parsed_ms=${Date.now() - t0}`);
-    const { message, history, knowledge, systemPrompt, detectedLanguage, aiKeywords, classification, imageOcrResults, confirmedRole, roleSource } = body as {
+    const { message, history, knowledge, systemPrompt, detectedLanguage, aiKeywords, classification, imageOcrResults, confirmedRole, roleSource, product } = body as {
       message?: string;
       history?: Array<{ role: string; content: string }>;
       knowledge?: Partial<KnowledgeBase>;
@@ -1707,6 +1707,7 @@ export async function POST(request: NextRequest) {
       imageOcrResults?: Array<{ id: string; name: string; text: string }>;
       confirmedRole?: UserRole;
       roleSource?: "manual" | "ai" | null;
+      product?: ProductName;
     };
     
     // 调试：检查接收到的 knowledge
@@ -1724,6 +1725,7 @@ export async function POST(request: NextRequest) {
     }
 
     const currentMessageText = message || imageOcrResults?.map((item) => item.text).join("\n") || "";
+    const selectedProduct: ProductName = product === 'paraturbo' ? 'paraturbo' : 'dicloak';
 
     console.log(`[PERF][CHAT] pre_config_ms=${Date.now() - t0}`);
 
@@ -1878,7 +1880,29 @@ The customer requested step-by-step setup instructions. Before giving any number
 6. 代理由第三方代理服务商提供。我们可以提供 DICloak 内的代理配置方法并协助检查代理能否使用；代理连接故障、服务限制、额度或线路质量由代理服务商排查确认。
 7. 不得编造知识资料未提供的步骤或结论；先理解责任边界，再使用匹配的标准答案。`;
 
-    const finalPromptWithCoverage = `${finalSystemPrompt}\n${supportResponsibilityGuardrail}\n${intentGuardrail}\n${outputFormatGuardrail}\n${evidenceGuardrail}\n${pricingGuardrail}\n${deterministicSeatFacts}\n${planRecommendationRules}\n${accountSharingEnvironmentRules}\n${stepEvidenceGuardrail}\n${languageRule}\n${multilingualQualityGuardrail}`;
+    const selectedProductGuardrail = selectedProduct === 'paraturbo'
+      ? `## 当前对话产品：Paraturbo（最高优先级）
+1. 本对话已明确选择 Paraturbo。客户回复必须以 Paraturbo 为主体，禁止写成 DICloak，除非客户明确要求比较两个产品。
+2. Paraturbo 与 DICloak 使用相同的指纹浏览器底层能力，同样用于多账号管理、隔离浏览器环境、团队协作和账号共享。知识资料中两者共通的功能可用于 Paraturbo，但对外必须使用 Paraturbo 产品名。
+3. Paraturbo 在“代理管理 > Paraturbo 代理”模块提供代理 IP 售卖服务；不得套用“DICloak 不提供代理”的结论。
+4. Paraturbo 没有 Open API 功能，也没有推广返现板块。即使知识资料中有 DICloak 的相关说明，也不得将其作为 Paraturbo 功能回复。
+5. Paraturbo 和 DICloak 的客户端版本号不同。禁止在 Paraturbo 回复中引用 DICloak 版本号；如资料没有 Paraturbo 版本号，请客户提供其 Paraturbo 当前版本号。`
+      : `## 当前对话产品：DICloak（最高优先级）
+1. 本对话已明确选择 DICloak。客户回复必须以 DICloak 为主体，禁止写成 Paraturbo，除非客户明确要求比较两个产品。
+2. DICloak 不售卖代理 IP；代理由第三方服务商提供，我们只协助配置和检查可用性。不得将 Paraturbo 的代理 IP 售卖服务用于 DICloak 回复。
+3. DICloak 可根据内部知识资料回答 Open API 和推广返现功能；不得套用 Paraturbo “没有 Open API/推广返现”的限制。
+4. 回答 DICloak 问题时禁止引用 Paraturbo 版本号。`;
+
+    const productResponsibilityGuardrail = selectedProduct === 'paraturbo'
+      ? supportResponsibilityGuardrail
+          .replaceAll('DICloak', 'Paraturbo')
+          .replace(
+            /6\. 代理由第三方[\s\S]*?(?=\n7\.)/,
+            '6. Paraturbo 在“代理管理 > Paraturbo 代理”模块提供代理 IP 售卖服务，也可配置其他代理服务商的代理。'
+          )
+      : supportResponsibilityGuardrail;
+
+    const finalPromptWithCoverage = `${finalSystemPrompt}\n${productResponsibilityGuardrail}\n${selectedProductGuardrail}\n${intentGuardrail}\n${outputFormatGuardrail}\n${evidenceGuardrail}\n${pricingGuardrail}\n${deterministicSeatFacts}\n${planRecommendationRules}\n${accountSharingEnvironmentRules}\n${stepEvidenceGuardrail}\n${languageRule}\n${multilingualQualityGuardrail}`;
     // 构建知识库上下文（只传递最相关的知识库项）
     let knowledgeContext = "";
     let responseShouldUsePricingTable = false;
@@ -2213,7 +2237,11 @@ The customer requested step-by-step setup instructions. Before giving any number
         faqIds?: string;
         keywordsCN?: string;
         keywordsEN?: string;
+        supportedProduct?: SupportedProduct;
       };
+
+      const supportsSelectedProduct = (item: FunctionKnowledgeItem): boolean =>
+        !item.supportedProduct || item.supportedProduct === 'all' || item.supportedProduct === selectedProduct;
 
       const normalizeFunctionText = (value?: string) => (value || '').toLowerCase();
       const calculateFunctionKnowledgeScore = (userMsg: string, item: FunctionKnowledgeItem, keywords: string[]) => {
@@ -2268,10 +2296,17 @@ The customer requested step-by-step setup instructions. Before giving any number
 
       // 功能知识库匹配过滤
       const functionKnowledgeItems = (knowledge.functionKnowledge || []) as FunctionKnowledgeItem[];
-      const matchedFunctionKnowledge = functionKnowledgeItems
+      const scoredFunctionKnowledge = functionKnowledgeItems
         .map((item: FunctionKnowledgeItem) => ({ item, score: calculateFunctionKnowledgeScore(currentMessageText, item, userKeywords) }))
         .filter((m) => m.score > 0)
         .sort((a, b) => b.score - a.score);
+      const matchedFunctionKnowledge = scoredFunctionKnowledge.filter((match) => supportsSelectedProduct(match.item));
+      const topCompatibleFunctionScore = matchedFunctionKnowledge[0]?.score ?? 0;
+      const unsupportedFunctionMatch = scoredFunctionKnowledge.find((match) =>
+        !supportsSelectedProduct(match.item)
+        && match.score >= 8
+        && match.score >= topCompatibleFunctionScore
+      );
 
       // Troubleshooting 匹配过滤
       type TsItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; answerClient?: string; answerEndUser?: string; functionId?: string; termIds?: string[]; faqId?: string };
@@ -2600,6 +2635,12 @@ The customer requested step-by-step setup instructions. Before giving any number
 
       // 构建功能知识库上下文
       const shouldUseFunctionKnowledge = problemType === 'feature_faq' || selectedTables.has('function_knowledge') || matchedFunctionKnowledge.length > 0;
+      if (unsupportedFunctionMatch) {
+        const unsupportedFunctionName = unsupportedFunctionMatch.item.functionName || unsupportedFunctionMatch.item.functionId || '该功能';
+        knowledgeContext += `## Product Feature Support Decision (HIGHEST PRIORITY)\n`;
+        knowledgeContext += `The function knowledge row matching "${unsupportedFunctionName}" explicitly supports only "${unsupportedFunctionMatch.item.supportedProduct}". The selected product is "${selectedProduct}".\n`;
+        knowledgeContext += `You MUST reply that the selected product currently does not support this function. Do not provide its description, entry path, UI position, prerequisites, steps, workaround, or instructions from FAQ or any other product. Do not claim it is planned unless separately documented.\n\n`;
+      }
       if (shouldUseFunctionKnowledge && matchedFunctionKnowledge.length > 0) {
         knowledgeContext += "## Function Knowledge Base (sorted by relevance score)\n";
         knowledgeContext += "IMPORTANT: For feature capability / function usage questions, you MUST use this function knowledge before saying no related knowledge was found.\n";
@@ -2621,6 +2662,7 @@ The customer requested step-by-step setup instructions. Before giving any number
           if (item.keywordsCN) knowledgeContext += `KeywordsCN: ${item.keywordsCN}\n`;
           if (item.keywordsEN) knowledgeContext += `KeywordsEN: ${item.keywordsEN}\n`;
           if (item.faqIds) knowledgeContext += `RelatedFAQ: ${item.faqIds}\n`;
+          knowledgeContext += `SupportedProduct: ${item.supportedProduct || 'all'}\n`;
           knowledgeContext += "\n";
         });
       }

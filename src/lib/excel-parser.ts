@@ -12,6 +12,7 @@ import {
   ApiParameter,
   PricingPlan,
   PricingRawTable,
+  SupportedProduct,
   generateId,
 } from './types';
 
@@ -39,6 +40,12 @@ function parseTags(value: CellValue): string[] {
   const str = getCellValue(value);
   if (!str) return [];
   return str.split(/[,，;；]/).map(s => s.trim()).filter(Boolean);
+}
+
+function parseSupportedProduct(value: CellValue): SupportedProduct {
+  const normalized = getCellValue(value).toLowerCase();
+  if (normalized === 'dicloak' || normalized === 'paraturbo') return normalized;
+  return 'all';
 }
 
 // 通用 Excel 读取函数
@@ -217,6 +224,8 @@ function parseFunctionKnowledgeSheet(sheet: XLSX.WorkSheet): FunctionKnowledge[]
       faqIds: getCellValue(row['常见问题FAQ_ID']),
       keywordsCN: getCellValue(row['关键词（中文）']),
       keywordsEN: getCellValue(row['关键词（英文）']),
+      // 旧知识库没有该列时按共通功能处理，保持向后兼容。
+      supportedProduct: parseSupportedProduct(row['已支持产品'] ?? row['supported_products']),
     }));
 }
 

@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import type { ApiConfig, Conversation, ConversationContext, KnowledgeBase } from './types';
+import type { ApiConfig, Conversation, ConversationContext, KnowledgeBase, ProductName } from './types';
 import { generateId } from './types';
 
 // Supabase 配置
@@ -9,18 +9,22 @@ const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabase
 
 // ============ 默认配置 ============
 
-export const DEFAULT_SYSTEM_PROMPT = `你是 DICloak 客户运营助手，只生成可直接发送给客户的回复。
+export const DEFAULT_SYSTEM_PROMPT = `你是 DICloak 和 Paraturbo 两个指纹浏览器产品的客户运营助手，只生成可直接发送给客户的回复。
 
 产品与职责：
-- DICloak 是用于管理和共享平台/工具账号的指纹浏览器，只提供浏览器工具。直接客户注册 DICloak、创建环境，并管理自己的账号和信息；我们应协助直接客户解决软件问题、运营平台账号并了解功能与套餐。
+- 每个对话都会提供已选产品（DICloak 或 Paraturbo）。回复必须以已选产品为主体，除非客户明确要求对比，不得出现另一个产品名。
+- DICloak 和 Paraturbo 都用于多账号管理、团队协作和账号共享。Paraturbo 与 DICloak 底层代码相同；除已知差异外，功能逻辑、界面和操作流程相同。
+- DICloak 和 Paraturbo 都是用于管理和共享平台/工具账号的指纹浏览器，只提供浏览器工具。直接客户注册 DICloak、创建环境，并管理自己的账号和信息；我们应协助直接客户解决软件问题、运营平台账号并了解功能与套餐。
 - 共享业务终端用户从 DICloak 客户/管理员处购买或获配工具服务。我们协助其处理 DICloak 软件崩溃、登录故障、环境打不开、浏览器黑屏/卡顿和软件内报错；工具风控、工具账号登录、账号停用、订阅和退款由服务管理员处理。
-- 代理由第三方服务商提供。我们提供代理配置和可用性检查帮助；代理连接、线路质量、限制和额度由代理服务商确认。
-- 只有与 DICloak、账号管理/共享或客户运营完全无关的内容才超出支持范围。
+- 功能知识库的「已支持产品」为 all/dicloak/paraturbo。回答功能咨询前必须先检查该字段；当前产品不支持时，只能回复目前不支持，不得提供功能信息。未标注的历史功能数据默认为 all。
+- FAQ、排障资料和 UI 术语默认适用于两个产品。Paraturbo 对话可使用共通的 DICloak 资料，但最终回复必须将产品主体名替换为 Paraturbo。
+- 已知差异：Paraturbo 在“代理管理 > Paraturbo 代理”售卖代理 IP；DICloak 不售卖代理 IP。Paraturbo 没有 Open API 和推广返现板块。两个产品版本号不同。
+- 两个产品都只提供浏览器环境和账号管理能力，不代替客户执行第三方业务，不保证第三方平台的检测、风控、内容、支付或账号结果。
 
 核心规则：
 1. 必须按用户问题语言回复正文；短 section 标签必须原样保留，不翻译、不改写。
-2. 套餐、价格、成员/环境额度、功能支持必须以内部价格数据为最高优先级；FAQ 仅作补充。禁止编造没有依据的限制、按钮、路径、权限、密码/有效期、额度或操作步骤；可以提供官网或操作指南链接；禁止在对外回复中提到具体知识库文件名、FAQ 文件、价格功能表等内部文件/表名称。功能咨询或故障报错未检索到相关信息时：若涉及 DICloak 软件本身的技术逻辑，应回复“该问题我们需进一步跟技术人员确认”；若属于网络或网站本身的通用问题，可基于通用公开信息组织回答，但第一句必须写明“知识库未检索到相关知识，该回复由AI生成，请核实后回复客户”。
-3. 用户提到 ChatGPT、Claude、Midjourney 等工具名称时，不要直接判为终端用户或超出范围；管理、分发、共享或配置这些账号的人是 DICloak 客户。
+2. 套餐、价格、成员/环境额度、功能支持必须以已标注适用当前产品的内部数据为最高优先级；FAQ 仅作补充。禁止编造没有依据的限制、按钮、路径、权限、密码/有效期、额度或操作步骤；可以提供官网或操作指南链接；禁止在对外回复中提到内部文件/表名称。功能咨询或故障报错未检索到相关信息时：若涉及当前产品本身的技术逻辑，应回复“该问题我们需进一步跟技术人员确认”；若属于网络或网站本身的通用问题，可基于通用公开信息组织回答，但第一句必须写明“知识库未检索到相关知识，该回复由AI生成，请核实后回复客户”。
+3. 用户提到 ChatGPT、Claude、Midjourney 等工具名称时，不要直接判为终端用户或超出范围；管理、分发、共享或配置这些账号的人是当前产品的直接客户。
 4. 只有明确说明账号由商家/管理员提供且自己不是管理者时，才按终端用户处理。身份不明且处理责任会因身份不同而变化时，只询问账号来源/是否为管理员，不重复询问已经明确的工具名称。
 5. 故障信息不足时，优先收集报错、截图/录屏、操作步骤、账号来源、使用场景。
 
@@ -365,18 +369,26 @@ export function saveApiConfig(config: ApiConfig): void {
 
 export function getConversations(): Conversation[] {
   const stored = localStorage.getItem('diclok_conversations');
-  return stored ? JSON.parse(stored) : [];
+  if (!stored) return [];
+
+  const conversations = JSON.parse(stored) as Array<Omit<Conversation, 'product'> & { product?: ProductName }>;
+  return conversations.map((conversation) => ({
+    ...conversation,
+    // Existing conversations predate product selection and belong to DICloak.
+    product: conversation.product === 'paraturbo' ? 'paraturbo' : 'dicloak',
+  }));
 }
 
 export function saveConversations(conversations: Conversation[]): void {
   localStorage.setItem('diclok_conversations', JSON.stringify(conversations));
 }
 
-export function createConversation(title?: string): Conversation {
+export function createConversation(product: ProductName, title?: string): Conversation {
   const conversations = getConversations();
   const newConversation: Conversation = {
     id: generateId(),
     title: title || `对话 ${conversations.length + 1}`,
+    product,
     messages: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),

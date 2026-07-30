@@ -34,6 +34,8 @@ export interface GenerationStatus {
 // 对话上下文 - 用于多轮对话记忆
 export type ConversationRole = 'client' | 'end_user';
 export type ConversationRoleSource = 'manual' | 'ai' | null;
+export type ProductName = 'dicloak' | 'paraturbo';
+export type SupportedProduct = ProductName | 'all';
 
 export interface ConversationContext {
   // 客户信息
@@ -61,6 +63,7 @@ export interface ConversationContext {
 export interface Conversation {
   id: string;
   title: string;
+  product: ProductName;
   messages: Message[];
   createdAt: number;
   updatedAt: number;
@@ -150,6 +153,7 @@ export interface FunctionKnowledge {
   faqIds: string;          // 常见问题FAQ_ID
   keywordsCN: string;       // 关键词（中文）
   keywordsEN: string;       // 关键词（英文）
+  supportedProduct: SupportedProduct; // 已支持产品：all/dicloak/paraturbo
 }
 
 // 术语库
