@@ -2310,17 +2310,24 @@ The customer requested step-by-step setup instructions. Before giving any number
 
       // 功能知识库匹配过滤
       const functionKnowledgeItems = (knowledge.functionKnowledge || []) as FunctionKnowledgeItem[];
-      const scoredFunctionKnowledge = functionKnowledgeItems
+      // Product scope must be applied before relevance ranking. Otherwise an
+      // identically named function for the other product can outrank (or tie)
+      // the selected product's own record and incorrectly trigger "unsupported".
+      const compatibleFunctionKnowledgeItems = functionKnowledgeItems.filter(supportsSelectedProduct);
+      const incompatibleFunctionKnowledgeItems = functionKnowledgeItems.filter((item) => !supportsSelectedProduct(item));
+      const matchedFunctionKnowledge = compatibleFunctionKnowledgeItems
         .map((item: FunctionKnowledgeItem) => ({ item, score: calculateFunctionKnowledgeScore(currentMessageText, item, userKeywords) }))
         .filter((m) => m.score > 0)
         .sort((a, b) => b.score - a.score);
-      const matchedFunctionKnowledge = scoredFunctionKnowledge.filter((match) => supportsSelectedProduct(match.item));
       const topCompatibleFunctionScore = matchedFunctionKnowledge[0]?.score ?? 0;
-      const unsupportedFunctionMatch = scoredFunctionKnowledge.find((match) =>
-        !supportsSelectedProduct(match.item)
-        && match.score >= 8
-        && match.score >= topCompatibleFunctionScore
-      );
+      // Only consult other-product records to establish a genuinely unsupported
+      // feature when no relevant all/current-product record exists.
+      const unsupportedFunctionMatch = topCompatibleFunctionScore < 8
+        ? incompatibleFunctionKnowledgeItems
+            .map((item: FunctionKnowledgeItem) => ({ item, score: calculateFunctionKnowledgeScore(currentMessageText, item, userKeywords) }))
+            .filter((match) => match.score >= 8)
+            .sort((a, b) => b.score - a.score)[0]
+        : undefined;
 
       // Troubleshooting 匹配过滤
       type TsItem = { questionCN: string; questionEN?: string; tags?: string[]; userPhrases?: string; answer: string; answerClient?: string; answerEndUser?: string; functionId?: string; termIds?: string[]; faqId?: string };
