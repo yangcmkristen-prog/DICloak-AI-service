@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { LLMClient, Config } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import type { KnowledgeBase, ProductName, SupportedProduct } from '@/lib/types';
-import { rewriteProductDomains } from '@/lib/product-url';
+import { rewriteProductBrand, rewriteProductDomains } from '@/lib/product-url';
 import { callExtensionTranslateModel } from "../copilot/shared";
 
-function sanitizeCustomerFacingContent(content: string, language: string = 'zh', product: ProductName = 'dicloak'): string {
+function sanitizeCustomerFacingContent(
+  content: string,
+  language: string = 'zh',
+  product: ProductName = 'dicloak',
+  isProductComparison: boolean = false
+): string {
   let sanitized = content
     .replace(/\[(?:FAQ_ID|TS_ID|FUNCTION_ID):\s*[^\]]+\]\s*/gi, '')
     .replace(/\bDIClo\b(?!ak)/g, 'DICloak')
@@ -35,7 +40,16 @@ function sanitizeCustomerFacingContent(content: string, language: string = 'zh',
       .replace(/共享版\+\s*[（(](Share\+)[）)]/gi, '$1');
   }
 
-  return rewriteProductDomains(sanitized, product);
+  return rewriteProductBrand(rewriteProductDomains(sanitized, product), product, isProductComparison);
+}
+
+function isExplicitProductComparison(message: string): boolean {
+  const normalized = message.toLowerCase();
+  const namesBothProducts = normalized.includes('dicloak') && normalized.includes('paraturbo');
+  const refersToBothProducts = /(?:两个|两款|二者|这两(?:个|款))\s*(?:产品|软件)?/.test(normalized);
+  const comparisonIntent = /(?:区别|差异|不同|对比|比较|哪个好|compare|comparison|difference|different|\bvs\.?\b|versus)/i.test(normalized);
+
+  return comparisonIntent && (namesBothProducts || refersToBothProducts);
 }
 
 function extractActualUserCount(message: string): number | null {
@@ -1727,6 +1741,7 @@ export async function POST(request: NextRequest) {
 
     const currentMessageText = message || imageOcrResults?.map((item) => item.text).join("\n") || "";
     const selectedProduct: ProductName = product === 'paraturbo' ? 'paraturbo' : 'dicloak';
+    const productComparisonRequested = isExplicitProductComparison(currentMessageText);
 
     console.log(`[PERF][CHAT] pre_config_ms=${Date.now() - t0}`);
 
@@ -3089,7 +3104,12 @@ MANDATORY EXECUTION RULES:
           console.error('[Language QA] 回复语言纠正失败，使用原始回复:', languageError);
           return correctedContent;
         });
-        const sanitizedContent = sanitizeCustomerFacingContent(languageCorrectedContent, effectiveLanguage, selectedProduct);
+        const sanitizedContent = sanitizeCustomerFacingContent(
+          languageCorrectedContent,
+          effectiveLanguage,
+          selectedProduct,
+          productComparisonRequested
+        );
         controller.enqueue(encoder.encode(`${sanitizedContent}${buildStructuredReplyPayload(sanitizedContent)}`));
       }
       controller.close();
