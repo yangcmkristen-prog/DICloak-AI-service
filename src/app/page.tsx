@@ -801,7 +801,12 @@ export default function Home() {
     setConversations((prev) => {
       const updated = prev.map((c) => {
         if (c.id === currentConversationId) {
-          return { ...c, messages: [...c.messages, userMessage] };
+          const firstQuestion = content.trim() || attachments[0]?.name || "图片问题";
+          return {
+            ...c,
+            title: c.messages.length === 0 ? firstQuestion : c.title,
+            messages: [...c.messages, userMessage],
+          };
         }
         return c;
       });
