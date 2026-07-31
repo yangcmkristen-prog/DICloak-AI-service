@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, CalendarDays, Check, ChevronRight, Globe2, MessageCircle, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, CalendarDays, Check, ChevronRight, Download, FileSpreadsheet, Globe2, MessageCircle, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
+import { downloadCustomerImportTemplate, parseCustomerImportFile, type CustomerImportRow } from "@/lib/customer-import";
 
 type IssueStatus = "未处理" | "处理中" | "已解决";
 type Issue = { title: string; description: string; resolution: string; status: IssueStatus; date: string };
@@ -86,6 +87,7 @@ export function CustomerOverview() {
   const [region, setRegion] = useState("all");
   const [status, setStatus] = useState("all");
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [sort, setSort] = useState<{ key: "monthlyFee" | "createdAt"; direction: "asc" | "desc" } | null>(null);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
     name: 150, teamId: 130, contact: 170, region: 110, plan: 110, monthlyFee: 120,
@@ -171,7 +173,7 @@ export function CustomerOverview() {
 
   return <div className="h-full overflow-y-auto bg-slate-50/70 p-4 md:p-8">
     <div className="mx-auto max-w-[1500px]">
-      <div className="mb-6 flex items-end justify-between gap-4"><div><h2 className="text-2xl font-bold">客户概览</h2><p className="mt-1 text-sm text-muted-foreground">AI 自动总结客户核心信息，帮助快速了解客户情况</p></div><Button className="bg-blue-600" onClick={() => setAdding(true)}><Plus />添加客户</Button></div>
+      <div className="mb-6 flex items-end justify-between gap-4"><div><h2 className="text-2xl font-bold">客户概览</h2><p className="mt-1 text-sm text-muted-foreground">AI 自动总结客户核心信息，帮助快速了解客户情况</p></div><div className="flex gap-2"><Button variant="outline" onClick={() => setImporting(true)}><FileSpreadsheet />批量导入</Button><Button className="bg-blue-600" onClick={() => setAdding(true)}><Plus />添加客户</Button></div></div>
       <div className="mb-4 grid gap-3 md:grid-cols-[1fr_180px_180px]">
         <div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(event) => setQuery(event.target.value)} className="bg-background pl-9" placeholder="搜索联系人、团队 ID 或联系方式" /></div>
         <Select value={region} onValueChange={setRegion}><SelectTrigger className="w-full bg-background"><Globe2 className="size-4" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部地区</SelectItem>{[...new Set(customers.map((customer) => customer.region))].map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
@@ -214,7 +216,60 @@ export function CustomerOverview() {
     </div>
     {selected && <CustomerDetail customer={selected} onClose={() => setSelectedId(null)} onSummarize={summarize} onSave={(updated) => setCustomers((items) => items.map((item) => item.id === updated.id ? updated : item))} />}
     <AddCustomerDialog open={adding} customers={customers} onOpenChange={setAdding} onCreated={async (id) => { await loadCustomers(); setSelectedId(id); }} onExisting={(id) => { setAdding(false); setSelectedId(id); }} />
+    <CustomerImportDialog open={importing} onOpenChange={setImporting} onImported={() => loadCustomers()} />
   </div>;
+}
+
+type ImportAnalysis = { recognized: number; created: number; updated: number; errors: string[] };
+
+function CustomerImportDialog({ open, onOpenChange, onImported }: { open: boolean; onOpenChange: (open: boolean) => void; onImported: () => Promise<void> }) {
+  const [rows, setRows] = useState<CustomerImportRow[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [analysis, setAnalysis] = useState<ImportAnalysis | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const reset = () => { setRows([]); setFileName(""); setAnalysis(null); };
+  const changeOpen = (nextOpen: boolean) => { if (!nextOpen && !saving) reset(); onOpenChange(nextOpen); };
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    setAnalyzing(true); setAnalysis(null); setFileName(file.name);
+    try {
+      const parsedRows = await parseCustomerImportFile(file);
+      const response = await fetch("/api/copilot/customer-summary", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerImport: parsedRows, commit: false }),
+      });
+      const payload = await response.json() as ImportAnalysis & { error?: string };
+      if (!response.ok) throw new Error(payload.error || "表格分析失败");
+      setRows(parsedRows); setAnalysis(payload);
+    } catch (error: unknown) {
+      reset(); toast.error(error instanceof Error ? error.message : "表格分析失败");
+    } finally { setAnalyzing(false); }
+  };
+  const submit = async () => {
+    if (!analysis?.recognized) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/copilot/customer-summary", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerImport: rows, commit: true }),
+      });
+      const payload = await response.json() as ImportAnalysis & { error?: string };
+      if (!response.ok) throw new Error(payload.error || "客户导入失败");
+      await onImported();
+      toast.success(`导入完成：新建 ${payload.created} 条，更新 ${payload.updated} 条`);
+      reset(); onOpenChange(false);
+    } catch (error: unknown) { toast.error(error instanceof Error ? error.message : "客户导入失败"); } finally { setSaving(false); }
+  };
+
+  return <Dialog open={open} onOpenChange={changeOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>批量导入客户</DialogTitle><DialogDescription>系统以团队 ID 匹配客户；已有记录更新，未有记录自动创建。</DialogDescription></DialogHeader>
+    <section className="space-y-3 rounded-lg border p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="font-medium">导入模板</h4><p className="text-sm text-muted-foreground">请先下载模板并按示例填写。</p></div><Button variant="outline" onClick={downloadCustomerImportTemplate}><Download />下载模板</Button></div>
+      <div className="overflow-x-auto rounded-md border"><Table><TableHeader><TableRow>{["团队ID *", "创建时间", "套餐月费", "地区", "当前套餐", "客户状态"].map((header) => <TableHead key={header} className="whitespace-nowrap">{header}</TableHead>)}</TableRow></TableHeader><TableBody><TableRow>{["DIC-示例001", "2026-07-31", "49.00", "中国", "Plus", "活跃"].map((value) => <TableCell key={value} className="whitespace-nowrap text-xs text-muted-foreground">{value}</TableCell>)}</TableRow></TableBody></Table></div>
+      <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground"><li>团队 ID 必填，且同一表格内不可重复。</li><li>已有客户仅更新非空单元格；空白字段保留原值。</li><li>客户状态可填写：活跃、流失风险、已停滞、潜在客户。</li><li>创建时间建议填写 YYYY-MM-DD，例如 2026-07-31。</li></ul>
+    </section>
+    <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed p-6 text-center hover:bg-muted/40"><Upload className="size-6 text-blue-600" /><span className="font-medium">{analyzing ? "正在分析表格…" : "上传 Excel 表格"}</span><span className="text-xs text-muted-foreground">支持 .xlsx、.xls 文件{fileName ? ` · ${fileName}` : ""}</span><Input className="sr-only" type="file" accept=".xlsx,.xls" disabled={analyzing || saving} onChange={(event) => void upload(event.target.files?.[0])} /></label>
+    {analysis ? <section className="space-y-3"><div className="grid grid-cols-3 gap-3">{[["成功识别", analysis.recognized], ["新建客户", analysis.created], ["更新客户", analysis.updated]].map(([label, value]) => <Card key={label}><CardContent className="py-4 text-center"><p className="text-2xl font-bold text-blue-600">{value}</p><p className="text-xs text-muted-foreground">{label}</p></CardContent></Card>)}</div>{analysis.errors.length ? <div className="max-h-28 overflow-y-auto rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"><p className="mb-1 font-medium">以下行未识别：</p>{analysis.errors.map((error) => <p key={error}>{error}</p>)}</div> : null}</section> : null}
+    <DialogFooter><Button variant="outline" disabled={saving} onClick={() => changeOpen(false)}>取消</Button><Button disabled={!analysis?.recognized || analyzing || saving} onClick={() => void submit()}>{saving ? "正在导入…" : "确认导入"}</Button></DialogFooter>
+  </DialogContent></Dialog>;
 }
 
 function CustomerDetail({ customer, onClose, onSummarize, onSave }: { customer: Customer; onClose: () => void; onSummarize: () => void; onSave: (customer: Customer) => void }) {

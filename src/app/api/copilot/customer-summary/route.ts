@@ -6,6 +6,57 @@ const CORS_HEADERS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow
 
 type SummaryRecord = Record<string, unknown> & { issues?: unknown[]; featureRequests?: unknown[] };
 
+type CustomerImportRow = {
+  teamId?: unknown;
+  createdAt?: unknown;
+  monthlyFee?: unknown;
+  region?: unknown;
+  currentPlan?: unknown;
+  customerStatus?: unknown;
+};
+
+const importStatuses = new Set(["活跃", "流失风险", "已停滞", "潜在客户"]);
+
+function validateCustomerImportRows(value: unknown): { rows: Array<Record<string, string>>; errors: string[] } {
+  if (!Array.isArray(value)) return { rows: [], errors: ["没有可导入的客户记录"] };
+  const rows: Array<Record<string, string>> = [];
+  const errors: string[] = [];
+  const seenTeamIds = new Set<string>();
+  value.forEach((rawRow, index) => {
+    if (!rawRow || typeof rawRow !== "object" || Array.isArray(rawRow)) {
+      errors.push(`第 ${index + 2} 行格式无效`);
+      return;
+    }
+    const input = rawRow as CustomerImportRow;
+    const teamId = typeof input.teamId === "string" ? input.teamId.trim() : "";
+    const normalized = normalizedTeamId(teamId);
+    if (!teamId) {
+      errors.push(`第 ${index + 2} 行缺少团队 ID`);
+      return;
+    }
+    if (seenTeamIds.has(normalized)) {
+      errors.push(`第 ${index + 2} 行团队 ID“${teamId}”在表格中重复`);
+      return;
+    }
+    const row: Record<string, string> = { teamId };
+    for (const key of ["createdAt", "monthlyFee", "region", "currentPlan", "customerStatus"] as const) {
+      const fieldValue = input[key];
+      if (typeof fieldValue === "string" && fieldValue.trim()) row[key] = fieldValue.trim();
+    }
+    if (row.createdAt && Number.isNaN(new Date(row.createdAt).getTime())) {
+      errors.push(`第 ${index + 2} 行创建时间格式无效`);
+      return;
+    }
+    if (row.customerStatus && !importStatuses.has(row.customerStatus)) {
+      errors.push(`第 ${index + 2} 行客户状态无效`);
+      return;
+    }
+    seenTeamIds.add(normalized);
+    rows.push(row);
+  });
+  return { rows, errors };
+}
+
 function normalizedTeamId(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
@@ -186,6 +237,51 @@ export async function PATCH(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const requestBody = await request.json() as unknown;
+    if (requestBody && typeof requestBody === "object" && !Array.isArray(requestBody) && "customerImport" in requestBody) {
+      const body = requestBody as { customerImport?: unknown; commit?: unknown };
+      const parsed = validateCustomerImportRows(body.customerImport);
+      const client = getSupabaseClient();
+      const { data: existingRows, error: lookupError } = await client.from("customer_summaries")
+        .select("external_chat_id, summary_data");
+      if (lookupError) throw lookupError;
+      const existingByTeamId = new Map<string, { external_chat_id: string; summary_data: SummaryRecord }>();
+      for (const existingRow of existingRows ?? []) {
+        const summary = existingRow.summary_data as SummaryRecord;
+        const teamId = normalizedTeamId(summary.teamId);
+        if (teamId && !existingByTeamId.has(teamId)) existingByTeamId.set(teamId, { ...existingRow, summary_data: summary });
+      }
+      const updated = parsed.rows.filter((row) => existingByTeamId.has(normalizedTeamId(row.teamId))).length;
+      const created = parsed.rows.length - updated;
+      if (body.commit !== true) {
+        return NextResponse.json({ recognized: parsed.rows.length, created, updated, errors: parsed.errors }, { headers: CORS_HEADERS });
+      }
+
+      const savedAt = new Date().toISOString();
+      for (const row of parsed.rows) {
+        const existing = existingByTeamId.get(normalizedTeamId(row.teamId));
+        const updates = Object.fromEntries(Object.entries(row).filter(([key]) => key !== "teamId"));
+        if (existing) {
+          const summary = { ...existing.summary_data, ...updates, teamId: row.teamId };
+          const { error } = await client.from("customer_summaries").update({ summary_data: summary, updated_at: savedAt })
+            .eq("external_chat_id", existing.external_chat_id);
+          if (error) throw error;
+          continue;
+        }
+        const externalChatId = `manual-${crypto.randomUUID()}`;
+        const createdAt = row.createdAt || savedAt;
+        const contactName = row.teamId;
+        const summary = {
+          externalChatId, platform: "manual", contactName, contactMethod: "批量导入", teamId: row.teamId,
+          customerStatus: "活跃", ...updates, createdAt, updatedAt: savedAt,
+        };
+        const { error } = await client.from("customer_summaries").insert({
+          external_chat_id: externalChatId, platform: "manual", contact_name: contactName, summary_data: summary,
+          source_message_hash: "customer-import", message_count: 0, created_at: createdAt, updated_at: savedAt,
+        });
+        if (error) throw error;
+      }
+      return NextResponse.json({ recognized: parsed.rows.length, created, updated, errors: parsed.errors }, { headers: CORS_HEADERS });
+    }
     if (requestBody && typeof requestBody === "object" && !Array.isArray(requestBody) && "customer" in requestBody) {
       const customer = (requestBody as { customer?: unknown }).customer;
       if (!customer || typeof customer !== "object" || Array.isArray(customer)) {

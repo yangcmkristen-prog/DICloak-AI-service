@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LLMClient, Config } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { extractGroundedKnowledgeKeywords } from '@/lib/knowledge-keywords';
 import type { KnowledgeBase, ProductName, SupportedProduct } from '@/lib/types';
 import { rewriteProductBrand, rewriteProductDomains } from '@/lib/product-url';
 import { callExtensionTranslateModel } from "../copilot/shared";
@@ -721,7 +722,7 @@ function shouldReviewCustomerFacingReply(config: ChatApiConfig, draft: string, r
   const reviewSignals = [
     /https?:\/\//i,
     /\b(?:Free|Base|Plus|Share\+)\b/i,
-    /\b(?:DIClo|DICloak|Open API|Share profile|Transfer profile)\b/i,
+    /\b(?:DIClo|DICloak|Paraturbo|Open API|Share profile|Transfer profile)\b/i,
     /(?:\d+(?:\.\d+)?\s*(?:美元|USD|\$|元|月|年|席位|成员|环境))/i,
     /(?:教程|指南|帮助|help|guide|quick start|入门)/i,
   ];
@@ -729,7 +730,7 @@ function shouldReviewCustomerFacingReply(config: ChatApiConfig, draft: string, r
   return reviewSignals.some((pattern) => pattern.test(draft) || pattern.test(referenceContext));
 }
 
-async function reviewCustomerFacingReply(config: ChatApiConfig, draft: string, referenceContext: string, languageRule: string): Promise<string> {
+async function reviewCustomerFacingReply(config: ChatApiConfig, draft: string, referenceContext: string, languageRule: string, currentQuestion: string): Promise<string> {
   if (!shouldReviewCustomerFacingReply(config, draft, referenceContext)) return draft;
 
   const systemPrompt = `You are a strict QA editor for DICloak customer-service replies.
@@ -737,6 +738,9 @@ Only fix factual/formatting corruption introduced during generation. Output only
 
 Checklist:
 - Preserve the original reply structure and section tags exactly.
+- Verify that the main reply directly answers the current user's object and requested action.
+- Candidate knowledge is not automatically relevant. Remove advice that merely shares a broad product/module term but answers a different question.
+- If the draft answers a different topic (for example proxy purchasing when the user asked about third-party reviews), rewrite it to answer the question using only the applicable responsibility rules and directly relevant reference facts.
 - Compare the draft against the reference context.
 - Fix missing punctuation that changes sentence boundaries.
 - Restore incomplete product/function names from the reference context, such as DICloak and Open API.
@@ -749,7 +753,7 @@ Checklist:
     { role: 'system', content: systemPrompt },
     {
       role: 'user',
-      content: `Reference context (authoritative, may contain internal IDs; do not output IDs):\n${referenceContext.slice(0, 18000)}\n\nDraft reply to QA and correct:\n${draft}`,
+      content: `Current user question:\n${currentQuestion}\n\nReference context (authoritative, may contain internal IDs; do not output IDs):\n${referenceContext.slice(0, 18000)}\n\nDraft reply to QA and correct:\n${draft}`,
     },
   ], 0);
 
@@ -1804,8 +1808,8 @@ export async function POST(request: NextRequest) {
 5. Act as DICloak customer operations and follow the product/responsibility model below; do not redirect direct customers to DICloak support because you are that support channel
 
 ## FAQ Selection
-- Choose the FAQ with HIGHEST Score
-- Prefer FAQs with Score >= 10
+- Review every supplied FAQ candidate. Scores indicate ranking, not a permission threshold.
+- Combine all candidates that directly address a distinct part of the user's question; resolve conflicts in favor of the more specific and higher-scored evidence.
 - Use provided knowledge IDs only for internal source selection. Do NOT output [FAQ_ID: xxx], [TS_ID: xxx], [FUNCTION_ID: xxx], file names, or any other source marker in customer-facing replies
 - Preserve punctuation, decimal points, and product/function names exactly as provided by the knowledge base or pricing data. Do not shorten DICloak to DIClo, do not change Open API to Open, or drop the decimal point in prices such as 28.8. Preserve URL paths, query strings, and fragments; when the selected product is Paraturbo, change DICloak website domains to their Paraturbo equivalents (for example, dicloak.com to paraturbo.com and help.dicloak.com to help.paraturbo.com)
 
@@ -1848,7 +1852,10 @@ export async function POST(request: NextRequest) {
     10. 如果客户说要给团队/成员分配、分享、发放 Claude/ChatGPT 等第三方工具账号或订阅，必须理解为“通过 DICloak 管理/共享已有第三方工具账号”的客户场景；不要回复 DICloak 无法协助分配订阅。可以说明 DICloak 不销售或代购第三方订阅，但可以协助进行账号管理、环境/profile 配置、成员使用安排。
     11. 客户要求“步骤/教程/怎么设置/по этапной инструкции”等操作说明时，只能输出内部资料明确提供的 Steps、EntryPath、UIPosition、标准答案步骤或官方帮助链接；如果资料没有明确步骤，不要编造按钮、菜单路径、权限设置、扩展设置、账号导入方式或分享流程，也不要提“知识库未提供”，应直接追问客户缺失配置或给出已有资料中的高层建议。
     12. 如果必须给出下一步，只能给安全的高层建议（例如确认要共享的第三方账号数量、是否每个用户独立账号、是否需要代理、参考已提供的官方链接），不得伪造具体 UI 操作路径。
-    13. 你就是 DICloak 技术支持/客服助手。禁止建议客户“咨询我们的技术支持/联系客服/询问人工客服/support team/техподдержка”。如果信息不足，直接向客户追问。例外：如果本次用户消息中出现“未收录问题处理策略”并判定为 DICloak 软件技术逻辑未收录问题，可以代表客服说明“该问题我们需进一步跟技术人员确认”，但不要让客户自行联系技术人员。`;
+    13. 你就是 DICloak 技术支持/客服助手。禁止建议客户“咨询我们的技术支持/联系客服/询问人工客服/support team/техподдержка”。如果信息不足，直接向客户追问。例外：如果本次用户消息中出现“未收录问题处理策略”并判定为 DICloak 软件技术逻辑未收录问题，可以代表客服说明“该问题我们需进一步跟技术人员确认”，但不要让客户自行联系技术人员。
+    14. 检索结果只是候选资料。回答前必须先判断资料是否直接对应客户询问的对象和动作；仅仅属于同一产品、同一模块或共享“账号/代理/环境”等宽泛词，不代表相关。
+    15. 禁止用相关模块的功能或操作步骤替换客户真正询问的问题。例如客户询问第三方平台评论结果时，不得因为候选资料提到代理，就改答代理购买或配置方法。没有直接相关资料时，应依据本提示中的产品责任边界作答或按未收录策略处理。
+    16. 必须逐条审阅所有已提供的候选知识；匹配分数只用于排序，不是使用门槛。凡是能直接回答客户问题某一部分的资料都应综合使用，不得只看最高分资料。`;
 
     const pricingGuardrail = `## 套餐/成员席位计算硬性要求
     1. 计划名称是产品专有名词。中文回复可写“Plus（高阶版）”；非中文回复必须只使用英文计划名 Free、Base、Plus、Share+，不得输出“高阶版/基础版/共享版+/免费版”等中文版本名称。
@@ -1921,24 +1928,7 @@ The customer requested step-by-step setup instructions. Before giving any number
     let knowledgeContext = "";
     let responseShouldUsePricingTable = false;
 
-    // 关键词来源：优先使用 AI 提取的关键词，否则使用本地提取
-    const extractKeywords = (text: string): string[] => {
-      const lower = text.toLowerCase();
-      // 分词
-      const words = lower.split(/[\s,.!?;:，。！？；：、]+/).filter(w => w.length > 1);
-      // 中文提取2-4字子串
-      const subs: string[] = [];
-      for (let i = 0; i < lower.length - 1; i++) {
-        for (let len = 2; len <= 4; len++) {
-          if (i + len <= lower.length) {
-            const sub = lower.substring(i, i + len);
-            if (/^[\u4e00-\u9fa5]+$/.test(sub)) subs.push(sub);
-          }
-        }
-      }
-      return [...new Set([...words, ...subs])];
-    };
-
+    // 从用户原话提取检索概念；AI 关键词仅在原话中有明确依据时补充。
     const expandDomainKeywords = (keywords: string[], userMessage: string): string[] => {
       const text = userMessage.toLowerCase();
       const expanded = new Set(keywords.map((keyword) => keyword.toLowerCase()).filter(Boolean));
@@ -2060,10 +2050,7 @@ The customer requested step-by-step setup instructions. Before giving any number
     const normalizeForMatch = (value: string): string => value.toLowerCase().replace(/[\s_\-]+/g, " ").trim();
     
     // 同时使用 AI 提取关键词和原始问题关键词，避免中文功能知识库被英文关键词覆盖而无法命中
-    const messageKeywords = extractKeywords(currentMessageText);
-    const baseKeywords: string[] = aiKeywords && aiKeywords.length > 0
-      ? [...new Set([...aiKeywords.map((k: string) => k.toLowerCase()), ...messageKeywords])]
-      : messageKeywords;
+    const baseKeywords = extractGroundedKnowledgeKeywords(currentMessageText, aiKeywords || []);
     const userKeywords = expandDomainKeywords(baseKeywords, currentMessageText);
     
     console.log('[DEBUG] 使用的关键词（英语）:', userKeywords);
@@ -2667,7 +2654,7 @@ The customer requested step-by-step setup instructions. Before giving any number
         knowledgeContext += "Use EntryPath, UIPosition, Prerequisites and Steps to answer how the feature works.\n";
         knowledgeContext += "INTERNAL: Each item has a FUNCTION ID for source selection only. Do NOT output [FUNCTION_ID: xxx] or any source marker.\n\n";
 
-        matchedFunctionKnowledge.slice(0, 12).forEach((m, index) => {
+        matchedFunctionKnowledge.slice(0, 20).forEach((m, index) => {
           const item = m.item;
           knowledgeContext += `[FUNCTION ${index + 1}] ID: ${item.functionId || item.id || 'unknown'} | Score: ${m.score}\n`;
           if (item.module1) knowledgeContext += `Module: ${item.module1}\n`;
@@ -2707,7 +2694,7 @@ The customer requested step-by-step setup instructions. Before giving any number
       const faqForContext = matchedFaq
         .filter((m) => {
           if (!finalIsPricingQuestion) return true;
-          return m.score >= 10 && isRelevantSupplementaryFaq(m.item);
+          return isRelevantSupplementaryFaq(m.item);
         })
         .slice(0, finalIsPricingQuestion ? 8 : 20);
       
@@ -2718,7 +2705,7 @@ The customer requested step-by-step setup instructions. Before giving any number
         }
         knowledgeContext += "INTERNAL: Each item has a FAQ ID for source selection only. Do NOT output [FAQ_ID: xxx] or any source marker.\n";
         knowledgeContext += "STRICT: For FAQ answers, use StandardAnswer as the factual boundary. Do NOT add buttons, paths, permissions, password/expiry settings, quota details, or extra steps that are not explicitly in StandardAnswer or another provided context item. Preserve StandardAnswer punctuation, feature names, decimal prices, and URLs exactly.\n";
-        knowledgeContext += "HINT: Higher score = more relevant. Prefer FAQs with score >= 10.\n\n";
+        knowledgeContext += "HINT: Scores rank candidates only. Review every item and combine all facts that directly answer a distinct part of the user's question.\n\n";
         faqForContext.forEach((m, index) => {
           const item = m.item;
           // 翻译术语：根据 term_id 在术语库中查找对应语言的翻译
@@ -2751,7 +2738,7 @@ The customer requested step-by-step setup instructions. Before giving any number
         knowledgeContext += "## Troubleshooting Knowledge Base (sorted by relevance score)\n";
         knowledgeContext += "INTERNAL: Each item has a TS ID for source selection only. Do NOT output [TS_ID: xxx] or any source marker.\n";
         knowledgeContext += "STRICT: Use provided StandardAnswer fields as the factual boundary. Do NOT add unprovided buttons, paths, permissions, password/expiry settings, quota details, or extra steps. Preserve StandardAnswer punctuation, feature names, decimal prices, and URLs exactly.\n";
-        knowledgeContext += "HINT: Higher score = more relevant. Prefer items with score >= 10.\n\n";
+        knowledgeContext += "HINT: Scores rank candidates only. Review every item and combine all facts that directly answer a distinct part of the user's question.\n\n";
         matchedTs.slice(0, 20).forEach((m, index) => {
           const item = m.item;
           // 翻译术语
@@ -3086,7 +3073,7 @@ MANDATORY EXECUTION RULES:
         console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
       }
       if (fullContent) {
-        const referenceContextForReview = knowledgeContext;
+        const referenceContextForReview = `${productResponsibilityGuardrail}\n${selectedProductGuardrail}\n${knowledgeContext}`;
         const shouldRunReview = shouldReviewCustomerFacingReply(config, fullContent, referenceContextForReview);
         if (shouldRunReview) {
           enqueueStatus("正在复核回复", "检查标点、功能名、价格和链接");
@@ -3094,7 +3081,7 @@ MANDATORY EXECUTION RULES:
           enqueueStatus("正在完成回复", "低风险内容，跳过二次复核");
         }
         const reviewedContent = shouldRunReview
-          ? await reviewCustomerFacingReply(config, fullContent, referenceContextForReview, languageRule).catch((reviewError: unknown) => {
+          ? await reviewCustomerFacingReply(config, fullContent, referenceContextForReview, languageRule, currentMessageText).catch((reviewError: unknown) => {
               console.error('[AI Review] 回复质检失败，使用原始回复:', reviewError);
               return fullContent;
             })
