@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { LLMClient, Config } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { extractGroundedKnowledgeKeywords } from '@/lib/knowledge-keywords';
+import { hasUnexpectedChineseReplyEnglish } from '@/lib/language-quality';
 import type { KnowledgeBase, ProductName, SupportedProduct } from '@/lib/types';
 import { rewriteProductBrand, rewriteProductDomains } from '@/lib/product-url';
 import { callExtensionTranslateModel } from "../copilot/shared";
@@ -539,7 +540,7 @@ function isReplyLanguageMismatch(content: string, targetLanguage: string): boole
     .filter(([script]) => script !== targetLanguage && script !== "latin")
     .reduce((sum, [, count]) => sum + count, 0);
 
-  if (targetLanguage === "zh") return counts.latin > Math.max(30, counts.zh * 1.5);
+  if (targetLanguage === "zh") return hasUnexpectedChineseReplyEnglish(content);
   if (LATIN_LANGUAGE_CODES.has(targetLanguage)) return foreignScriptCount > Math.max(12, counts.latin * 0.15);
   return (counts[targetLanguage] || 0) < foreignScriptCount;
 }
@@ -551,7 +552,7 @@ async function enforceReplyLanguage(config: ChatApiConfig, content: string, targ
   const translated = await callModelOnce(config, [
     {
       role: "system",
-      content: `You are a strict customer-reply translator. Translate every customer-facing sentence into ${targetName}. Preserve all [[section]] tags exactly. Preserve meaning, facts, numbers, URLs, product names, and UI terms. Do not add, remove, summarize, explain, or use another language. Output only the translated reply.`,
+      content: `You are a strict customer-reply translator. Translate every customer-facing sentence into ${targetName}. Preserve all [[section]] tags exactly. Preserve meaning, facts, numbers, URLs, product names, plan identifiers, and API identifiers. Translate UI labels too unless they are explicitly presented as an official untranslated product identifier. Do not add, remove, summarize, explain, or use another language. Output only the translated reply.`,
     },
     { role: "user", content },
   ], 0);

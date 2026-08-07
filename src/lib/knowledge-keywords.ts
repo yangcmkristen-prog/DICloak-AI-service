@@ -9,6 +9,21 @@ const chineseStopWords = new Set([
 const genericChineseCharacters = new Set("可以是否能否不能怎么如何什么为什么这个那个一下请问做吗呢呀么的了");
 const chineseFillerPattern = /可以|是否|能否|能不能|怎么|如何|什么|为什么|这个|那个|一下|请问/g;
 
+// The imported knowledge base is indexed primarily in Chinese and English. Map
+// common customer-language terms to those canonical concepts before scoring so
+// that retrieval does not depend on the generation model guessing a synonym.
+const groundedConceptAliases: Array<{ signals: RegExp; concepts: string[] }> = [
+  {
+    // Include frequent Portuguese/Spanish misspellings seen in support chats.
+    signals: /\b(?:navegador|novegador|navagador|browser|perfil|profile|ambiente|entorno)\b/i,
+    concepts: ["browser", "profile", "environment", "浏览器", "环境"],
+  },
+  {
+    signals: /\b(?:criar|cria|crear|create|novo|nuevo|new)\b|创建|新建/i,
+    concepts: ["create", "new", "创建", "新建"],
+  },
+];
+
 function normalizeKeyword(value: string): string {
   return value.toLowerCase().replace(/[\s_\-]+/g, " ").trim();
 }
@@ -47,6 +62,12 @@ export function extractGroundedKnowledgeKeywords(text: string, aiKeywords: strin
   for (const candidate of aiKeywords) {
     const keyword = normalizeKeyword(candidate);
     if (keyword.length > 1 && !latinStopWords.has(keyword) && normalizedMessage.includes(keyword)) keywords.add(keyword);
+  }
+  
+  for (const alias of groundedConceptAliases) {
+    if (alias.signals.test(text)) {
+      alias.concepts.forEach((concept) => keywords.add(concept));
+    }
   }
 
   return [...keywords];
