@@ -194,7 +194,7 @@ export function ConversationList({
                           ) : null}
                         </div>
 
-                    {/* 操作按钮 - PC端hover显示，移动端始终显示 */}
+                        {/* 操作按钮 - PC端hover显示，移动端始终显示 */}
                         <div className="ml-auto flex shrink-0 items-center justify-end gap-1 transition-opacity md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
