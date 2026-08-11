@@ -5,6 +5,7 @@ import { extractGroundedKnowledgeKeywords } from '@/lib/knowledge-keywords';
 import { hasUnexpectedChineseReplyEnglish } from '@/lib/language-quality';
 import type { KnowledgeBase, ProductName, SupportedProduct } from '@/lib/types';
 import { rewriteProductBrand, rewriteProductDomains } from '@/lib/product-url';
+import { enforceReplyTerminology, translateTermPlaceholders } from '@/lib/term-translation';
 import { callExtensionTranslateModel } from "../copilot/shared";
 
 function sanitizeCustomerFacingContent(
@@ -2056,92 +2057,6 @@ The customer requested step-by-step setup instructions. Before giving any number
     
     console.log('[DEBUG] 使用的关键词（英语）:', userKeywords);
 
-    // 术语翻译函数：根据 term_id 在术语库中查找对应语言的翻译
-    const translateTerms = (
-      text: string, 
-      termIds: string[] = [], 
-      userLang: string,
-      termItems: Array<{ termId?: string; zh?: string; en?: string; pt?: string; es?: string; ru?: string; vi?: string }> = []
-    ): string => {
-      if (!text || termIds.length === 0 || termItems.length === 0) return text;
-      
-      // 支持的语言字段映射
-      const langFieldMap: Record<string, string> = {
-        'zh': 'zh',
-        'cn': 'zh',
-        'chinese': 'zh',
-        'en': 'en',
-        'english': 'en',
-        'pt': 'pt',
-        'portuguese': 'pt',
-        'es': 'es',
-        'spanish': 'es',
-        'ru': 'ru',
-        'russian': 'ru',
-        'vi': 'vi',
-        'vietnamese': 'vi'
-      };
-      
-      const field = langFieldMap[userLang.toLowerCase()] || 'en';
-      
-      console.log(`[TERM DEBUG] 翻译术语 - 用户语言: ${userLang}, 字段: ${field}, termIds: ${termIds.join(', ')}`);
-      
-      // 构建 term_id 到翻译的映射
-      const termMap: Record<string, string> = {};
-      termItems.forEach(term => {
-        if (term.termId) {
-          const translation = (term as Record<string, unknown>)[field] as string || term.en || term.zh;
-          if (translation) {
-            termMap[term.termId] = translation;
-          }
-        }
-      });
-      
-      // 替换 {{xxx}} 格式的术语
-      let result = text;
-      
-      // 方法1: 根据 term_id 精确匹配术语库中的翻译
-      termIds.forEach(termId => {
-        const translation = termMap[termId];
-        if (translation) {
-          // 匹配 {{xxx}} 格式，其中 xxx 可能是任何文本
-          const bracketPattern = /\{\{[^}]+\}\}/g;
-          const matches = text.match(bracketPattern);
-          if (matches) {
-            matches.forEach(match => {
-              const innerText = match.slice(2, -2); // 提取 {{ 和 }} 之间的内容
-              // 如果术语库中的英文术语匹配 {{ }} 内的内容，则替换
-              const termEn = termItems.find(t => t.termId === termId)?.en;
-              if (termEn && innerText.toLowerCase() === termEn.toLowerCase()) {
-                result = result.replace(match, translation);
-                console.log(`[TERM DEBUG] 替换术语: ${match} -> ${translation} (termId: ${termId})`);
-              }
-            });
-          }
-        }
-      });
-      
-      // 方法2: 直接用术语库中的英文匹配 {{ }} 内的内容
-      const bracketPattern = /\{\{[^}]+\}\}/g;
-      const matches = result.match(bracketPattern);
-      if (matches) {
-        matches.forEach(match => {
-          const innerText = match.slice(2, -2).toLowerCase();
-          // 在术语库中查找英文匹配的术语
-          const matchedTerm = termItems.find(t => t.en && t.en.toLowerCase() === innerText);
-          if (matchedTerm && matchedTerm.termId) {
-            const translation = (matchedTerm as Record<string, unknown>)[field] as string || matchedTerm.en;
-            if (translation) {
-              result = result.replace(match, translation);
-              console.log(`[TERM DEBUG] 直接匹配替换: ${match} -> ${translation}`);
-            }
-          }
-        });
-      }
-      
-      return result;
-    };
-
     // 处理术语定位符和残留占位符，确保传给模型的知识库上下文不包含 {{}}
     const processTermMarkers = (text: string): string => {
       return text
@@ -2710,7 +2625,7 @@ The customer requested step-by-step setup instructions. Before giving any number
         faqForContext.forEach((m, index) => {
           const item = m.item;
           // 翻译术语：根据 term_id 在术语库中查找对应语言的翻译
-          const translatedAnswer = translateTerms(
+          const translatedAnswer = translateTermPlaceholders(
             item.answer, 
             item.termIds, 
             effectiveLanguage,
@@ -2743,7 +2658,7 @@ The customer requested step-by-step setup instructions. Before giving any number
         matchedTs.slice(0, 20).forEach((m, index) => {
           const item = m.item;
           // 翻译术语
-          const translatedAnswer = translateTerms(
+          const translatedAnswer = translateTermPlaceholders(
             item.answer, 
             item.termIds, 
             effectiveLanguage,
@@ -2752,13 +2667,13 @@ The customer requested step-by-step setup instructions. Before giving any number
           const processedAnswer = processTermMarkers(translatedAnswer);
           
           // 翻译 client 和 end_user 答案
-          const translatedAnswerClient = item.answerClient ? processTermMarkers(translateTerms(
+          const translatedAnswerClient = item.answerClient ? processTermMarkers(translateTermPlaceholders(
             item.answerClient, 
             item.termIds, 
             effectiveLanguage,
             knowledge.termItems || []
           )) : '';
-          const translatedAnswerEndUser = item.answerEndUser ? processTermMarkers(translateTerms(
+          const translatedAnswerEndUser = item.answerEndUser ? processTermMarkers(translateTermPlaceholders(
             item.answerEndUser, 
             item.termIds, 
             effectiveLanguage,
@@ -3099,8 +3014,13 @@ MANDATORY EXECUTION RULES:
           console.error('[Language QA] 回复语言纠正失败，使用原始回复:', languageError);
           return correctedContent;
         });
-        const sanitizedContent = sanitizeCustomerFacingContent(
+        const terminologyCorrectedContent = enforceReplyTerminology(
           languageCorrectedContent,
+          effectiveLanguage,
+          knowledge?.termItems || []
+        );
+        const sanitizedContent = sanitizeCustomerFacingContent(
+          terminologyCorrectedContent,
           effectiveLanguage,
           selectedProduct,
           productComparisonRequested
