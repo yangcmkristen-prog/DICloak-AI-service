@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { callTextModel, snapshotToTranscript, validateSnapshot } from "../shared";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 
-const CORS_HEADERS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
+const CORS_HEADERS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
 
 type SummaryRecord = Record<string, unknown> & { issues?: unknown[]; featureRequests?: unknown[] };
 
@@ -80,6 +80,23 @@ function mergeUnique(existing: unknown, incoming: unknown): unknown[] {
   return [...merged.values()];
 }
 
+function appendUnique(existing: unknown, incoming: unknown): unknown[] {
+  const preserved = Array.isArray(existing) ? existing : [];
+  const keys = new Set(preserved.map((item) => {
+    const value = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    return `${String(value.title ?? "").trim().toLowerCase()}|${String(value.description ?? "").trim().toLowerCase()}`;
+  }));
+  const additions: unknown[] = [];
+  for (const item of Array.isArray(incoming) ? incoming : []) {
+    const value = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    const key = `${String(value.title ?? "").trim().toLowerCase()}|${String(value.description ?? "").trim().toLowerCase()}`;
+    if (!key.replace("|", "") || keys.has(key)) continue;
+    keys.add(key);
+    additions.push(item);
+  }
+  return [...preserved, ...additions];
+}
+
 function utc8Date(value: number | string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -135,6 +152,11 @@ function parseJsonObject(content: string): Record<string, unknown> {
 
 function extractTeamId(displayName: string): string {
   return displayName.match(/^DIC-([A-Za-z0-9]+)(?:\s|$)/i)?.[1] ?? "";
+}
+
+function extractContactName(displayName: string): string {
+  const match = displayName.trim().match(/^DIC-[A-Za-z0-9]+\s+(.+)$/i);
+  return match?.[1].trim() || displayName.trim();
 }
 
 function normalizePlan(value: unknown): string {
@@ -234,6 +256,27 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
+export async function DELETE(request: NextRequest) {
+  try {
+    const externalChatId = request.nextUrl.searchParams.get("externalChatId")?.trim();
+    if (!externalChatId) {
+      return NextResponse.json({ error: "缺少有效的客户 ID" }, { status: 400, headers: CORS_HEADERS });
+    }
+    const { data, error } = await getSupabaseClient().from("customer_summaries")
+      .delete()
+      .eq("external_chat_id", externalChatId)
+      .select("external_chat_id");
+    if (error) throw error;
+    if (!data?.length) {
+      return NextResponse.json({ error: "未找到客户数据" }, { status: 404, headers: CORS_HEADERS });
+    }
+    return NextResponse.json({ deleted: true }, { headers: CORS_HEADERS });
+  } catch (error) {
+    console.error("[Customer Summary] 删除失败:", error);
+    return NextResponse.json({ error: "客户删除失败" }, { status: 500, headers: CORS_HEADERS });
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const requestBody = await request.json() as unknown;
@@ -311,32 +354,39 @@ export async function POST(request: NextRequest) {
     // the complete snapshot rather than the 20-message window used by replies.
     const inferredTeamId = extractTeamId(snapshot.chat.displayName);
     const teamId = (snapshot.chat.teamId || inferredTeamId).trim();
+    const contactName = teamId ? extractContactName(snapshot.chat.displayName) : snapshot.chat.displayName.trim();
     const client = getSupabaseClient();
     const { data: rows, error: lookupError } = await client.from("customer_summaries").select("external_chat_id, summary_data, message_count");
     if (lookupError) throw lookupError;
-    const existingRow = teamId ? (rows ?? []).find((row) => normalizedTeamId((row.summary_data as SummaryRecord).teamId) === normalizedTeamId(teamId)) : undefined;
+    const existingRow = (rows ?? []).find((row) => teamId
+      ? normalizedTeamId((row.summary_data as SummaryRecord).teamId) === normalizedTeamId(teamId)
+      : row.external_chat_id === snapshot.chat.externalChatId);
     const existing = existingRow?.summary_data as SummaryRecord | undefined;
     const lastSyncedAt = existing && typeof existing.updatedAt === "string" ? Date.parse(existing.updatedAt) : 0;
-    const recentMessages = snapshot.chat.platform === "telegram"
+    const initialMessages = snapshot.chat.platform === "telegram"
       ? snapshot.messages.filter((message) => typeof message.timestamp !== "number" || message.timestamp >= sixMonthsAgoTimestamp())
       : snapshot.messages;
-    const messages = snapshot.chat.platform === "telegram"
-      ? recentMessages
-      : lastSyncedAt > 0
-        ? recentMessages.filter((message) => typeof message.timestamp !== "number" || message.timestamp > lastSyncedAt)
-        : recentMessages;
+    const messages = existing && lastSyncedAt > 0
+      ? snapshot.messages.filter((message) => typeof message.timestamp === "number" && message.timestamp > lastSyncedAt)
+      : initialMessages;
     if (existing && messages.length === 0) {
       return NextResponse.json({ summary: existing, webUrl: `${request.nextUrl.origin}/?customer=${encodeURIComponent(String(existing.externalChatId))}`, noNewMessages: true }, { headers: CORS_HEADERS });
     }
     const transcript = snapshotToTranscript({ ...snapshot, messages });
-    const content = await callTextModel(
-      "你是 DICloak 客户运营分析师。仅根据完整聊天记录提取客户画像、历史问题和功能需求。所有总结性、描述性内容必须使用简体中文；品牌名、套餐名、团队 ID、电话号码等专有信息保留原文。未知字段填空字符串，不得编造。只输出 JSON。",
-      `请分析以下新增会话（共 ${messages.length} 条），输出 JSON：\n{
+    const outputSchema = existing ? `{
+  "issues":[{"title":"","description":"","resolution":"","status":"已解决/处理中/未处理","occurredAt":""}],
+  "featureRequests":[{"title":"","description":"","source":"客户聊天","status":"未评估/已评估/已有可实现方案/暂无法实现/已上线","requestedAt":""}]
+}` : `{
   "region":"", "customerType":"", "useCase":"", "userScale":"", "accountScale":"",
   "currentPlan":"", "monthlyFee":"", "customerStatus":"活跃/流失风险/已停滞/潜在客户", "notes":"",
   "issues":[{"title":"","description":"","resolution":"","status":"已解决/处理中/未处理","occurredAt":""}],
   "featureRequests":[{"title":"","description":"","source":"客户聊天","status":"未评估/已评估/已有可实现方案/暂无法实现/已上线","requestedAt":""}]
-}\n\n识别规则：\n1. 除品牌名和套餐名外，所有字段内容必须用简体中文填写。\n2. 不要提取或输出联系人名称、${snapshot.chat.platform === "telegram" ? "Telegram 联系方式" : "WhatsApp 号码"}和团队 ID，这些字段由系统直接采集。\n3. currentPlan 仅允许填写 Free、Base、Plus、Share+、Share。聊天中明确提及其中一种套餐时使用对应的标准名称；未提及或无法确认时留空，不得猜测。monthlyFee 仅在聊天明确提及月费时填写金额和币种，否则留空。\n4. 只有与 DICloak 产品直接相关、且必须由技术人员开发或改造产品才能实现的诉求，才可放入 featureRequests；咨询、故障、套餐诉求、第三方网站或代理需求一律不要归为功能需求。\n5. occurredAt 和 requestedAt 必须根据聊天记录填写对应问题或需求首次出现的日期，格式为 YYYY-MM-DD；无法精确判断时填写最接近的消息日期，不得留空。\n\n新增聊天记录：\n${transcript}`,
+}`;
+    const content = await callTextModel(
+      existing
+        ? "你是 DICloak 客户运营分析师。仅从上次总结后的新增聊天中提取新增的历史问题和功能需求，不得修改或重新总结任何已有客户信息。所有描述使用简体中文，只输出 JSON。"
+        : "你是 DICloak 客户运营分析师。仅根据完整聊天记录提取客户画像、历史问题和功能需求。所有总结性、描述性内容必须使用简体中文；品牌名、套餐名、团队 ID、电话号码等专有信息保留原文。未知字段填空字符串，不得编造。只输出 JSON。",
+      `请分析以下新增会话（共 ${messages.length} 条），输出 JSON：\n${outputSchema}\n\n识别规则：\n1. 除品牌名和套餐名外，所有字段内容必须用简体中文填写。\n2. 不要提取或输出联系人名称、${snapshot.chat.platform === "telegram" ? "Telegram 联系方式" : "WhatsApp 号码"}和团队 ID，这些字段由系统直接采集。\n3. ${existing ? "本次是增量总结，只能输出新增聊天中首次出现的问题和功能需求；不得输出客户基本信息，也不得根据新聊天修改此前的问题或需求。" : "currentPlan 仅允许填写 Free、Base、Plus、Share+、Share。聊天中明确提及其中一种套餐时使用对应的标准名称；未提及或无法确认时留空，不得猜测。monthlyFee 仅在聊天明确提及月费时填写金额和币种，否则留空。"}\n4. 只有与 DICloak 产品直接相关、且必须由技术人员开发或改造产品才能实现的诉求，才可放入 featureRequests；咨询、故障、套餐诉求、第三方网站或代理需求一律不要归为功能需求。\n5. occurredAt 和 requestedAt 必须根据聊天记录填写对应问题或需求首次出现的日期，格式为 YYYY-MM-DD；无法精确判断时填写最接近的消息日期，不得留空。\n\n新增聊天记录：\n${transcript}`,  
       0.2,
     );
     const latestMessageTimestamp = messages.reduce<number>((latest, message) =>
@@ -349,7 +399,7 @@ export async function POST(request: NextRequest) {
       platform: snapshot.chat.platform,
       contactMethod: snapshot.chat.platform === "telegram" ? "Telegram" : "WhatsApp",
       ...analysis,
-      contactName: snapshot.chat.displayName,
+      contactName,
       teamId,
       contactDetail: snapshot.chat.contactDetail || "",
       currentPlan: normalizePlan(analysis.currentPlan),
@@ -358,24 +408,18 @@ export async function POST(request: NextRequest) {
     };
     const summary = existing ? {
       ...existing,
-      platform: generated.platform,
-      contactMethod: generated.contactMethod,
-      contactName: generated.contactName,
-      contactDetail: generated.contactDetail,
-      currentPlan: generated.currentPlan || existing.currentPlan,
-      monthlyFee: generated.monthlyFee || existing.monthlyFee,
-      issues: mergeUnique(existing.issues, generated.issues),
-      featureRequests: mergeUnique(existing.featureRequests, generated.featureRequests),
+      issues: appendUnique(existing.issues, generated.issues),
+      featureRequests: appendUnique(existing.featureRequests, generated.featureRequests),
       updatedAt,
     } : generated;
     const recordId = existingRow?.external_chat_id ?? snapshot.chat.externalChatId;
     const { error } = await client.from("customer_summaries").upsert({
       external_chat_id: recordId,
       platform: snapshot.chat.platform,
-      contact_name: snapshot.chat.displayName,
+      contact_name: existing && typeof existing.contactName === "string" ? existing.contactName : contactName,
       summary_data: summary,
       source_message_hash: snapshot.sourceMessageHash,
-      message_count: snapshot.chat.platform === "telegram" ? messages.length : (existingRow?.message_count ?? 0) + messages.length,
+      message_count: (existingRow?.message_count ?? 0) + messages.length,
       updated_at: updatedAt,
     }, { onConflict: "external_chat_id" });
     if (error) throw error;

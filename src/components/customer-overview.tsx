@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, CalendarDays, Check, ChevronRight, Download, FileSpreadsheet, Globe2, MessageCircle, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -214,7 +215,7 @@ export function CustomerOverview() {
         {loading ? <div className="py-16 text-center text-sm text-muted-foreground">正在加载 AI 客户总结…</div> : null}
       </Card>
     </div>
-    {selected && <CustomerDetail customer={selected} onClose={() => setSelectedId(null)} onSummarize={summarize} onSave={(updated) => setCustomers((items) => items.map((item) => item.id === updated.id ? updated : item))} />}
+    {selected && <CustomerDetail customer={selected} onClose={() => setSelectedId(null)} onSummarize={summarize} onSave={(updated) => setCustomers((items) => items.map((item) => item.id === updated.id ? updated : item))} onDelete={(id) => { setCustomers((items) => items.filter((item) => item.id !== id)); setSelectedId(null); }} />}
     <AddCustomerDialog open={adding} customers={customers} onOpenChange={setAdding} onCreated={async (id) => { await loadCustomers(); setSelectedId(id); }} onExisting={(id) => { setAdding(false); setSelectedId(id); }} />
     <CustomerImportDialog open={importing} onOpenChange={setImporting} onImported={() => loadCustomers()} />
   </div>;
@@ -272,13 +273,14 @@ function CustomerImportDialog({ open, onOpenChange, onImported }: { open: boolea
   </DialogContent></Dialog>;
 }
 
-function CustomerDetail({ customer, onClose, onSummarize, onSave }: { customer: Customer; onClose: () => void; onSummarize: () => void; onSave: (customer: Customer) => void }) {
+function CustomerDetail({ customer, onClose, onSummarize, onSave, onDelete }: { customer: Customer; onClose: () => void; onSummarize: () => void; onSave: (customer: Customer) => void; onDelete: (id: string) => void }) {
   const [draft, setDraft] = useState(customer);
   const [editingProfile, setEditingProfile] = useState(false);
   const [editingFeature, setEditingFeature] = useState<number | null>(null);
   const [editingIssue, setEditingIssue] = useState<number | null>(null);
   const [editingNote, setEditingNote] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => setDraft(customer), [customer]);
 
@@ -337,8 +339,22 @@ function CustomerDetail({ customer, onClose, onSummarize, onSave }: { customer: 
   const finishNote = async () => {
     if (await persist(draft, "备注已保存")) setEditingNote(false);
   };
+  const deleteCustomer = async () => {
+    setDeleting(true);
+    try {
+      const response = await fetch(`/api/copilot/customer-summary?externalChatId=${encodeURIComponent(customer.id)}`, { method: "DELETE" });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "删除客户失败");
+      onDelete(customer.id);
+      toast.success("客户已删除");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "删除客户失败");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
-  return <div className="absolute inset-0 z-30 bg-black/25" onMouseDown={onClose}><aside role="dialog" aria-modal="true" aria-label={`${draft.name}的客户详情`} className="ml-auto flex h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden bg-background shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="shrink-0 border-b p-4 md:p-6"><div className="mb-3 flex justify-between md:mb-4"><Button variant="ghost" size="sm" onClick={onClose}><X />关闭</Button><Button size="sm" onClick={onSummarize}><RefreshCw />重新 AI 总结</Button></div><div className="flex min-w-0 items-center gap-3 md:gap-4"><Avatar className="size-12 shrink-0 md:size-14"><AvatarFallback className="bg-blue-50 text-blue-700">{draft.initials}</AvatarFallback></Avatar><div className="min-w-0"><h3 className="truncate text-lg font-bold md:text-xl">{draft.name}</h3><p className="mt-1 flex items-center gap-2 truncate text-sm text-muted-foreground"><MessageCircle className="size-4 shrink-0" />{draft.channel} · {draft.contact} · {draft.region}</p></div></div></header>
+  return <div className="absolute inset-0 z-30 bg-black/25" onMouseDown={onClose}><aside role="dialog" aria-modal="true" aria-label={`${draft.name}的客户详情`} className="ml-auto flex h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden bg-background shadow-2xl" onMouseDown={(event) => event.stopPropagation()}><header className="shrink-0 border-b p-4 md:p-6"><div className="mb-3 flex justify-between md:mb-4"><Button variant="ghost" size="sm" onClick={onClose}><X />关闭</Button><div className="flex gap-2"><AlertDialog><AlertDialogTrigger asChild><Button variant="outline" size="sm" className="text-destructive hover:text-destructive"><Trash2 />删除客户</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>确认删除客户？</AlertDialogTitle><AlertDialogDescription>将永久删除“{draft.name}”及其客户总结、历史问题和功能需求，此操作无法撤销。</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={deleting}>取消</AlertDialogCancel><AlertDialogAction disabled={deleting} className="bg-destructive text-white hover:bg-destructive/90" onClick={(event) => { event.preventDefault(); void deleteCustomer(); }}>{deleting ? "删除中…" : "确认删除"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog><Button size="sm" onClick={onSummarize}><RefreshCw />重新 AI 总结</Button></div></div><div className="flex min-w-0 items-center gap-3 md:gap-4"><Avatar className="size-12 shrink-0 md:size-14"><AvatarFallback className="bg-blue-50 text-blue-700">{draft.initials}</AvatarFallback></Avatar><div className="min-w-0"><h3 className="truncate text-lg font-bold md:text-xl">{draft.name}</h3><p className="mt-1 flex items-center gap-2 truncate text-sm text-muted-foreground"><MessageCircle className="size-4 shrink-0" />{draft.channel} · {draft.contact} · {draft.region}</p></div></div></header>
     <Tabs defaultValue="profile" className="min-h-0 flex-1 gap-0 overflow-hidden"><TabsList className="h-12 w-full shrink-0 justify-start overflow-x-auto rounded-none border-b bg-background px-2 md:px-6"><TabsTrigger className="flex-none" value="profile">客户信息</TabsTrigger><TabsTrigger className="flex-none" value="issues">历史问题 ({draft.issues.length})</TabsTrigger><TabsTrigger className="flex-none" value="features">功能需求 ({draft.features.length})</TabsTrigger><TabsTrigger className="flex-none" value="notes">备注</TabsTrigger></TabsList><div className="min-h-0 flex-1 touch-pan-y overscroll-contain overflow-y-auto bg-muted/20 p-4 md:p-6">
       <TabsContent value="profile" className="mt-0 space-y-4"><div className="flex justify-end">{editingProfile ? <Button size="sm" disabled={saving} onClick={() => void finishProfile()}><Check />完成</Button> : <Button size="sm" variant="outline" onClick={() => setEditingProfile(true)}><Pencil />编辑</Button>}</div><EditableInfoCard title="基础信息" editing={editingProfile} customer={draft} fields={[["联系人", "name"], ["联系方式", "contact"], ["渠道", "channel"], ["团队 ID", "teamId"], ["所在地区", "region"], ["客户类型", "type"], ["客户状态", "status"], ["当前套餐", "plan"], ["套餐月费", "monthlyFee"], ["创建时间", "createdAt"]]} onChange={(key, value) => setDraft((item) => ({ ...item, [key]: value }))} /><EditableInfoCard title="业务信息" editing={editingProfile} customer={draft} fields={[["使用场景", "scenario"], ["用户规模", "users"], ["账号规模", "accounts"]]} onChange={(key, value) => setDraft((item) => ({ ...item, [key]: value }))} /></TabsContent>
       <TabsContent value="issues" className="mt-0 space-y-4"><div className="flex justify-end"><Button size="sm" variant="outline" onClick={addIssue}><Plus />添加问题</Button></div>{draft.issues.map((issue, index) => <Card key={`issue-${index}`}><CardContent><div className="flex items-start gap-3"><div className="min-w-0 flex-1">{editingIssue === index ? <div className="space-y-3"><Input aria-label="问题标题" placeholder="问题标题" value={issue.title} onChange={(event) => setDraft((item) => ({ ...item, issues: item.issues.map((value, itemIndex) => itemIndex === index ? { ...value, title: event.target.value } : value) }))} /><Textarea aria-label="问题描述" placeholder="问题描述" value={issue.description} onChange={(event) => setDraft((item) => ({ ...item, issues: item.issues.map((value, itemIndex) => itemIndex === index ? { ...value, description: event.target.value } : value) }))} /><Input aria-label="处理记录" placeholder="处理记录" value={issue.resolution} onChange={(event) => setDraft((item) => ({ ...item, issues: item.issues.map((value, itemIndex) => itemIndex === index ? { ...value, resolution: event.target.value } : value) }))} /><Input type="date" aria-label="发生日期" value={issue.date} onChange={(event) => setDraft((item) => ({ ...item, issues: item.issues.map((value, itemIndex) => itemIndex === index ? { ...value, date: event.target.value } : value) }))} /></div> : <><h4 className="font-semibold">{issue.title}</h4><p className="mt-3 text-sm text-muted-foreground">{issue.description}</p><p className="mt-2 text-sm">处理记录：{issue.resolution}</p><p className="mt-3 flex items-center gap-1 text-xs text-muted-foreground"><CalendarDays className="size-3" />{issue.date}</p></>}</div><Select disabled={saving} value={issue.status} onValueChange={(value: IssueStatus) => updateIssueStatus(index, value)}><SelectTrigger className="w-28"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="未处理">未处理</SelectItem><SelectItem value="处理中">处理中</SelectItem><SelectItem value="已解决">已解决</SelectItem></SelectContent></Select>{editingIssue === index ? <Button aria-label="完成编辑" variant="ghost" size="icon" disabled={saving} onClick={() => void finishIssue(index)}><Check /></Button> : <Button aria-label="编辑历史问题" variant="ghost" size="icon" onClick={() => setEditingIssue(index)}><Pencil /></Button>}<Button aria-label="删除历史问题" variant="ghost" size="icon" disabled={saving} onClick={() => deleteIssue(index)}><Trash2 className="text-destructive" /></Button></div></CardContent></Card>)}</TabsContent>
