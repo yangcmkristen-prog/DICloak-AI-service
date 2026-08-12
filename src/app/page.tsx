@@ -10,6 +10,7 @@ import { KnowledgeManager } from "@/components/knowledge-manager";
 import { CustomerOverview } from "@/components/customer-overview";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -2136,14 +2137,14 @@ const handleTranslate = async () => {
               </Button>
             </aside>
             <section className="flex min-w-0 flex-1 flex-col">
-              <div className="flex h-14 shrink-0 items-center border-b px-4">
-                <div className="flex items-center gap-2">
+              <div className="flex h-14 min-w-0 shrink-0 items-center gap-2 border-b px-4">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
                   <span className="grid size-8 place-items-center rounded-lg bg-blue-600 text-white"><MessageSquare className="size-4" /></span>
-                  <div><p className="text-sm font-semibold">AI 助手</p><p className="text-[11px] text-muted-foreground">{currentConversation?.title || "新对话"}</p></div>
+                  <div className="min-w-0"><p className="text-sm font-semibold">AI 助手</p><p className="truncate text-[11px] text-muted-foreground" title={currentConversation?.title || "新对话"}>{currentConversation?.title || "新对话"}</p></div>
                 </div>
                 {currentConversation ? (
                   <Select value={currentConversation.product} onValueChange={(value) => handleUpdateConversationProduct(value as ProductName)}>
-                    <SelectTrigger className="ml-auto h-8 w-[130px]" aria-label="当前对话产品">
+                    <SelectTrigger className="h-8 w-[130px] shrink-0" aria-label="当前对话产品">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -2152,13 +2153,33 @@ const handleTranslate = async () => {
                     </SelectContent>
                   </Select>
                 ) : null}
-                <Button variant="ghost" size="icon" className={currentConversation ? "ml-2" : "ml-auto"} onClick={() => setIsAssistantOpen(false)} aria-label="关闭 AI 助手"><X className="size-4" /></Button>
+                <Button variant="ghost" size="icon" className="shrink-0" onClick={() => setIsAssistantOpen(false)} aria-label="关闭 AI 助手"><X className="size-4" /></Button>
               </div>
               <div className="flex items-center gap-2 border-b p-2 md:hidden">
                 <select value={currentConversationId || ""} onChange={(event) => handleSelectConversation(event.target.value)} className="min-w-0 flex-1 rounded-md border bg-background p-2 text-sm">
                   {conversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversation.title}</option>)}
                 </select>
-                <Button variant="outline" size="icon" onClick={handleCreateConversation} aria-label="新建对话"><Plus className="size-4" /></Button>
+                <div className="flex shrink-0 items-center gap-1">
+                  {currentConversation ? (
+                    <>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="icon" aria-label="选择当前对话角色" title="选择角色">
+                            <span className="text-xs" aria-hidden="true">{currentConversation.context?.confirmedIdentity === "client" ? "👤" : currentConversation.context?.confirmedIdentity === "end_user" ? "🙋" : "👥"}</span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleUpdateConversationRole(currentConversation.id, "client")}>👤 客户</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleUpdateConversationRole(currentConversation.id, "end_user")}>🙋 终端用户</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleUpdateConversationRole(currentConversation.id, null)}>不确认角色</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <Button variant="outline" size="icon" onClick={() => { setEditConversationName(currentConversation.title); setIsEditDialogOpen(true); }} aria-label="重命名当前对话" title="重命名对话"><Edit className="size-4" /></Button>
+                      <Button variant="outline" size="icon" onClick={() => handleDeleteConversation(currentConversation.id)} aria-label="删除当前对话" title="删除对话"><Trash2 className="size-4 text-red-500" /></Button>
+                    </>
+                  ) : null}
+                  <Button variant="outline" size="icon" onClick={handleCreateConversation} aria-label="新建对话" title="新建对话"><Plus className="size-4" /></Button>
+                </div>
               </div>
               <ChatArea
                 messages={currentConversation?.messages || []}

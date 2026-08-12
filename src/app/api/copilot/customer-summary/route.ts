@@ -8,6 +8,12 @@ type SummaryRecord = Record<string, unknown> & { issues?: unknown[]; featureRequ
 
 type CustomerImportRow = {
   teamId?: unknown;
+  contactName?: unknown;
+  contactDetail?: unknown;
+  customerType?: unknown;
+  useCase?: unknown;
+  userScale?: unknown;
+  accountScale?: unknown;
   createdAt?: unknown;
   monthlyFee?: unknown;
   region?: unknown;
@@ -39,7 +45,10 @@ function validateCustomerImportRows(value: unknown): { rows: Array<Record<string
       return;
     }
     const row: Record<string, string> = { teamId };
-    for (const key of ["createdAt", "monthlyFee", "region", "currentPlan", "customerStatus"] as const) {
+    for (const key of [
+      "contactName", "contactDetail", "customerType", "useCase", "userScale", "accountScale",
+      "createdAt", "monthlyFee", "region", "currentPlan", "customerStatus",
+    ] as const) {
       const fieldValue = input[key];
       if (typeof fieldValue === "string" && fieldValue.trim()) row[key] = fieldValue.trim();
     }
@@ -304,15 +313,19 @@ export async function POST(request: NextRequest) {
         const existing = existingByTeamId.get(normalizedTeamId(row.teamId));
         const updates = Object.fromEntries(Object.entries(row).filter(([key]) => key !== "teamId"));
         if (existing) {
-          const summary = { ...existing.summary_data, ...updates, teamId: row.teamId };
-          const { error } = await client.from("customer_summaries").update({ summary_data: summary, updated_at: savedAt })
+          const summary: SummaryRecord = { ...existing.summary_data, ...updates, teamId: row.teamId };
+          const { error } = await client.from("customer_summaries").update({
+            summary_data: summary,
+            contact_name: typeof summary["contactName"] === "string" ? summary["contactName"] : "",
+            updated_at: savedAt,
+          })
             .eq("external_chat_id", existing.external_chat_id);
           if (error) throw error;
           continue;
         }
         const externalChatId = `manual-${crypto.randomUUID()}`;
         const createdAt = row.createdAt || savedAt;
-        const contactName = row.teamId;
+        const contactName = row.contactName || row.teamId;
         const summary = {
           externalChatId, platform: "manual", contactName, contactMethod: "批量导入", teamId: row.teamId,
           customerStatus: "活跃", ...updates, createdAt, updatedAt: savedAt,

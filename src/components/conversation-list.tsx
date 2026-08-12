@@ -114,7 +114,7 @@ export function ConversationList({
             conversations.map((conversation) => (
               <div
                 key={conversation.id}
-                className={`group relative flex min-w-0 items-center gap-2 rounded-lg px-3 py-2 cursor-pointer transition-colors ${
+                className={`group relative grid min-w-0 grid-cols-[1rem_minmax(0,1fr)_5rem] items-center gap-2 rounded-lg px-3 py-2 cursor-pointer transition-colors ${
                   currentConversationId === conversation.id
                     ? "bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800"
                     : "hover:bg-gray-100 dark:hover:bg-gray-800"
@@ -144,7 +144,7 @@ export function ConversationList({
                 <MessageSquare className="w-4 h-4 shrink-0 text-gray-500" />
 
                 {editingId === conversation.id ? (
-                  <div className="flex min-w-0 flex-1 items-center gap-1">
+                  <div className="col-span-2 flex min-w-0 items-center gap-1">
                     <Input
                       value={editingTitle}
                       onChange={(e) => setEditingTitle(e.target.value)}
@@ -178,12 +178,11 @@ export function ConversationList({
                   </div>
                 ) : (
                   <>
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0">
                       <span className="block truncate text-sm" title={conversation.title}>
                         {conversation.title}
                       </span>
                       <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1">
-                        <div className="flex min-w-0 items-center gap-1">
                           <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] ${conversation.product === "paraturbo" ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-200" : "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-200"}`}>
                             {conversation.product === "paraturbo" ? "Paraturbo" : "DICloak"}
                           </span>
@@ -192,10 +191,11 @@ export function ConversationList({
                               {ROLE_LABELS[getConversationRole(conversation)!]}
                             </span>
                           ) : null}
-                        </div>
+                      </div>
+                    </div>
 
-                        {/* 操作按钮 - PC端hover显示，移动端始终显示 */}
-                        <div className="ml-auto flex shrink-0 items-center justify-end gap-1 transition-opacity md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100">
+                        {/* 独立固定宽度操作区，避免被长对话名称或标签挤出列表。 */}
+                        <div className="flex w-20 shrink-0 self-start items-center justify-end gap-1">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button
@@ -250,8 +250,6 @@ export function ConversationList({
                             <Trash2 className="w-3 h-3 text-red-500" />
                           </Button>
                         </div>
-                      </div>
-                    </div>
                   </>
                 )}
               </div>
