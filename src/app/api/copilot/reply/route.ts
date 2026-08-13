@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLatestCustomerMessage, validateSnapshot } from '../shared';
+import { getCopilotLanguageHint } from '@/lib/copilot-language';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -63,6 +64,7 @@ export async function POST(request: NextRequest) {
         // The chat API detects the reply language from `message`. Keep this field free of
         // Chinese orchestration text; the transcript is already supplied as history.
         message: latestCustomerMessage,
+        detectedLanguage: getCopilotLanguageHint(latestCustomerMessage),
         history: snapshot.messages.slice(-20).map((message) => ({
           role: message.role === 'agent' ? 'assistant' : 'user',
           content: message.text,

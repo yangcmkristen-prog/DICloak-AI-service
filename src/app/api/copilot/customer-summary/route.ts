@@ -328,7 +328,7 @@ export async function POST(request: NextRequest) {
         const contactName = row.contactName || row.teamId;
         const summary = {
           externalChatId, platform: "manual", contactName, contactMethod: "批量导入", teamId: row.teamId,
-          customerStatus: "活跃", ...updates, createdAt, updatedAt: savedAt,
+          customerStatus: "活跃", ...updates, createdAt, updatedAt: "",
         };
         const { error } = await client.from("customer_summaries").insert({
           external_chat_id: externalChatId, platform: "manual", contact_name: contactName, summary_data: summary,

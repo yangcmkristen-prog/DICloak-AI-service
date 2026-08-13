@@ -550,11 +550,16 @@ async function enforceReplyLanguage(config: ChatApiConfig, content: string, targ
   if (!LANGUAGE_DISPLAY_NAMES[targetLanguage] || !isReplyLanguageMismatch(content, targetLanguage)) return content;
 
   const targetName = LANGUAGE_DISPLAY_NAMES[targetLanguage];
+  const translationPrompt = `You are a strict customer-reply translator. Translate every customer-facing sentence into ${targetName}. Preserve all [[section]] tags exactly. Preserve meaning, facts, numbers, URLs, product names, plan identifiers, and API identifiers. Translate UI labels too unless they are explicitly presented as an official untranslated product identifier. Do not add, remove, summarize, explain, or use another language. Output only the translated reply.`;
+  // Prefer the separately configured translation model for language repair. It
+  // is less likely than the answer-generation model to continue an accidental
+  // English response or preserve mixed-language prose.
+  const dedicatedTranslation = await callExtensionTranslateModel(translationPrompt, content, 0).catch(() => "");
+  if (dedicatedTranslation && !isReplyLanguageMismatch(dedicatedTranslation, targetLanguage)) {
+    return dedicatedTranslation;
+  }
   const translated = await callModelOnce(config, [
-    {
-      role: "system",
-      content: `You are a strict customer-reply translator. Translate every customer-facing sentence into ${targetName}. Preserve all [[section]] tags exactly. Preserve meaning, facts, numbers, URLs, product names, plan identifiers, and API identifiers. Translate UI labels too unless they are explicitly presented as an official untranslated product identifier. Do not add, remove, summarize, explain, or use another language. Output only the translated reply.`,
-    },
+    { role: "system", content: translationPrompt },
     { role: "user", content },
   ], 0);
   return translated || content;
