@@ -7,6 +7,7 @@ import type { KnowledgeBase, ProductName, SupportedProduct } from '@/lib/types';
 import { rewriteProductBrand, rewriteProductDomains } from '@/lib/product-url';
 import { enforceReplyTerminology, translateTermPlaceholders } from '@/lib/term-translation';
 import { callExtensionTranslateModel } from "../copilot/shared";
+import { detectNonLatinLanguage } from '@/lib/copilot-language';
 
 function sanitizeCustomerFacingContent(
   content: string,
@@ -495,20 +496,9 @@ function detectRequestLanguageByRules(text: string, provided?: string): Language
     return { language: "zh", confidence: 0.95, source: "fallback" };
   }
 
-  const scripts: Array<[string, RegExp]> = [
-    ['ru', /[\u0400-\u04FF]/g],
-    ['ar', /[\u0600-\u06ff\u0750-\u077f]/g],
-    ['th', /[\u0e00-\u0e7f]/g],
-    ['ja', /[\u3040-\u30ff]/g],
-    ['ko', /[\uac00-\ud7af\u1100-\u115f]/g],
-    ['zh', /[\u4e00-\u9fa5]/g],
-  ];
-
-  for (const [language, pattern] of scripts) {
-    const count = (cleanText.match(pattern) || []).length;
-    if (count / totalChars >= 0.2) {
-      return { language, confidence: Math.min(0.99, count / totalChars), source: "script" };
-    }
+  const nonLatinLanguage = detectNonLatinLanguage(cleanText);
+  if (nonLatinLanguage) {
+    return { language: nonLatinLanguage, confidence: 0.95, source: "script" };
   }
 
   const latinLanguage = detectLatinRequestLanguage(cleanText);
