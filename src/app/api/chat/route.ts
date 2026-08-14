@@ -8,6 +8,7 @@ import { rewriteProductBrand, rewriteProductDomains } from '@/lib/product-url';
 import { enforceReplyTerminology, translateTermPlaceholders } from '@/lib/term-translation';
 import { callExtensionTranslateModel } from "../copilot/shared";
 import { detectNonLatinLanguage } from '@/lib/copilot-language';
+import { selectApiParameters } from '@/lib/api-parameters';
 
 function sanitizeCustomerFacingContent(
   content: string,
@@ -1089,10 +1090,8 @@ function searchApiEndpoints(
   }
 
   // 获取关联的参数
-  const matchedApiIds = matchedEndpoints.map(ep => ep.apiId).filter(Boolean);
-  const matchedParameters = apiParameters.filter(p => 
-    p.apiId && matchedApiIds.includes(p.apiId)
-  );
+  const matchedApiIds = matchedEndpoints.map(ep => ep.apiId).filter((apiId): apiId is string => Boolean(apiId));
+  const matchedParameters = selectApiParameters(apiParameters, matchedApiIds);
 
   // 生成摘要
   const summary = matchedEndpoints.map(ep => {
@@ -2517,6 +2516,38 @@ The customer requested step-by-step setup instructions. Before giving any number
           }
           priorityContext += "\n";
         });
+
+        // Rows without api_id are shared parameter details. They cannot be
+        // attached to one endpoint deterministically, so expose them once for
+        // every successful API lookup and let the model organize the relevant
+        // fields using module/function/scenario metadata.
+        const unscopedParameters = (apiSearchResult.parameters as unknown[]).filter((item) => {
+          const apiId = (item as { apiId?: unknown }).apiId;
+          return typeof apiId !== 'string' || apiId.trim().length === 0;
+        });
+        if (unscopedParameters.length > 0) {
+          priorityContext += "## Shared API Parameter Details (empty api_id; review all rows when answering)\n";
+          unscopedParameters.forEach((item) => {
+            const param = item as {
+              apiType?: string; module?: string; functionName?: string; method?: string; endpoint?: string;
+              paramLocation?: string; paramName?: string; paramType?: string; isRequired?: boolean;
+              description?: string; example?: string; validationRule?: string; remark?: string;
+            };
+            const required = param.isRequired ? ' [REQUIRED]' : '';
+            priorityContext += `- ${param.paramName || param.functionName || 'Unnamed parameter'} (${param.paramType || 'any'})${required}\n`;
+            if (param.apiType) priorityContext += `  API Type: ${param.apiType}\n`;
+            if (param.module) priorityContext += `  Module: ${param.module}\n`;
+            if (param.functionName) priorityContext += `  Function: ${param.functionName}\n`;
+            if (param.method) priorityContext += `  Method: ${param.method}\n`;
+            if (param.endpoint) priorityContext += `  Endpoint: ${param.endpoint}\n`;
+            if (param.paramLocation) priorityContext += `  Location: ${param.paramLocation}\n`;
+            if (param.description) priorityContext += `  Description: ${param.description}\n`;
+            if (param.example) priorityContext += `  Example/Options: ${param.example}\n`;
+            if (param.validationRule) priorityContext += `  Applicable Scenario: ${param.validationRule}\n`;
+            if (param.remark) priorityContext += `  Remarks: ${param.remark}\n`;
+          });
+          priorityContext += "\n";
+        }
       }
 
       // 优先构建价格功能表上下文（如果是套餐问题）
