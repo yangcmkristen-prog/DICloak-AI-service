@@ -8,7 +8,7 @@ import { rewriteProductBrand, rewriteProductDomains } from '@/lib/product-url';
 import { enforceReplyTerminology, translateTermPlaceholders } from '@/lib/term-translation';
 import { callExtensionTranslateModel } from "../copilot/shared";
 import { detectNonLatinLanguage } from '@/lib/copilot-language';
-import { selectApiParameters } from '@/lib/api-parameters';
+import { selectApiEndpointsByProductAndKeywords, selectApiParameters } from '@/lib/api-parameters';
 
 function sanitizeCustomerFacingContent(
   content: string,
@@ -997,10 +997,14 @@ function checkApiProblem(message: string): { isApiProblem: boolean; apiAction?: 
 function searchApiEndpoints(
   apiAction: string | undefined,
   apiObject: string | undefined,
+  question: string,
+  product: ProductName,
   apiEndpoints: Array<{
     apiId?: string;
     apiName?: string;
     apiType?: string;
+    supportedProduct?: SupportedProduct;
+    searchKeywords?: string;
     method?: string;
     endpoint?: string;
     description?: string;
@@ -1030,11 +1034,14 @@ function searchApiEndpoints(
   }
 
   // 过滤匹配的端点
-  const matchedEndpoints = apiEndpoints.filter(ep => {
+  const directlyMatchedEndpoints = apiEndpoints.filter(ep => {
     // 从 apiName 推断操作和对象
     const apiNameLower = (ep.apiName || '').toLowerCase();
     const methodLower = (ep.method || '').toLowerCase();
     const apiIdLower = (ep.apiId || '').toLowerCase();
+    const descriptionLower = (ep.description || '').toLowerCase();
+    const moduleLower = (ep.module || '').toLowerCase();
+    const endpointLower = (ep.endpoint || '').toLowerCase();
     
     // 匹配操作类型
     let actionMatch = true;
@@ -1053,7 +1060,8 @@ function searchApiEndpoints(
       actionMatch = keywords.some(k => 
         apiNameLower.includes(k.toLowerCase()) || 
         methodLower.includes(k.toLowerCase()) ||
-        apiIdLower.includes(k.toLowerCase())
+        apiIdLower.includes(k.toLowerCase()) ||
+        descriptionLower.includes(k.toLowerCase())
       );
     }
     
@@ -1073,12 +1081,20 @@ function searchApiEndpoints(
       objectMatch = keywords.some(k => 
         apiNameLower.includes(k.toLowerCase()) || 
         apiIdLower.includes(k.toLowerCase()) ||
-        (ep.endpoint || '').toLowerCase().includes(k.toLowerCase())
+        endpointLower.includes(k.toLowerCase()) ||
+        moduleLower.includes(k.toLowerCase()) ||
+        descriptionLower.includes(k.toLowerCase())
       );
     }
     
     return actionMatch && objectMatch;
   });
+  const matchedEndpoints = selectApiEndpointsByProductAndKeywords(
+    apiEndpoints,
+    directlyMatchedEndpoints,
+    product,
+    question,
+  );
 
   if (matchedEndpoints.length === 0) {
     return { 
@@ -1894,29 +1910,19 @@ The customer requested step-by-step setup instructions. Before giving any number
 4. 除上述共享业务终端用户外，DICloak 直接客户的相关问题都应由我们协助。身份不明且答案会因身份不同而变化时，只确认账号来源/是否为管理员，不重复询问用户已经明确的工具名称。
 5. 与 DICloak、账号管理/共享或客户运营完全无关的内容才是超出支持范围。出现 ChatGPT、Claude 等平台名本身不代表无关业务。
 6. 代理由第三方代理服务商提供。我们可以提供 DICloak 内的代理配置方法并协助检查代理能否使用；代理连接故障、服务限制、额度或线路质量由代理服务商排查确认。
-7. 不得编造知识资料未提供的步骤或结论；先理解责任边界，再使用匹配的标准答案。`;
+7. 产品功能是否支持、入口位置、操作步骤和限制必须以当前产品的功能知识库为准，不得根据另一产品的能力推断。
+8. 不得编造知识资料未提供的步骤或结论；先理解责任边界，再使用匹配的标准答案。`;
 
-    const selectedProductGuardrail = selectedProduct === 'paraturbo'
-      ? `## 当前对话产品：Paraturbo（最高优先级）
-1. 本对话已明确选择 Paraturbo。客户回复必须只以 Paraturbo 为主体，禁止写成 DICloak，除非客户明确要求比较两个产品。若某功能不支持，只说明 Paraturbo 当前不支持，不得说该功能“仅适用于其他产品”、不得提及其他产品是否支持，也不得解释内部产品适用范围。
-2. Paraturbo 与 DICloak 使用相同的指纹浏览器底层能力，同样用于多账号管理、隔离浏览器环境、团队协作和账号共享。知识资料中两者共通的功能可用于 Paraturbo，但对外必须使用 Paraturbo 产品名。
-3. Paraturbo 在“代理管理 > Paraturbo 代理”模块提供代理 IP 售卖服务；不得套用“DICloak 不提供代理”的结论。
-4. Paraturbo 没有 Open API 功能，也没有推广返现板块。即使知识资料中有 DICloak 的相关说明，也不得将其作为 Paraturbo 功能回复。
-5. Paraturbo 和 DICloak 的客户端版本号不同。禁止在 Paraturbo 回复中引用 DICloak 版本号；如资料没有 Paraturbo 版本号，请客户提供其 Paraturbo 当前版本号。
-6. 知识资料中的 DICloak 官网和帮助中心链接可共用于 Paraturbo，但对外链接必须替换为对应的 Paraturbo 域名：dicloak.com 替换为 paraturbo.com，help.dicloak.com 替换为 help.paraturbo.com；必须保留原路径、查询参数和锚点。`
-      : `## 当前对话产品：DICloak（最高优先级）
-1. 本对话已明确选择 DICloak。客户回复必须只以 DICloak 为主体，禁止写成 Paraturbo，除非客户明确要求比较两个产品。若某功能不支持，只说明 DICloak 当前不支持，不得说该功能“仅适用于其他产品”、不得提及其他产品是否支持，也不得解释内部产品适用范围。
-2. DICloak 不售卖代理 IP；代理由第三方服务商提供，我们只协助配置和检查可用性。不得将 Paraturbo 的代理 IP 售卖服务用于 DICloak 回复。
-3. DICloak 可根据内部知识资料回答 Open API 和推广返现功能；不得套用 Paraturbo “没有 Open API/推广返现”的限制。
-4. 回答 DICloak 问题时禁止引用 Paraturbo 版本号。`;
+    const selectedProductLabel = selectedProduct === 'paraturbo' ? 'Paraturbo' : 'DICloak';
+    const otherProductLabel = selectedProduct === 'paraturbo' ? 'DICloak' : 'Paraturbo';
+    const selectedProductGuardrail = `## 当前对话产品：${selectedProductLabel}（最高优先级）
+1. 本对话已明确选择 ${selectedProductLabel}。除非客户明确要求比较两个产品，客户回复只能以 ${selectedProductLabel} 为主体，不得提及 ${otherProductLabel}。
+2. 功能是否支持，以及功能的入口、步骤、限制，只能以适用于 ${selectedProductLabel} 或 all 的功能知识为准；不得在 Prompt 中预设任何具体功能支持或不支持。
+3. FAQ 中出现的 DICloak 产品名是可复用品牌占位内容。面向客户输出时，必须将其统一替换为当前产品 ${selectedProductLabel}；产品对比问题除外。
+4. 官网及帮助中心链接必须使用当前产品的域名并保留原路径、查询参数和锚点。`;
 
     const productResponsibilityGuardrail = selectedProduct === 'paraturbo'
-      ? supportResponsibilityGuardrail
-          .replaceAll('DICloak', 'Paraturbo')
-          .replace(
-            /6\. 代理由第三方[\s\S]*?(?=\n7\.)/,
-            '6. Paraturbo 在“代理管理 > Paraturbo 代理”模块提供代理 IP 售卖服务，也可配置其他代理服务商的代理。'
-          )
+      ? supportResponsibilityGuardrail.replaceAll('DICloak', 'Paraturbo')
       : supportResponsibilityGuardrail;
 
     const finalPromptWithCoverage = `${finalSystemPrompt}\n${productResponsibilityGuardrail}\n${selectedProductGuardrail}\n${intentGuardrail}\n${outputFormatGuardrail}\n${evidenceGuardrail}\n${pricingGuardrail}\n${deterministicSeatFacts}\n${planRecommendationRules}\n${accountSharingEnvironmentRules}\n${stepEvidenceGuardrail}\n${languageRule}\n${multilingualQualityGuardrail}`;
@@ -2365,6 +2371,8 @@ The customer requested step-by-step setup instructions. Before giving any number
         apiSearchResult = searchApiEndpoints(
           apiAction || undefined,
           apiObject || undefined,
+          currentMessageText,
+          selectedProduct,
           knowledge.apiEndpoints || [],
           knowledge.apiParameters || []
         );
@@ -2455,6 +2463,7 @@ The customer requested step-by-step setup instructions. Before giving any number
         priorityContext += "## API Endpoints (from API Table - HIGHEST PRIORITY)\n";
         priorityContext += "IMPORTANT: For API questions, you MUST use this API table data first. FAQ is supplementary.\n";
         priorityContext += "DO NOT fabricate API endpoints, methods, or parameters not in this table.\n\n";
+        priorityContext += "Local API V1 and Local API V2 are both currently available. When both versions appear below, present both applicable options separately, preserve each version's own function name/path/parameters, and do not merge one version's details into the other.\n\n";
         apiSearchResult.endpoints.forEach((ep: unknown, index: number) => {
           const endpoint = ep as {
             apiId?: string;

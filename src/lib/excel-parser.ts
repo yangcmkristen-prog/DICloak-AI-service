@@ -273,6 +273,8 @@ function parseApiEndpointSheet(sheet: XLSX.WorkSheet): ApiEndpoint[] {
       apiId: getCellValue(row['api_id']),
       apiName: getCellValue(row['功能']),
       apiType: getCellValue(row['API类型']) || 'HTTP API',
+      supportedProduct: parseSupportedProduct(row['已支持产品'] ?? row['supported_products']),
+      searchKeywords: getCellValue(row['检索关键词'] ?? row['search_keywords']),
       method: getCellValue(row['请求方法']) || 'GET',
       endpoint: getCellValue(row['端点路径']),
       fullpathRule: getCellValue(row['完整路径规则']),

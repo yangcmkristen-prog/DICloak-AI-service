@@ -200,6 +200,8 @@ export interface ApiEndpoint {
   apiId: string;              // api_id
   apiName: string;            // API 名称（功能）
   apiType: string;            // API 类型 (HTTP API / Local API)
+  supportedProduct: SupportedProduct; // 已支持产品：all/dicloak/paraturbo
+  searchKeywords: string;     // 检索关键词（逗号、分号或换行分隔）
   method: string;             // 请求方法 (GET/POST/PUT/DELETE)
   endpoint: string;           // 端点路径
   fullpathRule?: string;      // 完整路径规则
