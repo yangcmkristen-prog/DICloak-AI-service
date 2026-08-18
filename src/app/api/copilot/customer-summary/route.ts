@@ -212,6 +212,12 @@ type EditableSummary = {
   notes?: string;
   issues?: unknown[];
   featureRequests?: unknown[];
+  competitorUsage?: string;
+  coreNeeds?: string;
+  selectionReason?: string;
+  churnReason?: string;
+  followUpStatus?: "待跟进" | "无需跟进" | "已跟进";
+  followUps?: unknown[];
 };
 
 export async function PATCH(request: NextRequest) {
@@ -233,6 +239,7 @@ export async function PATCH(request: NextRequest) {
     const allowedKeys: Array<keyof EditableSummary> = [
       "contactName", "contactMethod", "contactDetail", "teamId", "region", "customerType", "customerStatus", "useCase",
       "userScale", "accountScale", "currentPlan", "monthlyFee", "createdAt", "notes", "issues", "featureRequests",
+      "competitorUsage", "coreNeeds", "selectionReason", "churnReason", "followUpStatus", "followUps",
     ];
     const requested = body.updates as Record<string, unknown>;
     if (typeof requested.teamId === "string" && requested.teamId.trim()) {
@@ -244,7 +251,7 @@ export async function PATCH(request: NextRequest) {
     const updates: EditableSummary = {};
     for (const key of allowedKeys) {
       const value = requested[key];
-      if (key === "issues" || key === "featureRequests") {
+      if (key === "issues" || key === "featureRequests" || key === "followUps") {
         if (Array.isArray(value)) updates[key] = value;
       } else if (typeof value === "string") {
         updates[key] = value as never;
