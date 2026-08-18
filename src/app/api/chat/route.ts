@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { LLMClient, Config } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { extractGroundedKnowledgeKeywords } from '@/lib/knowledge-keywords';
-import { hasUnexpectedChineseReplyEnglish } from '@/lib/language-quality';
+import { countUnexpectedChineseReplyEnglish, hasUnexpectedReplyScript } from '@/lib/language-quality';
 import type { KnowledgeBase, ProductName, SupportedProduct } from '@/lib/types';
 import { rewriteProductBrand, rewriteProductDomains } from '@/lib/product-url';
 import { enforceReplyTerminology, translateTermPlaceholders } from '@/lib/term-translation';
@@ -518,42 +518,44 @@ function detectRequestLanguageByRules(text: string, provided?: string): Language
 }
 
 function isReplyLanguageMismatch(content: string, targetLanguage: string): boolean {
-  const customerText = stripMachineSectionMarkers(content).replace(/https?:\/\/\S+/g, "");
-  const counts: Record<string, number> = {
-    zh: (customerText.match(/[\u4e00-\u9fff]/g) || []).length,
-    ru: (customerText.match(/[\u0400-\u04ff]/g) || []).length,
-    ar: (customerText.match(/[\u0600-\u06ff\u0750-\u077f]/g) || []).length,
-    th: (customerText.match(/[\u0e00-\u0e7f]/g) || []).length,
-    ja: (customerText.match(/[\u3040-\u30ff]/g) || []).length,
-    ko: (customerText.match(/[\uac00-\ud7af\u1100-\u115f]/g) || []).length,
-    latin: (customerText.match(/[A-Za-zÀ-ỹ]/g) || []).length,
-  };
-  const foreignScriptCount = Object.entries(counts)
-    .filter(([script]) => script !== targetLanguage && script !== "latin")
-    .reduce((sum, [, count]) => sum + count, 0);
-
-  if (targetLanguage === "zh") return hasUnexpectedChineseReplyEnglish(content);
-  if (LATIN_LANGUAGE_CODES.has(targetLanguage)) return foreignScriptCount > Math.max(12, counts.latin * 0.15);
-  return (counts[targetLanguage] || 0) < foreignScriptCount;
+  return hasUnexpectedReplyScript(stripMachineSectionMarkers(content), targetLanguage);
 }
 
 async function enforceReplyLanguage(config: ChatApiConfig, content: string, targetLanguage: string): Promise<string> {
-  if (!LANGUAGE_DISPLAY_NAMES[targetLanguage] || !isReplyLanguageMismatch(content, targetLanguage)) return content;
+  if (targetLanguage === "mixed") targetLanguage = "zh";
+  if (!LANGUAGE_DISPLAY_NAMES[targetLanguage] || !content.trim()) return content;
 
   const targetName = LANGUAGE_DISPLAY_NAMES[targetLanguage];
-  const translationPrompt = `You are a strict customer-reply translator. Translate every customer-facing sentence into ${targetName}. Preserve all [[section]] tags exactly. Preserve meaning, facts, numbers, URLs, product names, plan identifiers, and API identifiers. Translate UI labels too unless they are explicitly presented as an official untranslated product identifier. Do not add, remove, summarize, explain, or use another language. Output only the translated reply.`;
+  const translationPrompt = `You are a strict customer-reply language normalizer. Rewrite the ENTIRE customer-facing reply in ${targetName}, even when most of the draft already appears to be in that language. The draft may intentionally contain source-language prose with isolated localized glossary terms; isolated terms do NOT determine the language of their surrounding sentence. Preserve all [[section]] tags exactly. Preserve meaning, facts, numbers, URLs, canonical product names, plan names, protocols, and API identifiers. Apart from such canonical identifiers and professional terms normally written in English, no sentence or clause may remain in another language. Translate UI labels unless they are official untranslated identifiers. Do not add, remove, summarize, explain, or output a second-language version. Output only the normalized reply.`;
   // Prefer the separately configured translation model for language repair. It
   // is less likely than the answer-generation model to continue an accidental
   // English response or preserve mixed-language prose.
+  // Normalize every reply, rather than only those caught by script heuristics.
+  // Spanish/Portuguese/English and other same-script mixtures cannot be
+  // reliably distinguished by character counting alone.
+  const candidates = [content];
   const dedicatedTranslation = await callExtensionTranslateModel(translationPrompt, content, 0).catch(() => "");
   if (dedicatedTranslation && !isReplyLanguageMismatch(dedicatedTranslation, targetLanguage)) {
     return dedicatedTranslation;
   }
+  if (dedicatedTranslation) candidates.push(dedicatedTranslation);
   const translated = await callModelOnce(config, [
     { role: "system", content: translationPrompt },
     { role: "user", content },
   ], 0);
-  return translated || content;
+  if (translated && !isReplyLanguageMismatch(translated, targetLanguage)) return translated;
+  if (translated) candidates.push(translated);
+
+  // Never blindly accept a failed repair. In particular, a translator can
+  // preserve the draft's English clauses in an otherwise Chinese response.
+  // If both providers are imperfect, return the candidate with the least
+  // English leakage rather than always returning the final model output.
+  if (targetLanguage === "zh") {
+    return candidates.reduce((best, candidate) =>
+      countUnexpectedChineseReplyEnglish(candidate) < countUnexpectedChineseReplyEnglish(best) ? candidate : best
+    );
+  }
+  return translated || dedicatedTranslation || content;
 }
 
 function parseLanguageDetectionJson(rawContent: string): LanguageDetectionResult | null {
@@ -1805,7 +1807,8 @@ export async function POST(request: NextRequest) {
 1. 先基于中文高质量客服口径确定事实、结论、限制和下一步，再用目标语种自然表达；不要因为目标语种不是中文而减少关键信息或改变结论。
 2. 目标语种回复必须与中文口径保持同等完整度：相同的问题类型、相同的事实依据、相同的风险提示、相同的追问点和相同的客服语气。
 3. 最终只输出目标语种正文和规定 section 标签；不要输出中文草稿、翻译说明或语言标签。
-4. 如果客户使用葡萄牙语、西班牙语、越南语、印尼语、俄语、泰语、阿拉伯语、日语或韩语，所有面向客户的正文必须使用该语种，不得夹杂中文或英文句子；产品名、URL 除外。`;
+4. 如果客户使用葡萄牙语、西班牙语、越南语、印尼语、俄语、泰语、阿拉伯语、日语或韩语，所有面向客户的正文必须使用该语种，不得夹杂其他语言的句子或分句；品牌名、专业术语、URL 除外。
+5. 内部资料可能出现“英文句子中插入已翻译术语”或其他混合语言，这是资料预处理的中间状态，不代表客户语言，也不是可直接复制的答案。必须先理解整句，再将整句自然地改写为本次目标语种；禁止只替换术语而保留资料原句的其他语言。`;
 
     let uncoveredKnowledgePolicy: UncoveredKnowledgePolicy = { isRelevant: false, isDICloakTechnicalLogic: false, isGeneralNetworkOrWebsite: false, prompt: "" };
 
@@ -3045,17 +3048,19 @@ MANDATORY EXECUTION RULES:
           ? enforceSubscriptionSourceClarificationContent(reviewedContent, effectiveLanguage)
           : reviewedContent;
         const correctedContent = enforceSeatCalculationCorrections(intentCorrectedContent, actualUserCount, effectiveLanguage);
-        const languageCorrectedContent = await enforceReplyLanguage(config, correctedContent, effectiveLanguage).catch((languageError: unknown) => {
-          console.error('[Language QA] 回复语言纠正失败，使用原始回复:', languageError);
-          return correctedContent;
-        });
         const terminologyCorrectedContent = enforceReplyTerminology(
-          languageCorrectedContent,
+          correctedContent,
           effectiveLanguage,
           knowledge?.termItems || []
         );
+        // Terminology replacement can insert a fallback-language UI label, so
+        // language QA must be the final prose-producing step.
+        const languageCorrectedContent = await enforceReplyLanguage(config, terminologyCorrectedContent, effectiveLanguage).catch((languageError: unknown) => {
+          console.error('[Language QA] 回复语言纠正失败，使用术语修正后的回复:', languageError);
+          return terminologyCorrectedContent;
+        });
         const sanitizedContent = sanitizeCustomerFacingContent(
-          terminologyCorrectedContent,
+          languageCorrectedContent,
           effectiveLanguage,
           selectedProduct,
           productComparisonRequested

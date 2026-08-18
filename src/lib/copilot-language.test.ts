@@ -13,6 +13,10 @@ test("detects Chinese from three characters even when English occupies most of t
   assert.equal(getCopilotLanguageHint("local api version one and version two 有什么区别"), "zh");
 });
 
+test("identifies a Chinese API question containing English technical terms", () => {
+  assert.equal(getCopilotLanguageHint("api可以设定webgpu的指纹值吗"), "zh");
+});
+
 test("does not infer a language from fewer than three non-Latin characters", () => {
   assert.equal(getCopilotLanguageHint("local api v1 和 v2"), undefined);
 });
