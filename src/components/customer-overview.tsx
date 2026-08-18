@@ -22,7 +22,7 @@ type Issue = { title: string; description: string; resolution: string; status: I
 type FeatureStatus = "未评估" | "已评估" | "已上线" | "暂无法实现" | "已有可实现方案";
 type Feature = { title: string; description: string; status: FeatureStatus; date: string };
 type FollowUpStatus = "待跟进" | "无需跟进" | "已跟进";
-type FollowUpType = "功能回访" | "试用回访" | "需求调研" | "客户背景调研";
+type FollowUpType = "功能回访" | "试用回访" | "需求调研" | "客户背景调研" | "流失原因调查";
 type FollowUp = { date: string; type: FollowUpType; result: string };
 type Customer = {
   id: string; name: string; initials: string; teamId: string; channel: string; contact: string;
@@ -45,7 +45,7 @@ const statusStyle: Record<Customer["status"], string> = {
 };
 
 const featureStatuses: FeatureStatus[] = ["未评估", "已评估", "已有可实现方案", "暂无法实现", "已上线"];
-const followUpTypes: FollowUpType[] = ["功能回访", "试用回访", "需求调研", "客户背景调研"];
+const followUpTypes: FollowUpType[] = ["功能回访", "试用回访", "需求调研", "客户背景调研", "流失原因调查"];
 const followUpStatuses: FollowUpStatus[] = ["待跟进", "无需跟进", "已跟进"];
 
 function newestFirst<T extends { date: string }>(items: T[]): T[] {
@@ -442,7 +442,15 @@ function FollowUpDialog({ customer, open, trigger, onOpenChange, onSaved }: { cu
   const [result, setResult] = useState("");
   const [saving, setSaving] = useState(false);
   const isOpen = trigger ? internalOpen : open;
-  const changeOpen = (next: boolean) => { if (trigger) setInternalOpen(next); onOpenChange(next); if (!next) { setDate(""); setType("功能回访"); setResult(""); } };
+  const changeOpen = (next: boolean) => {
+    if (trigger) setInternalOpen(next);
+    onOpenChange(next);
+    if (next) {
+      setDate((current) => current || formatInUtc8(new Date().toISOString(), false));
+    } else {
+      setDate(""); setType("功能回访"); setResult("");
+    }
+  };
   const submit = async () => {
     if (!customer || !date || !result.trim()) return toast.error("请完整填写跟进时间和结果");
     setSaving(true);
