@@ -442,12 +442,13 @@ function FollowUpDialog({ customer, open, trigger, onOpenChange, onSaved }: { cu
   const [result, setResult] = useState("");
   const [saving, setSaving] = useState(false);
   const isOpen = trigger ? internalOpen : open;
+  useEffect(() => {
+    if (isOpen) setDate((current) => current || formatInUtc8(new Date().toISOString(), false));
+  }, [isOpen]);
   const changeOpen = (next: boolean) => {
     if (trigger) setInternalOpen(next);
     onOpenChange(next);
-    if (next) {
-      setDate((current) => current || formatInUtc8(new Date().toISOString(), false));
-    } else {
+    if (!next) {
       setDate(""); setType("功能回访"); setResult("");
     }
   };
