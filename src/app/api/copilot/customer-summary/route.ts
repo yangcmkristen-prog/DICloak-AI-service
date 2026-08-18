@@ -10,6 +10,7 @@ type CustomerImportRow = {
   teamId?: unknown;
   contactName?: unknown;
   contactDetail?: unknown;
+  contactMethod?: unknown;
   customerType?: unknown;
   useCase?: unknown;
   userScale?: unknown;
@@ -19,9 +20,15 @@ type CustomerImportRow = {
   region?: unknown;
   currentPlan?: unknown;
   customerStatus?: unknown;
+  dueDate?: unknown;
+  competitorUsage?: unknown;
+  coreNeeds?: unknown;
+  selectionReason?: unknown;
+  churnReason?: unknown;
 };
 
 const importStatuses = new Set(["活跃", "流失风险", "已停滞", "潜在客户"]);
+const importPlans = new Set(["免费版", "基础版", "高阶版", "共享版+", "共享版", "专业版", "协作版", "独享版", "优享版", "进阶版", "明星版", "VIP版", "定制版"]);
 
 function validateCustomerImportRows(value: unknown): { rows: Array<Record<string, string>>; errors: string[] } {
   if (!Array.isArray(value)) return { rows: [], errors: ["没有可导入的客户记录"] };
@@ -46,8 +53,9 @@ function validateCustomerImportRows(value: unknown): { rows: Array<Record<string
     }
     const row: Record<string, string> = { teamId };
     for (const key of [
-      "contactName", "contactDetail", "customerType", "useCase", "userScale", "accountScale",
-      "createdAt", "monthlyFee", "region", "currentPlan", "customerStatus",
+      "contactName", "contactDetail", "contactMethod", "customerType", "useCase", "userScale", "accountScale",
+      "createdAt", "dueDate", "monthlyFee", "region", "currentPlan", "customerStatus",
+      "competitorUsage", "coreNeeds", "selectionReason", "churnReason",
     ] as const) {
       const fieldValue = input[key];
       if (typeof fieldValue === "string" && fieldValue.trim()) row[key] = fieldValue.trim();
@@ -56,8 +64,16 @@ function validateCustomerImportRows(value: unknown): { rows: Array<Record<string
       errors.push(`第 ${index + 2} 行创建时间格式无效`);
       return;
     }
+    if (row.dueDate && Number.isNaN(new Date(row.dueDate).getTime())) {
+      errors.push(`第 ${index + 2} 行到期时间格式无效`);
+      return;
+    }
     if (row.customerStatus && !importStatuses.has(row.customerStatus)) {
       errors.push(`第 ${index + 2} 行客户状态无效`);
+      return;
+    }
+    if (row.currentPlan && !importPlans.has(row.currentPlan)) {
+      errors.push(`第 ${index + 2} 行当前套餐无效`);
       return;
     }
     seenTeamIds.add(normalized);
@@ -170,8 +186,9 @@ function extractContactName(displayName: string): string {
 
 function normalizePlan(value: unknown): string {
   if (typeof value !== "string") return "";
-  const plans = ["Free", "Base", "Plus", "Share+", "Share"] as const;
-  return plans.find((plan) => plan.toLowerCase() === value.trim().toLowerCase()) ?? "";
+  const plans: Record<string, string> = { free: "免费版", base: "基础版", plus: "高阶版", "share+": "共享版+", share: "共享版" };
+  const normalized = value.trim();
+  return plans[normalized.toLowerCase()] ?? (importPlans.has(normalized) ? normalized : "");
 }
 
 function sixMonthsAgoTimestamp(now = new Date()): number {
@@ -209,6 +226,7 @@ type EditableSummary = {
   currentPlan?: string;
   monthlyFee?: string;
   createdAt?: string;
+  dueDate?: string;
   notes?: string;
   issues?: unknown[];
   featureRequests?: unknown[];
@@ -238,7 +256,7 @@ export async function PATCH(request: NextRequest) {
 
     const allowedKeys: Array<keyof EditableSummary> = [
       "contactName", "contactMethod", "contactDetail", "teamId", "region", "customerType", "customerStatus", "useCase",
-      "userScale", "accountScale", "currentPlan", "monthlyFee", "createdAt", "notes", "issues", "featureRequests",
+      "userScale", "accountScale", "currentPlan", "monthlyFee", "createdAt", "dueDate", "notes", "issues", "featureRequests",
       "competitorUsage", "coreNeeds", "selectionReason", "churnReason", "followUpStatus", "followUps",
     ];
     const requested = body.updates as Record<string, unknown>;
