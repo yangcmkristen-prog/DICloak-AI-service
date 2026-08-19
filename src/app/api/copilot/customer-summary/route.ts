@@ -12,6 +12,7 @@ type CustomerImportRow = {
   contactDetail?: unknown;
   contactMethod?: unknown;
   customerType?: unknown;
+  customerSource?: unknown;
   useCase?: unknown;
   userScale?: unknown;
   accountScale?: unknown;
@@ -29,6 +30,7 @@ type CustomerImportRow = {
 
 const importStatuses = new Set(["活跃", "流失风险", "已停滞", "潜在客户"]);
 const importPlans = new Set(["免费版", "基础版", "高阶版", "共享版+", "共享版", "专业版", "协作版", "独享版", "优享版", "进阶版", "明星版", "VIP版", "定制版"]);
+const customerSourcePattern = /^(朋友推荐|线上搜索|社交媒体|合作伙伴)：\S(?:.*\S)?$/;
 
 function validateCustomerImportRows(value: unknown): { rows: Array<Record<string, string>>; errors: string[] } {
   if (!Array.isArray(value)) return { rows: [], errors: ["没有可导入的客户记录"] };
@@ -53,7 +55,7 @@ function validateCustomerImportRows(value: unknown): { rows: Array<Record<string
     }
     const row: Record<string, string> = { teamId };
     for (const key of [
-      "contactName", "contactDetail", "contactMethod", "customerType", "useCase", "userScale", "accountScale",
+      "contactName", "contactDetail", "contactMethod", "customerType", "customerSource", "useCase", "userScale", "accountScale",
       "createdAt", "dueDate", "monthlyFee", "region", "currentPlan", "customerStatus",
       "competitorUsage", "coreNeeds", "selectionReason", "churnReason",
     ] as const) {
@@ -74,6 +76,10 @@ function validateCustomerImportRows(value: unknown): { rows: Array<Record<string
     }
     if (row.currentPlan && !importPlans.has(row.currentPlan)) {
       errors.push(`第 ${index + 2} 行当前套餐无效`);
+      return;
+    }
+    if (row.customerSource && !customerSourcePattern.test(row.customerSource)) {
+      errors.push(`第 ${index + 2} 行客户来源格式无效，请按“来源类型：具体内容”填写`);
       return;
     }
     seenTeamIds.add(normalized);
@@ -219,6 +225,7 @@ type EditableSummary = {
   teamId?: string;
   region?: string;
   customerType?: string;
+  customerSource?: string;
   customerStatus?: "活跃" | "流失风险" | "已停滞" | "潜在客户";
   useCase?: string;
   userScale?: string;
@@ -255,7 +262,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const allowedKeys: Array<keyof EditableSummary> = [
-      "contactName", "contactMethod", "contactDetail", "teamId", "region", "customerType", "customerStatus", "useCase",
+      "contactName", "contactMethod", "contactDetail", "teamId", "region", "customerType", "customerSource", "customerStatus", "useCase",
       "userScale", "accountScale", "currentPlan", "monthlyFee", "createdAt", "dueDate", "notes", "issues", "featureRequests",
       "competitorUsage", "coreNeeds", "selectionReason", "churnReason", "followUpStatus", "followUps",
     ];
@@ -415,7 +422,7 @@ export async function POST(request: NextRequest) {
   "issues":[{"title":"","description":"","resolution":"","status":"已解决/处理中/未处理","occurredAt":""}],
   "featureRequests":[{"title":"","description":"","source":"客户聊天","status":"未评估/已评估/已有可实现方案/暂无法实现/已上线","requestedAt":""}]
 }` : `{
-  "region":"", "customerType":"", "useCase":"", "userScale":"", "accountScale":"",
+  "region":"", "customerType":"", "customerSource":"朋友推荐/线上搜索/社交媒体/合作伙伴：具体内容", "useCase":"", "userScale":"", "accountScale":"",
   "currentPlan":"", "monthlyFee":"", "customerStatus":"活跃/流失风险/已停滞/潜在客户", "notes":"",
   "issues":[{"title":"","description":"","resolution":"","status":"已解决/处理中/未处理","occurredAt":""}],
   "featureRequests":[{"title":"","description":"","source":"客户聊天","status":"未评估/已评估/已有可实现方案/暂无法实现/已上线","requestedAt":""}]
@@ -424,7 +431,7 @@ export async function POST(request: NextRequest) {
       existing
         ? "你是 DICloak 客户运营分析师。仅从上次总结后的新增聊天中提取新增的历史问题和功能需求，不得修改或重新总结任何已有客户信息。所有描述使用简体中文，只输出 JSON。"
         : "你是 DICloak 客户运营分析师。仅根据完整聊天记录提取客户画像、历史问题和功能需求。所有总结性、描述性内容必须使用简体中文；品牌名、套餐名、团队 ID、电话号码等专有信息保留原文。未知字段填空字符串，不得编造。只输出 JSON。",
-      `请分析以下新增会话（共 ${messages.length} 条），输出 JSON：\n${outputSchema}\n\n识别规则：\n1. 除品牌名和套餐名外，所有字段内容必须用简体中文填写。\n2. 不要提取或输出联系人名称、${snapshot.chat.platform === "telegram" ? "Telegram 联系方式" : "WhatsApp 号码"}和团队 ID，这些字段由系统直接采集。\n3. ${existing ? "本次是增量总结，只能输出新增聊天中首次出现的问题和功能需求；不得输出客户基本信息，也不得根据新聊天修改此前的问题或需求。" : "currentPlan 仅允许填写 Free、Base、Plus、Share+、Share。聊天中明确提及其中一种套餐时使用对应的标准名称；未提及或无法确认时留空，不得猜测。monthlyFee 仅在聊天明确提及月费时填写金额和币种，否则留空。"}\n4. 只有与 DICloak 产品直接相关、且必须由技术人员开发或改造产品才能实现的诉求，才可放入 featureRequests；咨询、故障、套餐诉求、第三方网站或代理需求一律不要归为功能需求。\n5. occurredAt 和 requestedAt 必须根据聊天记录填写对应问题或需求首次出现的日期，格式为 YYYY-MM-DD；无法精确判断时填写最接近的消息日期，不得留空。\n\n新增聊天记录：\n${transcript}`,  
+      `请分析以下新增会话（共 ${messages.length} 条），输出 JSON：\n${outputSchema}\n\n识别规则：\n1. 除品牌名和套餐名外，所有字段内容必须用简体中文填写。\n2. 不要提取或输出联系人名称、${snapshot.chat.platform === "telegram" ? "Telegram 联系方式" : "WhatsApp 号码"}和团队 ID，这些字段由系统直接采集。\n3. ${existing ? "本次是增量总结，只能输出新增聊天中首次出现的问题和功能需求；不得输出客户基本信息，也不得根据新聊天修改此前的问题或需求。" : "currentPlan 仅允许填写 Free、Base、Plus、Share+、Share。聊天中明确提及其中一种套餐时使用对应的标准名称；未提及或无法确认时留空，不得猜测。monthlyFee 仅在聊天明确提及月费时填写金额和币种，否则留空。customerSource 仅允许使用“朋友推荐、线上搜索、社交媒体、合作伙伴”之一，并按“来源类型：具体内容”输出；不明确时留空。"}\n4. 只有与 DICloak 产品直接相关、且必须由技术人员开发或改造产品才能实现的诉求，才可放入 featureRequests；咨询、故障、套餐诉求、第三方网站或代理需求一律不要归为功能需求。\n5. occurredAt 和 requestedAt 必须根据聊天记录填写对应问题或需求首次出现的日期，格式为 YYYY-MM-DD；无法精确判断时填写最接近的消息日期，不得留空。\n\n新增聊天记录：\n${transcript}`,
       0.2,
     );
     const latestMessageTimestamp = messages.reduce<number>((latest, message) =>

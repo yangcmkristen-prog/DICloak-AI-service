@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 
 export const customerImportHeaders = [
-  "团队ID", "联系人", "联系方式", "渠道", "地区", "客户类型", "客户状态", "当前套餐", "套餐月费", "创建时间", "到期时间",
+  "团队ID", "联系人", "联系方式", "渠道", "地区", "客户类型", "客户来源", "客户状态", "当前套餐", "套餐月费", "创建时间", "到期时间",
   "使用场景", "用户规模", "账号规模", "竞品使用情况", "核心需求", "选择原因", "流失原因",
 ] as const;
 
@@ -11,6 +11,7 @@ export type CustomerImportRow = {
   contactDetail?: string;
   contactMethod?: string;
   customerType?: string;
+  customerSource?: string;
   useCase?: string;
   userScale?: string;
   accountScale?: string;
@@ -47,6 +48,7 @@ export async function parseCustomerImportFile(file: File): Promise<CustomerImpor
     contactDetail: cellText(record["联系方式"]) || undefined,
     contactMethod: cellText(record["渠道"]) || undefined,
     customerType: cellText(record["客户类型"]) || undefined,
+    customerSource: cellText(record["客户来源"]) || undefined,
     useCase: cellText(record["使用场景"]) || undefined,
     userScale: cellText(record["用户规模"]) || undefined,
     accountScale: cellText(record["账号规模"]) || undefined,
@@ -66,7 +68,7 @@ export async function parseCustomerImportFile(file: File): Promise<CustomerImpor
 export function downloadCustomerImportTemplate(): void {
   const sheet = XLSX.utils.aoa_to_sheet([
     [...customerImportHeaders],
-    ["DIC-示例001", "张三", "zhangsan@example.com", "WhatsApp", "中国", "代理商", "活跃", "高阶版", "49.00", "2026-07-31", "2027-07-31", "跨境电商多店铺运营", "10 人", "100 个", "Multilogin", "多账号安全运营", "性价比高", ""],
+    ["DIC-示例001", "张三", "zhangsan@example.com", "WhatsApp", "中国", "代理商", "朋友推荐：vantage", "活跃", "高阶版", "49.00", "2026-07-31", "2027-07-31", "跨境电商多店铺运营", "10 人", "100 个", "Multilogin", "多账号安全运营", "性价比高", ""],
   ]);
   sheet["!cols"] = customerImportHeaders.map((header) => ({ wch: Math.max(14, header.length * 2 + 4) }));
   const workbook = XLSX.utils.book_new();
