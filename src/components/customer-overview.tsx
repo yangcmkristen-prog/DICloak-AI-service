@@ -53,6 +53,8 @@ const followUpStatuses: FollowUpStatus[] = ["待跟进", "无需跟进", "已跟
 const planOptions = ["免费版", "基础版", "高阶版", "共享版+", "共享版", "专业版", "协作版", "独享版", "优享版", "进阶版", "明星版", "VIP版", "定制版"] as const;
 const customerSourceOptions = ["朋友推荐", "线上搜索", "社交媒体", "合作伙伴"] as const;
 type CustomerSourceType = (typeof customerSourceOptions)[number];
+const useCaseOptions = ["账号共享", "多账号管理", "批量注册账号", "自动化/RPA", "API集成"] as const;
+type UseCaseType = (typeof useCaseOptions)[number];
 
 function splitCustomerSource(value: string): { type: CustomerSourceType | ""; detail: string } {
   const separatorIndex = value.indexOf("：");
@@ -65,6 +67,21 @@ function splitCustomerSource(value: string): { type: CustomerSourceType | ""; de
 
 function joinCustomerSource(type: string, detail: string): string {
   return type ? `${type}：${detail}` : "";
+}
+
+function splitUseCase(value: string): { type: UseCaseType | ""; detail: string } {
+  const separatorIndex = value.indexOf("：");
+  const type = separatorIndex >= 0 ? value.slice(0, separatorIndex) : value;
+  return {
+    type: useCaseOptions.includes(type as UseCaseType) ? type as UseCaseType : "",
+    detail: separatorIndex >= 0 ? value.slice(separatorIndex + 1) : useCaseOptions.includes(value as UseCaseType) ? "" : value,
+  };
+}
+
+function joinUseCase(type: string, detail: string): string {
+  if (!type) return "";
+  const normalizedDetail = detail.trim();
+  return normalizedDetail ? `${type}：${normalizedDetail}` : type;
 }
 
 function parseDateValue(value: string): Date | undefined {
@@ -137,6 +154,7 @@ export function CustomerOverview() {
   const [featureQuery, setFeatureQuery] = useState("");
   const [region, setRegion] = useState("all");
   const [customerSource, setCustomerSource] = useState("all");
+  const [useCase, setUseCase] = useState("all");
   const [status, setStatus] = useState("all");
   const [followUpFrom, setFollowUpFrom] = useState("");
   const [followUpTo, setFollowUpTo] = useState("");
@@ -202,11 +220,12 @@ export function CustomerOverview() {
       && (!issueKeyword || customer.issues.some((issue) => [issue.title, issue.description].some((value) => value.toLowerCase().includes(issueKeyword))))
       && (!featureKeyword || customer.features.some((feature) => [feature.title, feature.description].some((value) => value.toLowerCase().includes(featureKeyword))))
       && (customerSource === "all" || splitCustomerSource(customer.customerSource).type === customerSource)
+      && (useCase === "all" || splitUseCase(customer.scenario).type === useCase)
       && (region === "all" || customer.region === region) && (status === "all" || customer.status === status)
       && (quickFilter === "all" || customer.status === quickFilter || customer.followUpStatus === quickFilter)
       && (!followUpFrom || Boolean(customer.followUps[0]?.date && customer.followUps[0].date >= followUpFrom))
       && (!followUpTo || Boolean(customer.followUps[0]?.date && customer.followUps[0].date <= followUpTo));
-  }), [customerSource, customers, featureQuery, followUpFrom, followUpTo, issueQuery, query, quickFilter, region, status]);
+  }), [customerSource, customers, featureQuery, followUpFrom, followUpTo, issueQuery, query, quickFilter, region, status, useCase]);
   const visibleCustomers = useMemo(() => {
     if (!sort) return filtered;
     return [...filtered].sort((left, right) => {
@@ -220,7 +239,7 @@ export function CustomerOverview() {
   }, [filtered, sort]);
   const pageCount = Math.max(1, Math.ceil(visibleCustomers.length / pageSize));
   const pagedCustomers = visibleCustomers.slice((page - 1) * pageSize, page * pageSize);
-  useEffect(() => { setPage(1); setJumpPage("1"); }, [customerSource, featureQuery, followUpFrom, followUpTo, issueQuery, pageSize, query, quickFilter, region, status]);
+  useEffect(() => { setPage(1); setJumpPage("1"); }, [customerSource, featureQuery, followUpFrom, followUpTo, issueQuery, pageSize, query, quickFilter, region, status, useCase]);
   useEffect(() => { if (page > pageCount) { setPage(pageCount); setJumpPage(String(pageCount)); } }, [page, pageCount]);
   const summaryCards: Array<{ label: string; filter: Customer["status"] | FollowUpStatus; count: number; className: string }> = [
     { label: "待跟进", filter: "待跟进", count: customers.filter((item) => item.followUpStatus === "待跟进").length, className: "text-amber-700" },
@@ -262,10 +281,11 @@ export function CustomerOverview() {
     <div className="mx-auto max-w-[1500px]">
       <div className="mb-6 flex items-end justify-between gap-4"><div><h2 className="text-2xl font-bold">客户概览</h2><p className="mt-1 text-sm text-muted-foreground">AI 自动总结客户核心信息，帮助快速了解客户情况</p></div><div className="flex gap-2"><Button variant="outline" disabled={!visibleCustomers.length} onClick={exportFilteredCustomers}><Download />导出当前结果</Button><Button variant="outline" onClick={() => setImporting(true)}><FileSpreadsheet />批量导入</Button><Button className="bg-blue-600" onClick={() => setAdding(true)}><Plus />添加客户</Button></div></div>
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">{summaryCards.map((card) => <button key={card.label} type="button" aria-pressed={quickFilter === card.filter} onClick={() => setQuickFilter((current) => current === card.filter ? "all" : card.filter)} className={`rounded-xl border bg-background p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow ${quickFilter === card.filter ? "border-blue-400 ring-2 ring-blue-100" : "border-border"}`}><p className={`text-sm font-medium ${card.className}`}>{card.label}</p><p className="mt-2 text-2xl font-bold text-foreground">{card.count}</p></button>)}</div>
-      <div className="mb-4 grid gap-3 md:grid-cols-[1fr_180px_180px_180px]">
+      <div className="mb-4 grid gap-3 md:grid-cols-[minmax(260px,1fr)_repeat(4,180px)]">
         <div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(event) => setQuery(event.target.value)} className="bg-background pl-9" placeholder="搜索联系人、团队 ID 或联系方式" /></div>
         <Select value={region} onValueChange={setRegion}><SelectTrigger className="w-full bg-background"><Globe2 className="size-4" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部地区</SelectItem>{[...new Set(customers.map((customer) => customer.region))].map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
         <Select value={customerSource} onValueChange={setCustomerSource}><SelectTrigger className="w-full bg-background"><SelectValue placeholder="客户来源" /></SelectTrigger><SelectContent><SelectItem value="all">全部客户来源</SelectItem>{customerSourceOptions.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
+        <Select value={useCase} onValueChange={setUseCase}><SelectTrigger className="w-full bg-background"><SelectValue placeholder="使用场景" /></SelectTrigger><SelectContent><SelectItem value="all">全部使用场景</SelectItem>{useCaseOptions.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
         <Select value={status} onValueChange={setStatus}><SelectTrigger className="w-full bg-background"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem><SelectItem value="活跃">活跃</SelectItem><SelectItem value="流失风险">流失风险</SelectItem><SelectItem value="已停滞">已停滞</SelectItem><SelectItem value="潜在客户">潜在客户</SelectItem></SelectContent></Select>
       </div>
       <div className="mb-4 grid gap-3 md:grid-cols-2">
@@ -484,6 +504,8 @@ function AddCustomerDialog({ open, customers, onOpenChange, onCreated, onExistin
     if (!form.contactName.trim() || !form.teamId.trim()) return toast.error("请填写联系人和团队 ID");
     const source = splitCustomerSource(form.customerSource);
     if (form.customerSource && (!source.type || !source.detail.trim())) return toast.error("请选择客户来源并填写具体内容");
+    const useCase = splitUseCase(form.useCase);
+    if (form.useCase && !useCase.type) return toast.error("请选择使用场景");
     if (duplicate) return onExisting(duplicate.id);
     setSaving(true);
     try {
@@ -497,7 +519,7 @@ function AddCustomerDialog({ open, customers, onOpenChange, onCreated, onExistin
     } catch (error: unknown) { toast.error(error instanceof Error ? error.message : "添加客户失败"); } finally { setSaving(false); }
   };
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>添加客户</DialogTitle><DialogDescription>团队 ID 是客户的唯一归纳标识，也可同时录入历史问题和功能需求。</DialogDescription></DialogHeader><div className="grid gap-4 sm:grid-cols-2">
-    {([["联系人 *", "contactName"], ["团队 ID *", "teamId"], ["联系方式", "contactDetail"], ["地区", "region"], ["客户类型", "customerType"], ["客户来源", "customerSource"], ["使用场景", "useCase"], ["用户规模", "userScale"], ["账号规模", "accountScale"], ["当前套餐", "currentPlan"], ["套餐月费", "monthlyFee"], ["到期时间", "dueDate"], ["竞品使用情况", "competitorUsage"], ["核心需求", "coreNeeds"], ["选择原因", "selectionReason"], ["流失原因", "churnReason"]] as Array<[string, keyof typeof emptyCustomerForm]>).map(([label, key]) => <label key={key} className={`space-y-1 text-sm ${key === "customerSource" ? "sm:col-span-2" : ""}`}><span>{label}</span>{key === "customerSource" ? <CustomerSourceInput value={form.customerSource} onChange={(value) => update("customerSource", value)} /> : key === "currentPlan" ? <Select value={form.currentPlan} onValueChange={(value) => update("currentPlan", value)}><SelectTrigger className="w-full"><SelectValue placeholder="选择套餐" /></SelectTrigger><SelectContent>{planOptions.map((plan) => <SelectItem key={plan} value={plan}>{plan}</SelectItem>)}</SelectContent></Select> : key === "dueDate" ? <DatePickerField placeholder="YYYY/MM/DD" value={form.dueDate} onChange={(value) => update("dueDate", value)} /> : <Input value={form[key]} onChange={(event) => update(key, event.target.value)} />}</label>)}
+    {([["联系人 *", "contactName"], ["团队 ID *", "teamId"], ["联系方式", "contactDetail"], ["地区", "region"], ["客户类型", "customerType"], ["客户来源", "customerSource"], ["使用场景", "useCase"], ["用户规模", "userScale"], ["账号规模", "accountScale"], ["当前套餐", "currentPlan"], ["套餐月费", "monthlyFee"], ["到期时间", "dueDate"], ["竞品使用情况", "competitorUsage"], ["核心需求", "coreNeeds"], ["选择原因", "selectionReason"], ["流失原因", "churnReason"]] as Array<[string, keyof typeof emptyCustomerForm]>).map(([label, key]) => <label key={key} className={`space-y-1 text-sm ${key === "customerSource" || key === "useCase" ? "sm:col-span-2" : ""}`}><span>{label}</span>{key === "customerSource" ? <CustomerSourceInput value={form.customerSource} onChange={(value) => update("customerSource", value)} /> : key === "useCase" ? <UseCaseInput value={form.useCase} onChange={(value) => update("useCase", value)} /> : key === "currentPlan" ? <Select value={form.currentPlan} onValueChange={(value) => update("currentPlan", value)}><SelectTrigger className="w-full"><SelectValue placeholder="选择套餐" /></SelectTrigger><SelectContent>{planOptions.map((plan) => <SelectItem key={plan} value={plan}>{plan}</SelectItem>)}</SelectContent></Select> : key === "dueDate" ? <DatePickerField placeholder="YYYY/MM/DD" value={form.dueDate} onChange={(value) => update("dueDate", value)} /> : <Input value={form[key]} onChange={(event) => update(key, event.target.value)} />}</label>)}
   </div>{duplicate ? <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">该团队 ID 已有客户记录：{duplicate.name}。<Button variant="link" className="h-auto px-1 text-amber-900" onClick={() => onExisting(duplicate.id)}>前往记录编辑</Button></div> : null}<label className="space-y-1 text-sm"><span>备注</span><Textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} /></label>
   <section className="space-y-3"><div className="flex items-center justify-between"><h4 className="font-medium">历史问题</h4><Button size="sm" variant="outline" onClick={() => setIssues((items) => [{ title: "", description: "", resolution: "", status: "未处理", date: formatInUtc8(new Date().toISOString(), false) }, ...items])}><Plus />添加</Button></div>{issues.map((issue, index) => <Card key={index}><CardContent className="grid gap-2 sm:grid-cols-2"><Input placeholder="问题标题" value={issue.title} onChange={(event) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, title: event.target.value } : item))} /><Input placeholder="问题描述" value={issue.description} onChange={(event) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, description: event.target.value } : item))} /><DatePickerField ariaLabel="问题日期" placeholder="YYYY/MM/DD" value={issue.date} onChange={(date) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, date } : item))} /></CardContent></Card>)}</section>
   <section className="space-y-3"><div className="flex items-center justify-between"><h4 className="font-medium">功能需求</h4><Button size="sm" variant="outline" onClick={() => setFeatures((items) => [{ title: "", description: "", status: "未评估", date: formatInUtc8(new Date().toISOString(), false) }, ...items])}><Plus />添加</Button></div>{features.map((feature, index) => <Card key={index}><CardContent className="grid gap-2 sm:grid-cols-2"><Input placeholder="需求标题" value={feature.title} onChange={(event) => setFeatures((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, title: event.target.value } : item))} /><Input placeholder="需求描述" value={feature.description} onChange={(event) => setFeatures((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, description: event.target.value } : item))} /><DatePickerField ariaLabel="需求日期" placeholder="YYYY/MM/DD" value={feature.date} onChange={(date) => setFeatures((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, date } : item))} /></CardContent></Card>)}</section>
@@ -547,6 +569,11 @@ function CustomerSourceInput({ value, onChange }: { value: string; onChange: (va
   return <div className="grid gap-2 sm:grid-cols-2"><Select value={source.type} onValueChange={(type) => onChange(joinCustomerSource(type, source.detail))}><SelectTrigger className="w-full"><SelectValue placeholder="选择来源" /></SelectTrigger><SelectContent>{customerSourceOptions.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select><Input value={source.detail} disabled={!source.type} placeholder="填写具体内容" onChange={(event) => onChange(joinCustomerSource(source.type, event.target.value))} /></div>;
 }
 
+function UseCaseInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const useCase = splitUseCase(value);
+  return <div className="grid gap-2 sm:grid-cols-2"><Select value={useCase.type} onValueChange={(type) => onChange(joinUseCase(type, useCase.detail))}><SelectTrigger className="w-full"><SelectValue placeholder="选择使用场景" /></SelectTrigger><SelectContent>{useCaseOptions.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select><Input value={useCase.detail} disabled={!useCase.type} placeholder="填写具体内容" onChange={(event) => onChange(joinUseCase(useCase.type, event.target.value))} /></div>;
+}
+
 function EditableInfoCard({ title, fields, customer, editing, onChange }: { title: string; fields: Array<[string, EditableCustomerKey]>; customer: Customer; editing: boolean; onChange: (key: EditableCustomerKey, value: string) => void }) {
-  return <Card><CardContent><h4 className="mb-5 font-semibold">{title}</h4><div className="grid gap-5 sm:grid-cols-2">{fields.map(([label, key]) => <div key={key} className={key === "customerSource" ? "sm:col-span-2" : ""}><p className="mb-1 text-xs text-muted-foreground">{label}</p>{editing ? key === "customerSource" ? <CustomerSourceInput value={customer.customerSource} onChange={(value) => onChange(key, value)} /> : key === "status" ? <Select value={customer.status} onValueChange={(value: Customer["status"]) => onChange(key, value)}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="活跃">活跃</SelectItem><SelectItem value="流失风险">流失风险</SelectItem><SelectItem value="已停滞">已停滞</SelectItem><SelectItem value="潜在客户">潜在客户</SelectItem></SelectContent></Select> : key === "plan" ? <Select value={customer.plan} onValueChange={(value) => onChange(key, value)}><SelectTrigger className="w-full"><SelectValue placeholder="选择套餐" /></SelectTrigger><SelectContent>{planOptions.map((plan) => <SelectItem key={plan} value={plan}>{plan}</SelectItem>)}</SelectContent></Select> : key === "createdAt" || key === "dueDate" ? <DatePickerField placeholder="YYYY/MM/DD" value={customer[key] === "—" ? "" : customer[key]} onChange={(value) => onChange(key, value)} /> : <Input value={customer[key] === "—" ? "" : customer[key]} onChange={(event) => onChange(key, event.target.value)} /> : <p className="text-sm font-medium">{key === "createdAt" || key === "dueDate" ? displayDate(customer[key]) : customer[key]}</p>}</div>)}</div></CardContent></Card>;
+  return <Card><CardContent><h4 className="mb-5 font-semibold">{title}</h4><div className="grid gap-5 sm:grid-cols-2">{fields.map(([label, key]) => <div key={key} className={key === "customerSource" || key === "scenario" ? "sm:col-span-2" : ""}><p className="mb-1 text-xs text-muted-foreground">{label}</p>{editing ? key === "customerSource" ? <CustomerSourceInput value={customer.customerSource} onChange={(value) => onChange(key, value)} /> : key === "scenario" ? <UseCaseInput value={customer.scenario} onChange={(value) => onChange(key, value)} /> : key === "status" ? <Select value={customer.status} onValueChange={(value: Customer["status"]) => onChange(key, value)}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="活跃">活跃</SelectItem><SelectItem value="流失风险">流失风险</SelectItem><SelectItem value="已停滞">已停滞</SelectItem><SelectItem value="潜在客户">潜在客户</SelectItem></SelectContent></Select> : key === "plan" ? <Select value={customer.plan} onValueChange={(value) => onChange(key, value)}><SelectTrigger className="w-full"><SelectValue placeholder="选择套餐" /></SelectTrigger><SelectContent>{planOptions.map((plan) => <SelectItem key={plan} value={plan}>{plan}</SelectItem>)}</SelectContent></Select> : key === "createdAt" || key === "dueDate" ? <DatePickerField placeholder="YYYY/MM/DD" value={customer[key] === "—" ? "" : customer[key]} onChange={(value) => onChange(key, value)} /> : <Input value={customer[key] === "—" ? "" : customer[key]} onChange={(event) => onChange(key, event.target.value)} /> : <p className="text-sm font-medium">{key === "createdAt" || key === "dueDate" ? displayDate(customer[key]) : customer[key]}</p>}</div>)}</div></CardContent></Card>;
 }
