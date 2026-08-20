@@ -25,6 +25,11 @@ export interface CopilotSnapshot {
   sourceMessageHash: string;
 }
 
+export interface SummaryCursor {
+  lastMessageId?: string;
+  summarizedAt?: string;
+}
+
 export interface ApiConfig {
   provider: string;
   apiKey: string;
@@ -136,10 +141,38 @@ export function snapshotToTranscript(snapshot: CopilotSnapshot, options?: { maxM
   return messages
     .map((message) => {
       const speaker = message.role === 'agent' ? '客服' : message.role === 'customer' ? '客户' : '系统';
-      const time = message.rawTimeText ? ` ${message.rawTimeText}` : '';
+      const normalizedTimestamp = normalizeMessageTimestamp(message.timestamp);
+      const timeText = normalizedTimestamp
+        ? new Intl.DateTimeFormat('zh-CN', {
+            timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+          }).format(new Date(normalizedTimestamp))
+        : message.rawTimeText;
+      const time = timeText ? ` ${timeText}` : '';
       return `[${speaker}${time}] ${message.text}`;
     })
     .join('\n');
+}
+
+export function normalizeMessageTimestamp(value: number | undefined): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined;
+  const milliseconds = value < 10_000_000_000 ? value * 1000 : value;
+  const earliest = Date.UTC(2013, 0, 1);
+  const latest = Date.now() + 24 * 60 * 60 * 1000;
+  return milliseconds >= earliest && milliseconds <= latest ? milliseconds : undefined;
+}
+
+export function messagesAfterSummary(
+  messages: CopilotChatMessage[], cursor: SummaryCursor | undefined, summarizedAt: number,
+): CopilotChatMessage[] {
+  if (cursor?.lastMessageId) {
+    const boundary = messages.findIndex((message) => message.id === cursor.lastMessageId);
+    if (boundary >= 0) return messages.slice(boundary + 1);
+  }
+  return messages.filter((message) => {
+    const timestamp = normalizeMessageTimestamp(message.timestamp);
+    return timestamp === undefined || timestamp > summarizedAt;
+  });
 }
 
 export function getLatestCustomerMessage(snapshot: CopilotSnapshot): string {

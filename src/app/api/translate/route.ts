@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callExtensionTranslateModel } from "../copilot/shared";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { buildCustomerSupportTranslationGuidance, customerSupportTranslationDomain } from "@/lib/customer-support-translation";
 
 const LANGUAGE_NAMES: Record<string, string> = {
   auto: "自动检测",
@@ -350,15 +351,16 @@ export async function POST(request: NextRequest) {
         : LANGUAGE_PROMPT_NAMES[normalizedSourceLanguage];
       const targetLanguageName = LANGUAGE_PROMPT_NAMES[normalizedTargetLanguage];
       const glossaryTerms = buildTranslationTerms(knowledgeTerms, text, detectedSourceLanguage || normalizedSourceLanguage, normalizedTargetLanguage);
+      const customerSupportGuidance = buildCustomerSupportTranslationGuidance(targetLanguageName);
 
       const systemPrompt = [
         "You are a professional translation engine for DICloak customer support.",
         `Source language: ${normalizedSourceLanguage === "auto" ? `auto-detect${detectedSourceLanguage ? ` (detected: ${sourceLanguageName})` : ""}` : sourceLanguageName}.`,
         `Target language: ${targetLanguageName}.`,
         `You MUST output only in ${targetLanguageName}. Do not output English unless the target language is English.`,
-        "Preserve tone, line breaks, numbers, emails, URLs, product names, account information, proper nouns, and contextual meaning.",
+        "Preserve line breaks, numbers, emails, URLs, product names, account information, proper nouns, and contextual meaning.",
         "Translate faithfully: do not omit, add, weaken, or change the meaning of any clause.",
-        "Keep the final wording polite and suitable for customer support.",
+        ...customerSupportGuidance,
         "Output only the translated text. Do not add explanations, prefixes, suffixes, quotes, or language labels.",
         ...(glossaryTerms.length > 0 ? [
           `Terminology choices: ${glossaryTerms.map((term) => `${term.source} => ${term.target}`).join("; ")}.`,
@@ -374,7 +376,7 @@ export async function POST(request: NextRequest) {
         terms: glossaryTerms,
         domains: [
           "DICloak customer support translation for browser profile, proxy, account, team, and troubleshooting scenarios.",
-          "Translate faithfully without omissions or meaning drift. Keep a polite support tone.",
+          customerSupportTranslationDomain(targetLanguageName),
           "When using terminology, treat term targets as preferred lexical choices rather than fixed capitalization; use natural in-sentence casing for common nouns, while preserving proper nouns and acronyms.",
           "In DICloak context, only capitalized plural Profiles can mean the 环境管理 module in operation-path phrases such as enter/go to/open/click/navigate to Profiles. Singular profile/Profile never means 环境管理; translate create/new profile(s) as 创建环境/新建环境, not 环境管理 or 环境相关.",
         ].join(" "),

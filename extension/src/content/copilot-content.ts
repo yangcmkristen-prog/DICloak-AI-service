@@ -282,19 +282,29 @@ function getCurrentChatInfo(): ExternalChatInfo | null {
 }
 
 function getTelegramMessageTimestamp(node: Element): number | undefined {
-  const value = node.getAttribute("data-timestamp")
-    || node.closest("[data-timestamp]")?.getAttribute("data-timestamp")
-    || node.querySelector("[data-timestamp]")?.getAttribute("data-timestamp");
-  if (value) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed < 10_000_000_000 ? parsed * 1000 : parsed;
-  }
   const dateTime = node.matches("time") ? node.getAttribute("datetime") : node.querySelector("time")?.getAttribute("datetime");
   if (dateTime) {
     const parsed = Date.parse(dateTime);
-    if (Number.isFinite(parsed)) return parsed;
+    if (isPlausibleTelegramTimestamp(parsed)) return parsed;
+  }
+  const values = [
+    node.getAttribute("data-timestamp"),
+    node.querySelector("time[data-timestamp]")?.getAttribute("data-timestamp"),
+    node.querySelector("[data-timestamp]")?.getAttribute("data-timestamp"),
+  ];
+  for (const value of values) {
+    if (!value) continue;
+    const numeric = Number(value);
+    const parsed = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+    if (isPlausibleTelegramTimestamp(parsed)) return parsed;
   }
   return undefined;
+}
+
+function isPlausibleTelegramTimestamp(value: number): boolean {
+  return Number.isFinite(value)
+    && value >= Date.UTC(2013, 0, 1)
+    && value <= Date.now() + 24 * 60 * 60 * 1000;
 }
 
 const TELEGRAM_MESSAGE_SELECTOR = [

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callTextModel, snapshotToTranscript, validateSnapshot } from "../shared";
+import { callTextModel, messagesAfterSummary, normalizeMessageTimestamp, snapshotToTranscript, validateSnapshot, type SummaryCursor } from "../shared";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 
 const CORS_HEADERS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
@@ -411,8 +411,9 @@ export async function POST(request: NextRequest) {
     const initialMessages = snapshot.chat.platform === "telegram"
       ? snapshot.messages.filter((message) => typeof message.timestamp !== "number" || message.timestamp >= sixMonthsAgoTimestamp())
       : snapshot.messages;
+    const summaryCursor = existing?.summaryCursor as SummaryCursor | undefined;
     const messages = existing && lastSyncedAt > 0
-      ? snapshot.messages.filter((message) => typeof message.timestamp === "number" && message.timestamp > lastSyncedAt)
+      ? messagesAfterSummary(snapshot.messages, summaryCursor, lastSyncedAt)
       : initialMessages;
     if (existing && messages.length === 0) {
       return NextResponse.json({ summary: existing, webUrl: `${request.nextUrl.origin}/?customer=${encodeURIComponent(String(existing.externalChatId))}`, noNewMessages: true }, { headers: CORS_HEADERS });
@@ -434,8 +435,10 @@ export async function POST(request: NextRequest) {
       `请分析以下新增会话（共 ${messages.length} 条），输出 JSON：\n${outputSchema}\n\n识别规则：\n1. 除品牌名和套餐名外，所有字段内容必须用简体中文填写。\n2. 不要提取或输出联系人名称、${snapshot.chat.platform === "telegram" ? "Telegram 联系方式" : "WhatsApp 号码"}和团队 ID，这些字段由系统直接采集。\n3. ${existing ? "本次是增量总结，只能输出新增聊天中首次出现的问题和功能需求；不得输出客户基本信息，也不得根据新聊天修改此前的问题或需求。" : "currentPlan 仅允许填写 Free、Base、Plus、Share+、Share。聊天中明确提及其中一种套餐时使用对应的标准名称；未提及或无法确认时留空，不得猜测。monthlyFee 仅在聊天明确提及月费时填写金额和币种，否则留空。customerSource 仅允许使用“朋友推荐、线上搜索、社交媒体、合作伙伴”之一，并按“来源类型：具体内容”输出；不明确时留空。"}\n4. 只有与 DICloak 产品直接相关、且必须由技术人员开发或改造产品才能实现的诉求，才可放入 featureRequests；咨询、故障、套餐诉求、第三方网站或代理需求一律不要归为功能需求。\n5. occurredAt 和 requestedAt 必须根据聊天记录填写对应问题或需求首次出现的日期，格式为 YYYY-MM-DD；无法精确判断时填写最接近的消息日期，不得留空。\n\n新增聊天记录：\n${transcript}`,
       0.2,
     );
-    const latestMessageTimestamp = messages.reduce<number>((latest, message) =>
-      typeof message.timestamp === "number" ? Math.max(latest, message.timestamp) : latest, 0);
+    const latestMessageTimestamp = messages.reduce<number>((latest, message) => {
+      const timestamp = normalizeMessageTimestamp(message.timestamp);
+      return timestamp ? Math.max(latest, timestamp) : latest;
+    }, 0);
     const fallbackItemDate = utc8Date(latestMessageTimestamp || Date.now());
     const analysis = addMissingItemDates(parseJsonObject(content), fallbackItemDate);
     const updatedAt = new Date().toISOString();
@@ -450,12 +453,14 @@ export async function POST(request: NextRequest) {
       currentPlan: normalizePlan(analysis.currentPlan),
       createdAt: existing?.createdAt || updatedAt,
       updatedAt,
+      summaryCursor: { lastMessageId: snapshot.messages.at(-1)?.id, summarizedAt: updatedAt },
     };
     const summary = existing ? {
       ...existing,
       issues: appendUnique(existing.issues, generated.issues),
       featureRequests: appendUnique(existing.featureRequests, generated.featureRequests),
       updatedAt,
+      summaryCursor: generated.summaryCursor,
     } : generated;
     const recordId = existingRow?.external_chat_id ?? snapshot.chat.externalChatId;
     const { error } = await client.from("customer_summaries").upsert({
