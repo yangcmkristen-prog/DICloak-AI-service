@@ -7,6 +7,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { zhCN } from "date-fns/locale";
 import { toast } from "sonner";
 import { customerImportHeaders, downloadCustomerImportTemplate, exportCustomers, parseCustomerImportFile, type CustomerImportRow } from "@/lib/customer-import";
+import { customerChannelOptions, normalizeCustomerChannels, parseCustomerChannels } from "@/lib/customer-channels";
 
 type IssueStatus = "未处理" | "处理中" | "已解决";
 type Issue = { title: string; description: string; resolution: string; status: IssueStatus; date: string };
@@ -58,15 +60,17 @@ type UseCaseType = (typeof useCaseOptions)[number];
 
 function splitCustomerSource(value: string): { type: CustomerSourceType | ""; detail: string } {
   const separatorIndex = value.indexOf("：");
-  const type = separatorIndex >= 0 ? value.slice(0, separatorIndex) : "";
+  const type = separatorIndex >= 0 ? value.slice(0, separatorIndex) : value;
   return {
     type: customerSourceOptions.includes(type as CustomerSourceType) ? type as CustomerSourceType : "",
-    detail: separatorIndex >= 0 ? value.slice(separatorIndex + 1) : value,
+    detail: separatorIndex >= 0 ? value.slice(separatorIndex + 1) : customerSourceOptions.includes(value as CustomerSourceType) ? "" : value,
   };
 }
 
 function joinCustomerSource(type: string, detail: string): string {
-  return type ? `${type}：${detail}` : "";
+  if (!type) return "";
+  const normalizedDetail = detail.trim();
+  return normalizedDetail ? `${type}：${normalizedDetail}` : type;
 }
 
 function splitUseCase(value: string): { type: UseCaseType | ""; detail: string } {
@@ -379,8 +383,8 @@ function CustomerImportDialog({ open, onOpenChange, onImported }: { open: boolea
 
   return <Dialog open={open} onOpenChange={changeOpen}><DialogContent className="max-h-[90vh] overflow-x-hidden overflow-y-auto sm:max-w-3xl"><DialogHeader><DialogTitle>批量导入客户</DialogTitle><DialogDescription>系统以团队 ID 匹配客户；已有记录更新，未有记录自动创建。</DialogDescription></DialogHeader>
     <section className="min-w-0 space-y-3 rounded-lg border p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="font-medium">导入模板</h4><p className="text-sm text-muted-foreground">请先下载模板并按示例填写。</p></div><Button variant="outline" onClick={downloadCustomerImportTemplate}><Download />下载模板</Button></div>
-      <div className="max-w-full overflow-x-auto rounded-md border"><Table className="min-w-max"><TableHeader><TableRow>{customerImportHeaders.map((header) => <TableHead key={header} className="whitespace-nowrap">{header}{header === "团队ID" ? " *" : ""}</TableHead>)}</TableRow></TableHeader><TableBody><TableRow>{["DIC-示例001", "张三", "zhangsan@example.com", "WhatsApp", "中国", "代理商", "朋友推荐：vantage", "活跃", "高阶版", "49.00", "2026/07/31", "2027/07/31", "跨境电商多店铺运营", "10 人", "100 个", "Multilogin", "多账号安全运营", "性价比高", ""].map((value, index) => <TableCell key={`${index}-${value}`} className="whitespace-nowrap text-xs text-muted-foreground">{value || "—"}</TableCell>)}</TableRow></TableBody></Table></div>
-      <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground"><li>团队 ID 必填，且同一表格内不可重复。</li><li>已有客户仅更新非空单元格；空白字段保留原值。</li><li>客户来源须按“来源类型：具体内容”填写，来源类型可选朋友推荐、线上搜索、社交媒体、合作伙伴。</li><li>客户状态可填写：活跃、流失风险、已停滞、潜在客户。</li><li>创建时间建议填写 YYYY/MM/DD，例如 2026/07/31。</li></ul>
+      <div className="max-w-full overflow-x-auto rounded-md border"><Table className="min-w-max"><TableHeader><TableRow>{customerImportHeaders.map((header) => <TableHead key={header} className="whitespace-nowrap">{header}{header === "团队ID" ? " *" : ""}</TableHead>)}</TableRow></TableHeader><TableBody><TableRow>{["DIC-示例001", "张三", "zhangsan@example.com", "WhatsApp、email", "中国", "代理商", "朋友推荐", "活跃", "高阶版", "49.00", "2026/07/31", "2027/07/31", "跨境电商多店铺运营", "10 人", "100 个", "Multilogin", "多账号安全运营", "性价比高", ""].map((value, index) => <TableCell key={`${index}-${value}`} className="whitespace-nowrap text-xs text-muted-foreground">{value || "—"}</TableCell>)}</TableRow></TableBody></Table></div>
+      <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground"><li>团队 ID 必填，且同一表格内不可重复。</li><li>已有客户仅更新非空单元格；空白字段保留原值。</li><li>渠道支持 WhatsApp、tg、wechat、crisp、email；多个渠道使用“、”或逗号分隔。</li><li>客户来源可只填写来源类型、填写具体内容或留空，导入时不限制格式。</li><li>客户状态可填写：活跃、流失风险、已停滞、潜在客户。</li><li>创建时间建议填写 YYYY/MM/DD，例如 2026/07/31。</li></ul>
     </section>
     <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed p-6 text-center hover:bg-muted/40"><Upload className="size-6 text-blue-600" /><span className="font-medium">{analyzing ? "正在分析表格…" : "上传 Excel 表格"}</span><span className="text-xs text-muted-foreground">支持 .xlsx、.xls 文件{fileName ? ` · ${fileName}` : ""}</span><Input className="sr-only" type="file" accept=".xlsx,.xls" disabled={analyzing || saving} onChange={(event) => void upload(event.target.files?.[0])} /></label>
     {analysis ? <section className="space-y-3"><div className="grid grid-cols-3 gap-3">{[["成功识别", analysis.recognized], ["新建客户", analysis.created], ["更新客户", analysis.updated]].map(([label, value]) => <Card key={label}><CardContent className="py-4 text-center"><p className="text-2xl font-bold text-blue-600">{value}</p><p className="text-xs text-muted-foreground">{label}</p></CardContent></Card>)}</div>{analysis.errors.length ? <div className="max-h-28 overflow-y-auto rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"><p className="mb-1 font-medium">以下行未识别：</p>{analysis.errors.map((error) => <p key={error}>{error}</p>)}</div> : null}</section> : null}
@@ -437,7 +441,7 @@ function CustomerDetail({ customer, onClose, onSummarize, onSave, onDelete }: { 
   const finishProfile = async () => {
     if (!draft.name.trim()) return toast.error("联系人不能为空");
     const source = splitCustomerSource(draft.customerSource);
-    if (draft.customerSource && (!source.type || !source.detail.trim())) return toast.error("请选择客户来源并填写具体内容");
+    if (draft.customerSource && !source.type) return toast.error("请选择客户来源");
     const followUpStatus = customer.status === "活跃" && draft.status !== "活跃" && draft.followUpStatus === "无需跟进" ? "待跟进" : draft.followUpStatus;
     if (await persist({ ...draft, followUpStatus, name: draft.name.trim(), initials: draft.name.trim().slice(0, 2).toUpperCase() }, "客户信息已保存")) setEditingProfile(false);
   };
@@ -491,7 +495,7 @@ function CustomerDetail({ customer, onClose, onSummarize, onSave, onDelete }: { 
     </div></Tabs></aside></div>;
 }
 
-const emptyCustomerForm = { contactName: "", teamId: "", contactDetail: "", region: "", customerType: "", customerSource: "", useCase: "", userScale: "", accountScale: "", currentPlan: "", monthlyFee: "", dueDate: "", competitorUsage: "", coreNeeds: "", selectionReason: "", churnReason: "", notes: "" };
+const emptyCustomerForm = { contactName: "", teamId: "", contactDetail: "", contactMethod: "", region: "", customerType: "", customerSource: "", useCase: "", userScale: "", accountScale: "", currentPlan: "", monthlyFee: "", dueDate: "", competitorUsage: "", coreNeeds: "", selectionReason: "", churnReason: "", notes: "" };
 
 function AddCustomerDialog({ open, customers, onOpenChange, onCreated, onExisting }: { open: boolean; customers: Customer[]; onOpenChange: (open: boolean) => void; onCreated: (id: string) => Promise<void>; onExisting: (id: string) => void }) {
   const [form, setForm] = useState(emptyCustomerForm);
@@ -503,13 +507,13 @@ function AddCustomerDialog({ open, customers, onOpenChange, onCreated, onExistin
   const submit = async () => {
     if (!form.contactName.trim() || !form.teamId.trim()) return toast.error("请填写联系人和团队 ID");
     const source = splitCustomerSource(form.customerSource);
-    if (form.customerSource && (!source.type || !source.detail.trim())) return toast.error("请选择客户来源并填写具体内容");
+    if (form.customerSource && !source.type) return toast.error("请选择客户来源");
     const useCase = splitUseCase(form.useCase);
     if (form.useCase && !useCase.type) return toast.error("请选择使用场景");
     if (duplicate) return onExisting(duplicate.id);
     setSaving(true);
     try {
-      const response = await fetch("/api/copilot/customer-summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customer: { ...form, contactMethod: "手动添加", customerStatus: "活跃", issues: issues.map(({ date, ...issue }) => ({ ...issue, occurredAt: date })), featureRequests: features.map(({ date, ...feature }) => ({ ...feature, requestedAt: date })) } }) });
+      const response = await fetch("/api/copilot/customer-summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customer: { ...form, customerStatus: "活跃", issues: issues.map(({ date, ...issue }) => ({ ...issue, occurredAt: date })), featureRequests: features.map(({ date, ...feature }) => ({ ...feature, requestedAt: date })) } }) });
       const payload = await response.json() as { error?: string; existingId?: string; summary?: { externalChatId?: string } };
       if (response.status === 409 && payload.existingId) return onExisting(payload.existingId);
       if (!response.ok || !payload.summary?.externalChatId) throw new Error(payload.error || "添加客户失败");
@@ -519,7 +523,7 @@ function AddCustomerDialog({ open, customers, onOpenChange, onCreated, onExistin
     } catch (error: unknown) { toast.error(error instanceof Error ? error.message : "添加客户失败"); } finally { setSaving(false); }
   };
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>添加客户</DialogTitle><DialogDescription>团队 ID 是客户的唯一归纳标识，也可同时录入历史问题和功能需求。</DialogDescription></DialogHeader><div className="grid gap-4 sm:grid-cols-2">
-    {([["联系人 *", "contactName"], ["团队 ID *", "teamId"], ["联系方式", "contactDetail"], ["地区", "region"], ["客户类型", "customerType"], ["客户来源", "customerSource"], ["使用场景", "useCase"], ["用户规模", "userScale"], ["账号规模", "accountScale"], ["当前套餐", "currentPlan"], ["套餐月费", "monthlyFee"], ["到期时间", "dueDate"], ["竞品使用情况", "competitorUsage"], ["核心需求", "coreNeeds"], ["选择原因", "selectionReason"], ["流失原因", "churnReason"]] as Array<[string, keyof typeof emptyCustomerForm]>).map(([label, key]) => <label key={key} className={`space-y-1 text-sm ${key === "customerSource" || key === "useCase" ? "sm:col-span-2" : ""}`}><span>{label}</span>{key === "customerSource" ? <CustomerSourceInput value={form.customerSource} onChange={(value) => update("customerSource", value)} /> : key === "useCase" ? <UseCaseInput value={form.useCase} onChange={(value) => update("useCase", value)} /> : key === "currentPlan" ? <Select value={form.currentPlan} onValueChange={(value) => update("currentPlan", value)}><SelectTrigger className="w-full"><SelectValue placeholder="选择套餐" /></SelectTrigger><SelectContent>{planOptions.map((plan) => <SelectItem key={plan} value={plan}>{plan}</SelectItem>)}</SelectContent></Select> : key === "dueDate" ? <DatePickerField placeholder="YYYY/MM/DD" value={form.dueDate} onChange={(value) => update("dueDate", value)} /> : <Input value={form[key]} onChange={(event) => update(key, event.target.value)} />}</label>)}
+    {([["联系人 *", "contactName"], ["团队 ID *", "teamId"], ["联系方式", "contactDetail"], ["渠道", "contactMethod"], ["地区", "region"], ["客户类型", "customerType"], ["客户来源", "customerSource"], ["使用场景", "useCase"], ["用户规模", "userScale"], ["账号规模", "accountScale"], ["当前套餐", "currentPlan"], ["套餐月费", "monthlyFee"], ["到期时间", "dueDate"], ["竞品使用情况", "competitorUsage"], ["核心需求", "coreNeeds"], ["选择原因", "selectionReason"], ["流失原因", "churnReason"]] as Array<[string, keyof typeof emptyCustomerForm]>).map(([label, key]) => <label key={key} className={`space-y-1 text-sm ${key === "customerSource" || key === "useCase" ? "sm:col-span-2" : ""}`}><span>{label}</span>{key === "contactMethod" ? <ChannelSelect value={form.contactMethod} onChange={(value) => update("contactMethod", value)} /> : key === "customerSource" ? <CustomerSourceInput value={form.customerSource} onChange={(value) => update("customerSource", value)} /> : key === "useCase" ? <UseCaseInput value={form.useCase} onChange={(value) => update("useCase", value)} /> : key === "currentPlan" ? <Select value={form.currentPlan} onValueChange={(value) => update("currentPlan", value)}><SelectTrigger className="w-full"><SelectValue placeholder="选择套餐" /></SelectTrigger><SelectContent>{planOptions.map((plan) => <SelectItem key={plan} value={plan}>{plan}</SelectItem>)}</SelectContent></Select> : key === "dueDate" ? <DatePickerField placeholder="YYYY/MM/DD" value={form.dueDate} onChange={(value) => update("dueDate", value)} /> : <Input value={form[key]} onChange={(event) => update(key, event.target.value)} />}</label>)}
   </div>{duplicate ? <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">该团队 ID 已有客户记录：{duplicate.name}。<Button variant="link" className="h-auto px-1 text-amber-900" onClick={() => onExisting(duplicate.id)}>前往记录编辑</Button></div> : null}<label className="space-y-1 text-sm"><span>备注</span><Textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} /></label>
   <section className="space-y-3"><div className="flex items-center justify-between"><h4 className="font-medium">历史问题</h4><Button size="sm" variant="outline" onClick={() => setIssues((items) => [{ title: "", description: "", resolution: "", status: "未处理", date: formatInUtc8(new Date().toISOString(), false) }, ...items])}><Plus />添加</Button></div>{issues.map((issue, index) => <Card key={index}><CardContent className="grid gap-2 sm:grid-cols-2"><Input placeholder="问题标题" value={issue.title} onChange={(event) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, title: event.target.value } : item))} /><Input placeholder="问题描述" value={issue.description} onChange={(event) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, description: event.target.value } : item))} /><DatePickerField ariaLabel="问题日期" placeholder="YYYY/MM/DD" value={issue.date} onChange={(date) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, date } : item))} /></CardContent></Card>)}</section>
   <section className="space-y-3"><div className="flex items-center justify-between"><h4 className="font-medium">功能需求</h4><Button size="sm" variant="outline" onClick={() => setFeatures((items) => [{ title: "", description: "", status: "未评估", date: formatInUtc8(new Date().toISOString(), false) }, ...items])}><Plus />添加</Button></div>{features.map((feature, index) => <Card key={index}><CardContent className="grid gap-2 sm:grid-cols-2"><Input placeholder="需求标题" value={feature.title} onChange={(event) => setFeatures((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, title: event.target.value } : item))} /><Input placeholder="需求描述" value={feature.description} onChange={(event) => setFeatures((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, description: event.target.value } : item))} /><DatePickerField ariaLabel="需求日期" placeholder="YYYY/MM/DD" value={feature.date} onChange={(date) => setFeatures((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, date } : item))} /></CardContent></Card>)}</section>
@@ -564,6 +568,14 @@ function FollowUpDialog({ customer, open, trigger, onOpenChange, onSaved }: { cu
 }
 
 type EditableCustomerKey = "name" | "contact" | "channel" | "teamId" | "region" | "type" | "status" | "scenario" | "users" | "accounts" | "plan" | "monthlyFee" | "createdAt" | "dueDate" | "customerSource" | "competitorUsage" | "coreNeeds" | "selectionReason" | "churnReason";
+function ChannelSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const selected = parseCustomerChannels(value);
+  const toggle = (channel: (typeof customerChannelOptions)[number], checked: boolean) => {
+    const next = checked ? [...selected, channel] : selected.filter((item) => item !== channel);
+    onChange(normalizeCustomerChannels(next.join("、")));
+  };
+  return <Popover><PopoverTrigger asChild><Button type="button" variant="outline" className="w-full justify-start font-normal">{selected.length ? selected.join("、") : <span className="text-muted-foreground">选择渠道</span>}</Button></PopoverTrigger><PopoverContent align="start" className="w-56 p-2">{customerChannelOptions.map((channel) => <label key={channel} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-sm hover:bg-accent"><Checkbox checked={selected.includes(channel)} onCheckedChange={(checked) => toggle(channel, checked === true)} /><span>{channel}</span></label>)}</PopoverContent></Popover>;
+}
 function CustomerSourceInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const source = splitCustomerSource(value);
   return <div className="grid gap-2 sm:grid-cols-2"><Select value={source.type} onValueChange={(type) => onChange(joinCustomerSource(type, source.detail))}><SelectTrigger className="w-full"><SelectValue placeholder="选择来源" /></SelectTrigger><SelectContent>{customerSourceOptions.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}</SelectContent></Select><Input value={source.detail} disabled={!source.type} placeholder="填写具体内容" onChange={(event) => onChange(joinCustomerSource(source.type, event.target.value))} /></div>;
@@ -575,5 +587,5 @@ function UseCaseInput({ value, onChange }: { value: string; onChange: (value: st
 }
 
 function EditableInfoCard({ title, fields, customer, editing, onChange }: { title: string; fields: Array<[string, EditableCustomerKey]>; customer: Customer; editing: boolean; onChange: (key: EditableCustomerKey, value: string) => void }) {
-  return <Card><CardContent><h4 className="mb-5 font-semibold">{title}</h4><div className="grid gap-5 sm:grid-cols-2">{fields.map(([label, key]) => <div key={key} className={key === "customerSource" || key === "scenario" ? "sm:col-span-2" : ""}><p className="mb-1 text-xs text-muted-foreground">{label}</p>{editing ? key === "customerSource" ? <CustomerSourceInput value={customer.customerSource} onChange={(value) => onChange(key, value)} /> : key === "scenario" ? <UseCaseInput value={customer.scenario} onChange={(value) => onChange(key, value)} /> : key === "status" ? <Select value={customer.status} onValueChange={(value: Customer["status"]) => onChange(key, value)}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="活跃">活跃</SelectItem><SelectItem value="流失风险">流失风险</SelectItem><SelectItem value="已停滞">已停滞</SelectItem><SelectItem value="潜在客户">潜在客户</SelectItem></SelectContent></Select> : key === "plan" ? <Select value={customer.plan} onValueChange={(value) => onChange(key, value)}><SelectTrigger className="w-full"><SelectValue placeholder="选择套餐" /></SelectTrigger><SelectContent>{planOptions.map((plan) => <SelectItem key={plan} value={plan}>{plan}</SelectItem>)}</SelectContent></Select> : key === "createdAt" || key === "dueDate" ? <DatePickerField placeholder="YYYY/MM/DD" value={customer[key] === "—" ? "" : customer[key]} onChange={(value) => onChange(key, value)} /> : <Input value={customer[key] === "—" ? "" : customer[key]} onChange={(event) => onChange(key, event.target.value)} /> : <p className="text-sm font-medium">{key === "createdAt" || key === "dueDate" ? displayDate(customer[key]) : customer[key]}</p>}</div>)}</div></CardContent></Card>;
+  return <Card><CardContent><h4 className="mb-5 font-semibold">{title}</h4><div className="grid gap-5 sm:grid-cols-2">{fields.map(([label, key]) => <div key={key} className={key === "customerSource" || key === "scenario" ? "sm:col-span-2" : ""}><p className="mb-1 text-xs text-muted-foreground">{label}</p>{editing ? key === "channel" ? <ChannelSelect value={customer.channel} onChange={(value) => onChange(key, value)} /> : key === "customerSource" ? <CustomerSourceInput value={customer.customerSource} onChange={(value) => onChange(key, value)} /> : key === "scenario" ? <UseCaseInput value={customer.scenario} onChange={(value) => onChange(key, value)} /> : key === "status" ? <Select value={customer.status} onValueChange={(value: Customer["status"]) => onChange(key, value)}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="活跃">活跃</SelectItem><SelectItem value="流失风险">流失风险</SelectItem><SelectItem value="已停滞">已停滞</SelectItem><SelectItem value="潜在客户">潜在客户</SelectItem></SelectContent></Select> : key === "plan" ? <Select value={customer.plan} onValueChange={(value) => onChange(key, value)}><SelectTrigger className="w-full"><SelectValue placeholder="选择套餐" /></SelectTrigger><SelectContent>{planOptions.map((plan) => <SelectItem key={plan} value={plan}>{plan}</SelectItem>)}</SelectContent></Select> : key === "createdAt" || key === "dueDate" ? <DatePickerField placeholder="YYYY/MM/DD" value={customer[key] === "—" ? "" : customer[key]} onChange={(value) => onChange(key, value)} /> : <Input value={customer[key] === "—" ? "" : customer[key]} onChange={(event) => onChange(key, event.target.value)} /> : <p className="text-sm font-medium">{key === "createdAt" || key === "dueDate" ? displayDate(customer[key]) : customer[key]}</p>}</div>)}</div></CardContent></Card>;
 }

@@ -88,7 +88,7 @@ export async function parseCustomerImportFile(file: File): Promise<CustomerImpor
 export function downloadCustomerImportTemplate(): void {
   const sheet = XLSX.utils.aoa_to_sheet([
     [...customerImportHeaders],
-    ["DIC-示例001", "张三", "zhangsan@example.com", "WhatsApp", "中国", "代理商", "朋友推荐：vantage", "活跃", "高阶版", "49.00", "2026/07/31", "2027/07/31", "多账号管理：社媒账号管理", "10 人", "100 个", "Multilogin", "多账号安全运营", "性价比高", ""],
+    ["DIC-示例001", "张三", "zhangsan@example.com", "WhatsApp、email", "中国", "代理商", "朋友推荐", "活跃", "高阶版", "49.00", "2026/07/31", "2027/07/31", "多账号管理：社媒账号管理", "10 人", "100 个", "Multilogin", "多账号安全运营", "性价比高", ""],
   ]);
   sheet["!cols"] = customerImportHeaders.map((header) => ({ wch: Math.max(14, header.length * 2 + 4) }));
   const workbook = XLSX.utils.book_new();

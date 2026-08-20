@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callTextModel, messagesAfterSummary, normalizeMessageTimestamp, snapshotToTranscript, validateSnapshot, type SummaryCursor } from "../shared";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { hasOnlySupportedCustomerChannels, normalizeCustomerChannels } from "@/lib/customer-channels";
 
 const CORS_HEADERS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
 
@@ -30,7 +31,10 @@ type CustomerImportRow = {
 
 const importStatuses = new Set(["活跃", "流失风险", "已停滞", "潜在客户"]);
 const importPlans = new Set(["免费版", "基础版", "高阶版", "共享版+", "共享版", "专业版", "协作版", "独享版", "优享版", "进阶版", "明星版", "VIP版", "定制版"]);
-const customerSourcePattern = /^(朋友推荐|线上搜索|社交媒体|合作伙伴)：\S(?:.*\S)?$/;
+const customerProfileKeys = [
+  "region", "customerType", "customerSource", "useCase", "userScale", "accountScale",
+  "currentPlan", "monthlyFee", "customerStatus", "notes", "competitorUsage", "coreNeeds", "selectionReason", "churnReason",
+] as const;
 
 function validateCustomerImportRows(value: unknown): { rows: Array<Record<string, string>>; errors: string[] } {
   if (!Array.isArray(value)) return { rows: [], errors: ["没有可导入的客户记录"] };
@@ -78,10 +82,11 @@ function validateCustomerImportRows(value: unknown): { rows: Array<Record<string
       errors.push(`第 ${index + 2} 行当前套餐无效`);
       return;
     }
-    if (row.customerSource && !customerSourcePattern.test(row.customerSource)) {
-      errors.push(`第 ${index + 2} 行客户来源格式无效，请按“来源类型：具体内容”填写`);
+    if (row.contactMethod && !hasOnlySupportedCustomerChannels(row.contactMethod)) {
+      errors.push(`第 ${index + 2} 行渠道无效`);
       return;
     }
+    if (row.contactMethod) row.contactMethod = normalizeCustomerChannels(row.contactMethod);
     seenTeamIds.add(normalized);
     rows.push(row);
   });
@@ -126,6 +131,17 @@ function appendUnique(existing: unknown, incoming: unknown): unknown[] {
     additions.push(item);
   }
   return [...preserved, ...additions];
+}
+
+function fillEmptyCustomerProfile(existing: SummaryRecord, generated: SummaryRecord): SummaryRecord {
+  const additions: SummaryRecord = {};
+  for (const key of customerProfileKeys) {
+    const current = existing[key];
+    const incoming = generated[key];
+    const currentIsEmpty = current === null || current === undefined || (typeof current === "string" && !current.trim());
+    if (currentIsEmpty && typeof incoming === "string" && incoming.trim()) additions[key] = incoming;
+  }
+  return { ...existing, ...additions };
 }
 
 function utc8Date(value: number | string): string {
@@ -419,20 +435,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ summary: existing, webUrl: `${request.nextUrl.origin}/?customer=${encodeURIComponent(String(existing.externalChatId))}`, noNewMessages: true }, { headers: CORS_HEADERS });
     }
     const transcript = snapshotToTranscript({ ...snapshot, messages });
-    const outputSchema = existing ? `{
-  "issues":[{"title":"","description":"","resolution":"","status":"已解决/处理中/未处理","occurredAt":""}],
-  "featureRequests":[{"title":"","description":"","source":"客户聊天","status":"未评估/已评估/已有可实现方案/暂无法实现/已上线","requestedAt":""}]
-}` : `{
-  "region":"", "customerType":"", "customerSource":"朋友推荐/线上搜索/社交媒体/合作伙伴：具体内容", "useCase":"", "userScale":"", "accountScale":"",
+    const outputSchema = `{
+  "region":"", "customerType":"", "customerSource":"", "useCase":"", "userScale":"", "accountScale":"",
   "currentPlan":"", "monthlyFee":"", "customerStatus":"活跃/流失风险/已停滞/潜在客户", "notes":"",
+  "competitorUsage":"", "coreNeeds":"", "selectionReason":"", "churnReason":"",
   "issues":[{"title":"","description":"","resolution":"","status":"已解决/处理中/未处理","occurredAt":""}],
   "featureRequests":[{"title":"","description":"","source":"客户聊天","status":"未评估/已评估/已有可实现方案/暂无法实现/已上线","requestedAt":""}]
 }`;
     const content = await callTextModel(
       existing
-        ? "你是 DICloak 客户运营分析师。仅从上次总结后的新增聊天中提取新增的历史问题和功能需求，不得修改或重新总结任何已有客户信息。所有描述使用简体中文，只输出 JSON。"
+        ? "你是 DICloak 客户运营分析师。仅从上次总结后的新增聊天中提取新增信息。客户画像字段只用于补充原记录中的空字段，系统会保护已有内容；历史问题和功能需求只提取新增项。所有描述使用简体中文，只输出 JSON。"
         : "你是 DICloak 客户运营分析师。仅根据完整聊天记录提取客户画像、历史问题和功能需求。所有总结性、描述性内容必须使用简体中文；品牌名、套餐名、团队 ID、电话号码等专有信息保留原文。未知字段填空字符串，不得编造。只输出 JSON。",
-      `请分析以下新增会话（共 ${messages.length} 条），输出 JSON：\n${outputSchema}\n\n识别规则：\n1. 除品牌名和套餐名外，所有字段内容必须用简体中文填写。\n2. 不要提取或输出联系人名称、${snapshot.chat.platform === "telegram" ? "Telegram 联系方式" : "WhatsApp 号码"}和团队 ID，这些字段由系统直接采集。\n3. ${existing ? "本次是增量总结，只能输出新增聊天中首次出现的问题和功能需求；不得输出客户基本信息，也不得根据新聊天修改此前的问题或需求。" : "currentPlan 仅允许填写 Free、Base、Plus、Share+、Share。聊天中明确提及其中一种套餐时使用对应的标准名称；未提及或无法确认时留空，不得猜测。monthlyFee 仅在聊天明确提及月费时填写金额和币种，否则留空。customerSource 仅允许使用“朋友推荐、线上搜索、社交媒体、合作伙伴”之一，并按“来源类型：具体内容”输出；不明确时留空。"}\n4. 只有与 DICloak 产品直接相关、且必须由技术人员开发或改造产品才能实现的诉求，才可放入 featureRequests；咨询、故障、套餐诉求、第三方网站或代理需求一律不要归为功能需求。\n5. occurredAt 和 requestedAt 必须根据聊天记录填写对应问题或需求首次出现的日期，格式为 YYYY-MM-DD；无法精确判断时填写最接近的消息日期，不得留空。\n\n新增聊天记录：\n${transcript}`,
+      `请分析以下新增会话（共 ${messages.length} 条），输出 JSON：\n${outputSchema}\n\n识别规则：\n1. 除品牌名和套餐名外，所有字段内容必须用简体中文填写。\n2. 不要提取或输出联系人名称、${snapshot.chat.platform === "telegram" ? "Telegram 联系方式" : "WhatsApp 号码"}和团队 ID，这些字段由系统直接采集。\n3. ${existing ? "本次是增量总结：可从新增聊天补充客户画像，但只填写新增聊天中明确出现的信息；不得改写此前的问题或需求。" : "仅提取聊天中明确出现的客户画像。"} currentPlan 仅允许填写 Free、Base、Plus、Share+、Share，无法确认时留空；monthlyFee 未明确提及时留空；customerSource 可填写来源类型，也可填写“来源类型：具体内容”，不明确时留空。\n4. 只有与 DICloak 产品直接相关、且必须由技术人员开发或改造产品才能实现的诉求，才可放入 featureRequests；咨询、故障、套餐诉求、第三方网站或代理需求一律不要归为功能需求。\n5. occurredAt 和 requestedAt 必须根据聊天记录填写对应问题或需求首次出现的日期，格式为 YYYY-MM-DD；无法精确判断时填写最接近的消息日期，不得留空。\n\n新增聊天记录：\n${transcript}`,
       0.2,
     );
     const latestMessageTimestamp = messages.reduce<number>((latest, message) => {
@@ -445,7 +459,7 @@ export async function POST(request: NextRequest) {
     const generated: SummaryRecord = {
       externalChatId: snapshot.chat.externalChatId,
       platform: snapshot.chat.platform,
-      contactMethod: snapshot.chat.platform === "telegram" ? "Telegram" : "WhatsApp",
+      contactMethod: snapshot.chat.platform === "telegram" ? "tg" : "WhatsApp",
       ...analysis,
       contactName,
       teamId,
@@ -456,7 +470,7 @@ export async function POST(request: NextRequest) {
       summaryCursor: { lastMessageId: snapshot.messages.at(-1)?.id, summarizedAt: updatedAt },
     };
     const summary = existing ? {
-      ...existing,
+      ...fillEmptyCustomerProfile(existing, generated),
       issues: appendUnique(existing.issues, generated.issues),
       featureRequests: appendUnique(existing.featureRequests, generated.featureRequests),
       updatedAt,
