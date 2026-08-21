@@ -140,12 +140,13 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     },
   });
 
-  // API 配置状态 - 初始为 null，避免 SSR/CSR mismatch
-  const [apiConfig, setApiConfig] = useState<ApiConfig | null>(null);
+  // 使用确定性的默认值渲染配置区。远端配置随后在 effect 中覆盖；即使预览
+  // 环境未配置 Supabase 或请求失败，用户仍然可以立即使用本地配置。
+  const [apiConfig, setApiConfig] = useState<ApiConfig | null>({ ...DEFAULT_API_CONFIG });
   const [showApiConfig, setShowApiConfig] = useState(false);
-  const [extensionTranslateApiConfig, setExtensionTranslateApiConfig] = useState<ApiConfig | null>(null);
+  const [extensionTranslateApiConfig, setExtensionTranslateApiConfig] = useState<ApiConfig | null>({ ...DEFAULT_API_CONFIG });
   const [showExtensionTranslateConfig, setShowExtensionTranslateConfig] = useState(false);
-  const [imageOcrApiConfig, setImageOcrApiConfig] = useState<ApiConfig | null>(null);
+  const [imageOcrApiConfig, setImageOcrApiConfig] = useState<ApiConfig | null>(createDefaultImageOcrConfig());
   const [showImageOcrConfig, setShowImageOcrConfig] = useState(false);
   // 自定义 HTTP 配置
   const [customEndpoint, setCustomEndpoint] = useState("");

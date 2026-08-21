@@ -665,10 +665,7 @@ export default function Home() {
   useEffect(() => {
     const loadedConversations = getConversations();
     
-    // 如果没有对话，自动创建一个
-    if (loadedConversations.length === 0) {
-      setIsCreateConversationDialogOpen(true);
-    } else {
+    if (loadedConversations.length > 0) {
       setConversations(loadedConversations);
       const currentId = getCurrentConversationId();
       if (currentId) {
@@ -2029,9 +2026,7 @@ const handleTranslate = async () => {
       </main>
 
       {/* 移动端编辑对话框 */}
-      <Dialog open={isCreateConversationDialogOpen} onOpenChange={(open) => {
-        if (conversations.length > 0 || open) setIsCreateConversationDialogOpen(open);
-      }}>
+      <Dialog open={isCreateConversationDialogOpen} onOpenChange={setIsCreateConversationDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>新建对话</DialogTitle>
@@ -2050,7 +2045,7 @@ const handleTranslate = async () => {
             </Select>
           </div>
           <DialogFooter>
-            {conversations.length > 0 ? <Button variant="outline" onClick={() => setIsCreateConversationDialogOpen(false)}>取消</Button> : null}
+            <Button variant="outline" onClick={() => setIsCreateConversationDialogOpen(false)}>取消</Button>
             <Button onClick={handleConfirmCreateConversation}>创建对话</Button>
           </DialogFooter>
         </DialogContent>
