@@ -283,7 +283,17 @@ export function CustomerOverview() {
 
   return <div className="h-full overflow-y-auto bg-slate-50/70 p-4 md:p-8">
     <div className="mx-auto max-w-[1500px]">
-      <div className="mb-6 flex items-end justify-between gap-4"><div><h2 className="text-2xl font-bold">客户概览</h2><p className="mt-1 text-sm text-muted-foreground">AI 自动总结客户核心信息，帮助快速了解客户情况</p></div><div className="flex gap-2"><Button variant="outline" disabled={!visibleCustomers.length} onClick={exportFilteredCustomers}><Download />导出当前结果</Button><Button variant="outline" onClick={() => setImporting(true)}><FileSpreadsheet />批量导入</Button><Button className="bg-blue-600" onClick={() => setAdding(true)}><Plus />添加客户</Button></div></div>
+      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-2xl font-bold">客户概览</h2>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">AI 自动总结客户核心信息，帮助快速了解客户情况</p>
+        </div>
+        <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex">
+          <Button variant="outline" className="col-span-2 whitespace-nowrap sm:col-span-1" disabled={!visibleCustomers.length} onClick={exportFilteredCustomers}><Download />导出当前结果</Button>
+          <Button variant="outline" className="whitespace-nowrap" onClick={() => setImporting(true)}><FileSpreadsheet />批量导入</Button>
+          <Button className="whitespace-nowrap bg-blue-600" onClick={() => setAdding(true)}><Plus />添加客户</Button>
+        </div>
+      </div>
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">{summaryCards.map((card) => <button key={card.label} type="button" aria-pressed={quickFilter === card.filter} onClick={() => setQuickFilter((current) => current === card.filter ? "all" : card.filter)} className={`rounded-xl border bg-background p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow ${quickFilter === card.filter ? "border-blue-400 ring-2 ring-blue-100" : "border-border"}`}><p className={`text-sm font-medium ${card.className}`}>{card.label}</p><p className="mt-2 text-2xl font-bold text-foreground">{card.count}</p></button>)}</div>
       <div className="mb-4 grid gap-3 md:grid-cols-[minmax(260px,1fr)_repeat(4,180px)]">
         <div className="relative"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(event) => setQuery(event.target.value)} className="bg-background pl-9" placeholder="搜索联系人、团队 ID 或联系方式" /></div>
