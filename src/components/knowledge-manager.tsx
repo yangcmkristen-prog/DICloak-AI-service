@@ -992,16 +992,11 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                           onChange={(e) => setApiConfig(prev => prev ? { ...prev, apiKey: e.target.value } : prev)}
                           placeholder={PROVIDER_INFO[apiConfig.provider]?.keyPlaceholder}
                         />
-                        <p className="text-xs text-muted-foreground">
-                          {apiConfig.provider === 'coze' 
-                            ? '使用内置 API，无需填写 Key'
-                            : '请填入您的 API Key，费用由您自行承担'
-                          }
-                        </p>
+                        <p className="text-xs text-muted-foreground">请填入您的 API Key，费用由您自行承担</p>
                       </div>
 
                       {/* Base URL (可选) */}
-                      {apiConfig.provider !== 'coze' && (
+                      {(
                         <div className="space-y-2">
                           <Label htmlFor="baseUrl">API 地址（可选）</Label>
                           <Input
@@ -1110,7 +1105,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                     </p>
                   </div>
 
-                  {extensionTranslateApiConfig.provider !== 'coze' && (
+                  {(
                     <div className="space-y-2">
                       <Label htmlFor="extensionTranslateBaseUrl">API 地址（可选）</Label>
                       <Input

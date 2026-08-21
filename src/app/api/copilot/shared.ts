@@ -35,6 +35,10 @@ export interface ApiConfig {
   apiKey: string;
   model: string;
   baseUrl: string;
+  customConfig?: {
+    endpoint?: string;
+    modelName?: string;
+  };
 }
 
 const SYSTEM_CONFIG_CACHE_TTL_MS = 60_000;
@@ -224,15 +228,16 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
   if (!config?.apiKey) {
     throw new Error('未配置 API Key，请先在网页端设置中配置');
   }
+  if (!['deepseek', 'gpt', 'aliyun', 'custom'].includes(config.provider)) {
+    throw new Error('当前模型提供商已不受支持，请在网页端设置中重新选择模型');
+  }
 
   const baseUrl = config.baseUrl
     || (config.provider === 'deepseek'
       ? 'https://api.deepseek.com'
       : config.provider === 'gpt'
         ? 'https://api.tokenlab.sh/v1'
-        : config.provider === 'aliyun'
-          ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-          : 'https://api.coze.cn/v1');
+        : 'https://dashscope.aliyuncs.com/compatible-mode/v1');
   const isAliyunTranslationModel = config.provider === 'aliyun' && config.model.startsWith('qwen-mt-') && translationOptions;
   const messages = isAliyunTranslationModel
     ? [{ role: 'user', content: userPrompt }]
@@ -257,7 +262,10 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
     };
   }
 
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const endpoint = config.provider === 'custom' && config.customConfig?.endpoint
+    ? config.customConfig.endpoint
+    : `${baseUrl}/chat/completions`;
+  const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

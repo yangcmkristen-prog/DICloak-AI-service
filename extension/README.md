@@ -4,18 +4,20 @@
 
 ## 安装
 
-1. 在仓库根目录构建扩展：`pnpm extension:build`
-2. 打开 Chrome / Edge：`chrome://extensions` 或 `edge://extensions`
-3. 开启右上角“开发者模式”
-4. 点击“加载已解压的扩展程序”
-5. 选择本仓库的 `extension/` 目录
-6. 打开 `https://web.whatsapp.com/` 或 `https://web.telegram.org/` 并登录
-7. 点击任意聊天，右侧会出现 DICloak AI Copilot Sidebar
-8. 如 Sidebar 已收起，点击浏览器工具栏里的 DICloak AI Copilot 扩展图标可重新显示
+1. 将 `extension/config.json` 中的 `apiBaseUrl` 改成正式 Vercel 部署地址（不要以 `/` 结尾）。
+2. 如果使用自定义域名，还要把该域名加入 `extension/manifest.json` 的 `host_permissions`。
+3. 在仓库根目录构建扩展：`pnpm extension:build`
+4. 打开 Chrome / Edge：`chrome://extensions` 或 `edge://extensions`
+5. 开启右上角“开发者模式”
+6. 点击“加载已解压的扩展程序”
+7. 选择本仓库的 `extension/` 目录
+8. 打开 `https://web.whatsapp.com/` 或 `https://web.telegram.org/` 并登录
+9. 点击任意聊天，右侧会出现 DICloak AI Copilot Sidebar
+10. 如 Sidebar 已收起，点击浏览器工具栏里的 DICloak AI Copilot 扩展图标可重新显示
 
 ## 注意事项
 
-- 扩展默认调用 `https://5wygm4zx4m.coze.site`，不再使用本地开发 API。
+- 扩展调用 `extension/config.json` 配置的 Vercel API。修改配置后需要在扩展管理页重新加载扩展。
 - 扩展不保存任何 API Key，也不单独配置知识库、Prompt 或模型；翻译和推荐回复统一实时调用线上网页端配置。
 - 扩展不会自动发送消息，只提供复制 AI 结果。
 - “收起”会完全隐藏 Sidebar；需要再次显示时，点击浏览器工具栏中的扩展图标。

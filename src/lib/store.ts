@@ -45,30 +45,13 @@ xxx
 [[/info]]`;
 
 export const DEFAULT_API_CONFIG: ApiConfig = {
-  provider: 'coze',
+  provider: 'gpt',
   apiKey: '',
-  model: 'doubao-seed-2-0-lite-260215',
-  baseUrl: '',
+  model: 'gpt-5.4',
+  baseUrl: 'https://api.tokenlab.sh/v1',
 };
 
 export const MODEL_OPTIONS = [
-  // Coze 平台模型
-  { value: 'doubao-seed-2-0-pro-260215', label: '豆包 Pro', provider: 'coze' },
-  { value: 'doubao-seed-2-0-lite-260215', label: '豆包 Lite', provider: 'coze' },
-  { value: 'doubao-seed-2-0-mini-260215', label: '豆包 Mini', provider: 'coze' },
-  { value: 'doubao-seed-1-8-251228', label: '豆包 1.8', provider: 'coze' },
-  { value: 'doubao-seed-1-6-251015', label: '豆包 1.6', provider: 'coze' },
-  { value: 'doubao-seed-1-6-vision-250815', label: '豆包视觉', provider: 'coze' },
-  { value: 'doubao-seed-1-6-lite-251015', label: '豆包 Lite 1.6', provider: 'coze' },
-  { value: 'deepseek-v3-2-251201', label: 'DeepSeek V3', provider: 'coze' },
-  { value: 'deepseek-r1-250528', label: 'DeepSeek R1', provider: 'coze' },
-  { value: 'kimi-k2-5-260127', label: 'Kimi K2', provider: 'coze' },
-  { value: 'glm-5-0-260211', label: 'GLM-5', provider: 'coze' },
-  { value: 'glm-5-turbo-260316', label: 'GLM-5 Turbo', provider: 'coze' },
-  { value: 'glm-4-7-251222', label: 'GLM-4.7', provider: 'coze' },
-  { value: 'minimax-m2-5-260212', label: 'MiniMax M2.5', provider: 'coze' },
-  { value: 'minimax-m2-7-260318', label: 'MiniMax M2.7', provider: 'coze' },
-  { value: 'qwen-3-5-plus-260215', label: 'Qwen 3.5', provider: 'coze' },
   // GPT / TokenLab 模型（OpenAI 兼容）
   { value: 'gpt-5.4', label: 'GPT-5.4', provider: 'gpt' },
   { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini', provider: 'gpt' },
@@ -92,13 +75,6 @@ export const PROVIDER_INFO: Record<string, {
   baseUrl: string;
   keyPlaceholder: string;
 }> = {
-  coze: {
-    label: '豆包/Coze',
-    name: '豆包/Coze',
-    defaultModel: 'doubao-seed-2-0-lite-260215',
-    baseUrl: '',
-    keyPlaceholder: '输入你的 Coze API Token',
-  },
   gpt: {
     label: 'GPT / TokenLab',
     name: 'GPT / TokenLab',
@@ -346,12 +322,7 @@ export function getApiConfig(): ApiConfig {
     return JSON.parse(stored);
   }
   
-  return {
-    provider: 'coze',
-    apiKey: '',
-    model: 'doubao-seed-2-0-lite-260215',
-    baseUrl: ''
-  };
+  return { ...DEFAULT_API_CONFIG };
 }
 
 export function saveApiConfig(config: ApiConfig): void {

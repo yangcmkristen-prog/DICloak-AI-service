@@ -51,6 +51,7 @@ async function getBackendApiConfig(): Promise<{
   apiKey: string;
   model: string;
   baseUrl: string;
+  customConfig?: { endpoint?: string; modelName?: string };
 } | null> {
   try {
     const client = getSupabaseClient();
@@ -130,6 +131,9 @@ export async function POST(request: NextRequest) {
     if (!config || !config.apiKey) {
       return NextResponse.json({ error: "未配置 API Key，请在系统设置中配置" }, { status: 500 });
     }
+    if (!['deepseek', 'gpt', 'aliyun', 'custom'].includes(config.provider)) {
+      return NextResponse.json({ error: "当前模型提供商已不受支持，请在设置中重新选择模型" }, { status: 400 });
+    }
 
     // 根据 provider 确定 baseUrl 和 model
     const baseUrl = config.baseUrl || (
@@ -137,16 +141,17 @@ export async function POST(request: NextRequest) {
         ? 'https://api.deepseek.com'
         : config.provider === 'gpt'
           ? 'https://api.tokenlab.sh/v1'
-          : config.provider === 'aliyun'
-            ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-            : 'https://api.coze.cn/v1'
+          : 'https://dashscope.aliyuncs.com/compatible-mode/v1'
     );
-    const model = config.model || (config.provider === 'gpt' ? 'gpt-5.4' : 'deepseek-chat');
+    const model = config.customConfig?.modelName || config.model || (config.provider === 'gpt' ? 'gpt-5.4' : 'deepseek-chat');
+    const endpoint = config.provider === 'custom' && config.customConfig?.endpoint
+      ? config.customConfig.endpoint
+      : `${baseUrl}/chat/completions`;
 
     console.log('[CLASSIFY] 使用配置:', { provider: config.provider, model, baseUrl });
 
     const tModelStart = Date.now();
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
