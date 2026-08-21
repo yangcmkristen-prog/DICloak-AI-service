@@ -921,7 +921,7 @@ function render(): void {
       </div>
       <div class="dc-footer">
         <span>知识库/Prompt/模型配置沿用网页端</span>
-        <span>coze.site</span>
+        <span>Vercel API</span>
       </div>
     </div>
   `;

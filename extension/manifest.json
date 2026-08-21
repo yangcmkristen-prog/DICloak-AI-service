@@ -10,7 +10,7 @@
   "host_permissions": [
     "https://web.whatsapp.com/*",
     "https://web.telegram.org/*",
-    "https://5wygm4zx4m.coze.site/*"
+    "https://*.vercel.app/*"
   ],
   "action": {
     "default_title": "DICloak AI Copilot"

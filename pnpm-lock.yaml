@@ -107,15 +107,9 @@ importers:
       cmdk:
         specifier: ^1.1.1
         version: 1.1.1(@types/react-dom@19.2.3(@types/react@19.2.10))(@types/react@19.2.10)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      coze-coding-dev-sdk:
-        specifier: ^0.7.21
-        version: 0.7.21(openai@6.34.0(ws@8.19.0)(zod@4.3.6))(ws@8.19.0)
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
-      dotenv:
-        specifier: ^17.2.3
-        version: 17.2.3
       drizzle-kit:
         specifier: ^0.31.8
         version: 0.31.8
@@ -180,12 +174,6 @@ importers:
         specifier: ^4.3.5
         version: 4.3.6
     devDependencies:
-      '@react-dev-inspector/babel-plugin':
-        specifier: ^2.0.1
-        version: 2.0.1
-      '@react-dev-inspector/middleware':
-        specifier: ^2.0.1
-        version: 2.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))
       '@tailwindcss/postcss':
         specifier: ^4
         version: 4.1.18
@@ -210,9 +198,6 @@ importers:
       only-allow:
         specifier: ^1.2.2
         version: 1.2.2
-      react-dev-inspector:
-        specifier: ^2.0.1
-        version: 2.0.1(@types/react@19.2.10)(eslint@9.39.2(jiti@2.6.1))(react@19.2.3)(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))
       shadcn:
         specifier: latest
         version: 3.7.0(@cfworker/json-schema@4.1.1)(@types/node@20.19.30)(hono@4.11.7)(typescript@5.9.3)
@@ -222,9 +207,6 @@ importers:
       tsup:
         specifier: ^8.3.5
         version: 8.5.1(jiti@2.6.1)(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)(yaml@1.10.2)
-      tsx:
-        specifier: ^4.19.2
-        version: 4.21.0
       typescript:
         specifier: ^5
         version: 5.9.3
@@ -2105,26 +2087,6 @@ packages:
   '@radix-ui/rect@1.1.1':
     resolution: {integrity: sha512-HPwpGIzkl28mWyZqG52jiqDJ12waP11Pa1lGoiyUkIEuMLBP0oeK/C89esbXrxsky5we7dfd8U58nm0SgAWpVw==}
 
-  '@react-dev-inspector/babel-plugin@2.0.1':
-    resolution: {integrity: sha512-V2MzN9dj3uZu6NvAjSxXwa3+FOciVIuwAUwPLpO6ji5xpUyx8E6UiEng1QqzttdpacKHFKtkNYjtQAE+Lsqa5A==}
-    engines: {node: '>=12.0.0'}
-
-  '@react-dev-inspector/middleware@2.0.1':
-    resolution: {integrity: sha512-qDMtBzAxNNAX01jjU1THZVuNiVB7J1Hjk42k8iLSSwfinc3hk667iqgdzeq1Za1a0V2bF5Ev6D4+nkZ+E1YUrQ==}
-    engines: {node: '>=12.0.0'}
-
-  '@react-dev-inspector/umi3-plugin@2.0.1':
-    resolution: {integrity: sha512-lRw65yKQdI/1BwrRXWJEHDJel4DWboOartGmR3S5xiTF+EiOLjmndxdA5LoVSdqbcggdtq5SWcsoZqI0TkhH7Q==}
-    engines: {node: '>=12.0.0'}
-
-  '@react-dev-inspector/umi4-plugin@2.0.1':
-    resolution: {integrity: sha512-vTefsJVAZsgpuO9IZ1ZFIoyryVUU+hjV8OPD8DfDU+po5LjVXc5Uncn+MkFOsT24AMpNdDvCnTRYiuSkFn8EsA==}
-    engines: {node: '>=12.0.0'}
-
-  '@react-dev-inspector/vite-plugin@2.0.1':
-    resolution: {integrity: sha512-J1eI7cIm2IXE6EwhHR1OyoefvobUJEn/vJWEBwOM5uW4JkkLwuVoV9vk++XJyAmKUNQ87gdWZvSWrI2LjfrSug==}
-    engines: {node: '>=12.0.0'}
-
   '@rollup/rollup-android-arm-eabi@4.59.0':
     resolution: {integrity: sha512-upnNBkA6ZH2VKGcBj9Fyl9IGNPULcjXRlg0LLeaioQWueH30p6IXtJEbKAgvyv+mJaMxSm1l6xwDXYjpEMiLMg==}
     cpu: [arm]
@@ -3325,11 +3287,6 @@ packages:
     peerDependenciesMeta:
       typescript:
         optional: true
-
-  coze-coding-dev-sdk@0.7.21:
-    resolution: {integrity: sha512-yO+vhA4+4ksF6KzPqISFob9CaEC9SrXAzkwh6nVot42kVoKTaK170lKhs3W2tkxVW6ejA+bi71bDhae9wWgNog==}
-    engines: {node: '>=18.0.0'}
-    hasBin: true
 
   crc-32@1.2.2:
     resolution: {integrity: sha512-ROmzCKrTnOwybPcJApAA6WBWij23HVfGVNKqqrZpuyZOHqK2CwHSvpGuyt/UNNvaIjEd8X5IFGp4Mh+Ie1IHJQ==}
@@ -5252,12 +5209,6 @@ packages:
   react-day-picker@9.13.0:
     resolution: {integrity: sha512-euzj5Hlq+lOHqI53NiuNhCP8HWgsPf/bBAVijR50hNaY1XwjKjShAnIe8jm8RD2W9IJUvihDIZ+KrmqfFzNhFQ==}
     engines: {node: '>=18'}
-    peerDependencies:
-      react: '>=16.8.0'
-
-  react-dev-inspector@2.0.1:
-    resolution: {integrity: sha512-b8PAmbwGFrWcxeaX8wYveqO+VTwTXGJaz/yl9RO31LK1zeLKJVlkkbeLExLnJ6IvhXY1TwL8Q4+gR2GKJ8BI6Q==}
-    engines: {node: '>=12.0.0'}
     peerDependencies:
       react: '>=16.8.0'
 
@@ -8175,58 +8126,6 @@ snapshots:
 
   '@radix-ui/rect@1.1.1': {}
 
-  '@react-dev-inspector/babel-plugin@2.0.1':
-    dependencies:
-      '@babel/core': 7.28.6
-      '@babel/generator': 7.28.6
-      '@babel/parser': 7.28.6
-      '@babel/traverse': 7.28.6
-      '@babel/types': 7.20.5
-    transitivePeerDependencies:
-      - supports-color
-
-  '@react-dev-inspector/middleware@2.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))':
-    dependencies:
-      react-dev-utils: 12.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))
-    transitivePeerDependencies:
-      - eslint
-      - supports-color
-      - typescript
-      - vue-template-compiler
-      - webpack
-
-  '@react-dev-inspector/umi3-plugin@2.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))':
-    dependencies:
-      '@react-dev-inspector/babel-plugin': 2.0.1
-      '@react-dev-inspector/middleware': 2.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))
-    transitivePeerDependencies:
-      - eslint
-      - supports-color
-      - typescript
-      - vue-template-compiler
-      - webpack
-
-  '@react-dev-inspector/umi4-plugin@2.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))':
-    dependencies:
-      '@react-dev-inspector/babel-plugin': 2.0.1
-      '@react-dev-inspector/middleware': 2.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))
-    transitivePeerDependencies:
-      - eslint
-      - supports-color
-      - typescript
-      - vue-template-compiler
-      - webpack
-
-  '@react-dev-inspector/vite-plugin@2.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))':
-    dependencies:
-      '@react-dev-inspector/middleware': 2.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))
-    transitivePeerDependencies:
-      - eslint
-      - supports-color
-      - typescript
-      - vue-template-compiler
-      - webpack
-
   '@rollup/rollup-android-arm-eabi@4.59.0':
     optional: true
 
@@ -9490,24 +9389,6 @@ snapshots:
       parse-json: 5.2.0
     optionalDependencies:
       typescript: 5.9.3
-
-  coze-coding-dev-sdk@0.7.21(openai@6.34.0(ws@8.19.0)(zod@4.3.6))(ws@8.19.0):
-    dependencies:
-      '@langchain/core': 1.1.41(openai@6.34.0(ws@8.19.0)(zod@4.3.6))(ws@8.19.0)
-      '@langchain/openai': 1.4.4(@langchain/core@1.1.41(openai@6.34.0(ws@8.19.0)(zod@4.3.6))(ws@8.19.0))(ws@8.19.0)
-      '@supabase/supabase-js': 2.95.3
-      axios: 1.15.2
-      pg: 8.17.2
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-      - '@opentelemetry/exporter-trace-otlp-proto'
-      - '@opentelemetry/sdk-trace-base'
-      - bufferutil
-      - debug
-      - openai
-      - pg-native
-      - utf-8-validate
-      - ws
 
   crc-32@1.2.2: {}
 
@@ -11435,26 +11316,6 @@ snapshots:
       date-fns: 4.1.0
       date-fns-jalali: 4.1.0-0
       react: 19.2.3
-
-  react-dev-inspector@2.0.1(@types/react@19.2.10)(eslint@9.39.2(jiti@2.6.1))(react@19.2.3)(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12)):
-    dependencies:
-      '@react-dev-inspector/babel-plugin': 2.0.1
-      '@react-dev-inspector/middleware': 2.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))
-      '@react-dev-inspector/umi3-plugin': 2.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))
-      '@react-dev-inspector/umi4-plugin': 2.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))
-      '@react-dev-inspector/vite-plugin': 2.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))
-      '@types/react-reconciler': 0.33.0(@types/react@19.2.10)
-      hotkeys-js: 3.13.15
-      picocolors: 1.0.0
-      react: 19.2.3
-      react-dev-utils: 12.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12))
-    transitivePeerDependencies:
-      - '@types/react'
-      - eslint
-      - supports-color
-      - typescript
-      - vue-template-compiler
-      - webpack
 
   react-dev-utils@12.0.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)(webpack@5.104.1(esbuild@0.25.12)):
     dependencies:

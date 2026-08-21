@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { LLMClient, Config } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 
 // 从后端获取 API 配置
@@ -8,6 +7,7 @@ async function getBackendApiConfig(): Promise<{
   apiKey: string;
   model: string;
   baseUrl: string;
+  customConfig?: { endpoint?: string; modelName?: string };
 } | null> {
   try {
     const client = getSupabaseClient();
@@ -28,33 +28,34 @@ async function getBackendApiConfig(): Promise<{
   }
 }
 
-// 统一的 AI 流式调用函数，支持 Coze 和 OpenAI 兼容服务
+// 统一的 AI 流式调用函数，支持已配置的 OpenAI 兼容服务
 async function callAIStream(
   systemPrompt: string,
   userPrompt: string,
-  config: { provider: string; apiKey: string; model: string; baseUrl: string }
+  config: { provider: string; apiKey: string; model: string; baseUrl: string; customConfig?: { endpoint?: string; modelName?: string } }
 ): Promise<string> {
   const messages = [
     { role: "system" as const, content: systemPrompt },
     { role: "user" as const, content: userPrompt },
   ];
 
-  const isOpenAICompatibleProvider = config.provider === 'deepseek' || config.provider === 'gpt' || config.provider === 'aliyun';
-
-  if (isOpenAICompatibleProvider) {
+  {
     const baseUrl = config.baseUrl || (config.provider === 'gpt'
       ? 'https://api.tokenlab.sh/v1'
       : config.provider === 'aliyun'
         ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
         : 'https://api.deepseek.com');
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const endpoint = config.provider === 'custom' && config.customConfig?.endpoint
+      ? config.customConfig.endpoint
+      : `${baseUrl}/chat/completions`;
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify({
-        model: config.model || (config.provider === 'gpt' ? 'gpt-5.4' : config.provider === 'aliyun' ? 'qwen-mt-flash' : 'deepseek-chat'),
+        model: config.customConfig?.modelName || config.model || (config.provider === 'gpt' ? 'gpt-5.4' : config.provider === 'aliyun' ? 'qwen-mt-flash' : 'deepseek-chat'),
         messages: messages.map(m => ({ role: m.role, content: m.content })),
         temperature: 0.3,
         stream: true,
@@ -94,30 +95,6 @@ async function callAIStream(
     }
 
     return fullContent;
-  } else {
-    // Coze/豆包 使用 SDK
-    const llmConfig = new Config({
-      apiKey: config.apiKey,
-      baseUrl: config.baseUrl || "https://api.coze.cn/v1",
-    });
-
-    const client = new LLMClient(llmConfig);
-    const llmConfigStream = {
-      model: config.model || "doubao-seed-2-0-lite-260215",
-      temperature: 0.3,
-    };
-
-    let fullContent = "";
-    for await (const chunk of client.stream(messages, llmConfigStream)) {
-      const content = Array.isArray(chunk.content)
-        ? chunk.content.map(c => 'text' in c ? c.text : '').join('')
-        : chunk.content;
-      if (content) {
-        fullContent += content;
-      }
-    }
-
-    return fullContent;
   }
 }
 
@@ -130,10 +107,13 @@ export async function POST(request: NextRequest) {
     }
 
     // 从后端获取 API 配置（安全：API Key 不暴露给前端）
-    const config = await getBackendApiConfig() || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
+    const config = await getBackendApiConfig() || { provider: 'gpt', apiKey: '', model: 'gpt-5.4', baseUrl: 'https://api.tokenlab.sh/v1' };
 
     // 检查 API Key
-    if ((config.provider === 'deepseek' || config.provider === 'gpt' || config.provider === 'aliyun') && !config.apiKey) {
+    if (!['deepseek', 'gpt', 'aliyun', 'custom'].includes(config.provider)) {
+      return NextResponse.json({ error: "当前模型提供商已不受支持，请在设置中重新选择模型" }, { status: 400 });
+    }
+    if (!config.apiKey) {
       return NextResponse.json({ error: "请先配置模型 API Key" }, { status: 400 });
     }
 

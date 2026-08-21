@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { LLMClient, Config } from "coze-coding-dev-sdk";
 import { getSupabaseClient } from '@/storage/database/supabase-client';
 import { extractGroundedKnowledgeKeywords } from '@/lib/knowledge-keywords';
 import { countUnexpectedChineseReplyEnglish, hasUnexpectedReplyScript } from '@/lib/language-quality';
@@ -660,6 +659,10 @@ type ChatApiConfig = {
   apiKey: string;
   model: string;
   baseUrl: string;
+  customConfig?: {
+    endpoint?: string;
+    modelName?: string;
+  };
 };
 
 function getOpenAICompatibleBaseUrl(config: ChatApiConfig): string {
@@ -669,22 +672,27 @@ function getOpenAICompatibleBaseUrl(config: ChatApiConfig): string {
   return 'https://api.deepseek.com';
 }
 
+function getChatCompletionsUrl(config: ChatApiConfig): string {
+  if (config.provider === 'custom' && config.customConfig?.endpoint) {
+    return config.customConfig.endpoint;
+  }
+  return `${getOpenAICompatibleBaseUrl(config)}/chat/completions`;
+}
+
 function getDefaultModelForProvider(config: ChatApiConfig): string {
+  if (config.provider === 'custom' && config.customConfig?.modelName) return config.customConfig.modelName;
   if (config.model) return config.model;
   if (config.provider === 'aliyun') return 'qwen-mt-flash';
   if (config.provider === 'gpt') return 'gpt-5.4';
   if (config.provider === 'deepseek') return 'deepseek-chat';
-  return 'doubao-seed-2-0-lite-260215';
+  return 'deepseek-chat';
 }
 
 async function callModelOnce(config: ChatApiConfig, messages: Array<{ role: 'system' | 'user'; content: string }>, temperature: number): Promise<string> {
-  const isOpenAICompatibleProvider = config.provider === 'deepseek' || config.provider === 'aliyun' || config.provider === 'gpt';
-
-  if (isOpenAICompatibleProvider) {
-    const requestMessages = config.provider === 'aliyun'
-      ? messages.map((message) => ({ role: message.role === 'system' ? 'user' : message.role, content: message.content }))
-      : messages;
-    const response = await fetch(`${getOpenAICompatibleBaseUrl(config)}/chat/completions`, {
+  const requestMessages = config.provider === 'aliyun'
+    ? messages.map((message) => ({ role: message.role === 'system' ? 'user' : message.role, content: message.content }))
+    : messages;
+  const response = await fetch(getChatCompletionsUrl(config), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -695,25 +703,12 @@ async function callModelOnce(config: ChatApiConfig, messages: Array<{ role: 'sys
         messages: requestMessages,
         temperature,
       }),
-    });
-    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } };
-    if (!response.ok) {
-      throw new Error(data.error?.message || `模型质检失败: ${response.status} ${response.statusText}`);
-    }
-    return data.choices?.[0]?.message?.content?.trim() || '';
-  }
-
-  const llmConfig = new Config({
-    apiKey: config.apiKey,
-    baseUrl: config.baseUrl || 'https://api.coze.cn/v1',
   });
-  const client = new LLMClient(llmConfig);
-  let fullContent = '';
-  for await (const chunk of client.stream(messages, { model: getDefaultModelForProvider(config), temperature })) {
-    const content = extractTextFromLlmChunk(chunk);
-    if (content) fullContent += content;
+  const data = await response.json() as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } };
+  if (!response.ok) {
+    throw new Error(data.error?.message || `模型质检失败: ${response.status} ${response.statusText}`);
   }
-  return fullContent.trim();
+  return data.choices?.[0]?.message?.content?.trim() || '';
 }
 
 function shouldReviewCustomerFacingReply(config: ChatApiConfig, draft: string, referenceContext: string): boolean {
@@ -824,65 +819,6 @@ type ClassificationResult = {
   needsFollowUp?: boolean;
   followUpQuestions?: string[];
 };
-
-function readStringField(source: Record<string, unknown>, field: string): string {
-  const value = source[field];
-  return typeof value === "string" ? value : "";
-}
-
-function extractTextFromContentParts(parts: unknown[]): string {
-  return parts.map((part) => {
-    if (typeof part === "string") {
-      return part;
-    }
-
-    if (part && typeof part === "object") {
-      return readStringField(part as Record<string, unknown>, "text");
-    }
-
-    return "";
-  }).join("");
-}
-
-function extractTextFromLlmChunk(chunk: unknown): string {
-  if (typeof chunk === "string") {
-    return chunk;
-  }
-
-  if (!chunk || typeof chunk !== "object") {
-    return "";
-  }
-
-  const chunkRecord = chunk as Record<string, unknown>;
-
-  const content = chunkRecord.content;
-  if (typeof content === "string") {
-    return content;
-  }
-  if (Array.isArray(content)) {
-    return extractTextFromContentParts(content);
-  }
-
-  const text = readStringField(chunkRecord, "text");
-  if (text) {
-    return text;
-  }
-
-  const delta = chunkRecord.delta;
-  if (delta && typeof delta === "object") {
-    const deltaContent = (delta as Record<string, unknown>).content;
-
-    if (typeof deltaContent === "string") {
-      return deltaContent;
-    }
-
-    if (Array.isArray(deltaContent)) {
-      return extractTextFromContentParts(deltaContent);
-    }
-  }
-
-  return "";
-}
 
 // ==================== 信息不足检测 ====================
 
@@ -1766,7 +1702,7 @@ export async function POST(request: NextRequest) {
     // API 配置
     // 从后端获取 API 配置（安全：API Key 不暴露给前端）
     const backendConfig = await getBackendApiConfig();
-    const config = backendConfig || { provider: 'coze', apiKey: '', model: 'doubao-seed-2-0-lite-260215', baseUrl: '' };
+    const config = backendConfig || { provider: 'gpt', apiKey: '', model: 'gpt-5.4', baseUrl: 'https://api.tokenlab.sh/v1' };
     
     // 调试知识库数据
     const contextLanguage = detectRecentContextLanguage(history);
@@ -2917,10 +2853,12 @@ MANDATORY EXECUTION RULES:
     console.log("[AI DEBUG] knowledgeContext 长度:", knowledgeContext.length);
 
     // 检查 API Key
-    const isOpenAICompatibleProvider = config.provider === 'deepseek' || config.provider === 'aliyun' || config.provider === 'gpt';
-
-    if (isOpenAICompatibleProvider && !config.apiKey) {
-      const providerName = config.provider === 'aliyun' ? '阿里百炼' : config.provider === 'gpt' ? 'GPT / TokenLab' : 'DeepSeek';
+    const supportedProviders = new Set(['deepseek', 'aliyun', 'gpt', 'custom']);
+    if (!supportedProviders.has(config.provider)) {
+      return NextResponse.json({ error: '当前模型提供商已不受支持，请在设置中重新选择模型' }, { status: 400 });
+    }
+    if (!config.apiKey) {
+      const providerName = config.provider === 'aliyun' ? '阿里百炼' : config.provider === 'gpt' ? 'GPT / TokenLab' : config.provider === 'custom' ? '自定义模型' : 'DeepSeek';
       return NextResponse.json({ error: `请先配置 ${providerName} API Key` }, { status: 400 });
     }
 
@@ -2938,14 +2876,13 @@ MANDATORY EXECUTION RULES:
       
       enqueueStatus("正在请求模型", "等待首个响应片段");
       
-      if (isOpenAICompatibleProvider) {
-        // DeepSeek / 阿里百炼 / GPT(TokenLab) 使用 OpenAI 兼容 API
-        const baseUrl = getOpenAICompatibleBaseUrl(config);
+      {
+        // 所有受支持的提供商均使用 OpenAI 兼容 API
         const requestMessages = config.provider === 'aliyun'
           ? messages.map(m => ({ role: m.role === 'system' ? 'user' : m.role, content: m.content }))
           : messages.map(m => ({ role: m.role, content: m.content }));
 
-        const response = await fetch(`${baseUrl}/chat/completions`, {
+        const response = await fetch(getChatCompletionsUrl(config), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -2960,7 +2897,7 @@ MANDATORY EXECUTION RULES:
         });
   
         if (!response.ok) {
-          const providerName = config.provider === 'aliyun' ? 'Aliyun Bailian' : config.provider === 'gpt' ? 'GPT / TokenLab' : 'DeepSeek';
+          const providerName = config.provider === 'aliyun' ? 'Aliyun Bailian' : config.provider === 'gpt' ? 'GPT / TokenLab' : config.provider === 'custom' ? 'Custom' : 'DeepSeek';
           throw new Error(`${providerName} API error: ${response.status} ${response.statusText}`);
         }
   
@@ -2996,32 +2933,6 @@ MANDATORY EXECUTION RULES:
                 // Ignore parse errors
               }
             }
-          }
-        }
-        console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
-      } else {
-        // Coze/豆包 使用 SDK
-        const llmConfig = new Config({
-          apiKey: config.apiKey,
-          baseUrl: config.baseUrl || "https://api.coze.cn/v1",
-        });
-  
-        const client = new LLMClient(llmConfig);
-        const llmConfigStream = {
-          model: getDefaultModelForProvider(config),
-          temperature: responseShouldUsePricingTable ? 0.2 : 0.7,
-        };
-  
-        for await (const chunk of client.stream(messages, llmConfigStream)) {
-          const content = extractTextFromLlmChunk(chunk);
-  
-          if (content) {
-            if (!firstTokenLogged) {
-              console.log(`[PERF][CHAT] llm_first_token_ms=${Date.now() - tLlmStart}`);
-              enqueueStatus("AI 正在生成回复", "已收到模型输出");
-              firstTokenLogged = true;
-            }
-            fullContent += content;
           }
         }
         console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
