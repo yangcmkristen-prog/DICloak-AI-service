@@ -53,10 +53,14 @@ export const DEFAULT_API_CONFIG: ApiConfig = {
 
 export const MODEL_OPTIONS = [
   // GPT / TokenLab 模型（OpenAI 兼容）
+  { value: 'gpt-5.6', label: 'GPT-5.6', provider: 'gpt' },
   { value: 'gpt-5.4', label: 'GPT-5.4', provider: 'gpt' },
   { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini', provider: 'gpt' },
   { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', provider: 'gpt' },
   { value: 'gpt-5.2', label: 'GPT-5.2', provider: 'gpt' },
+  { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite', provider: 'gpt' },
+  { value: 'qwen-mt-plus', label: 'Qwen MT Plus（翻译）', provider: 'gpt' },
+  { value: 'qwen-mt-flash', label: 'Qwen MT Flash（翻译）', provider: 'gpt' },
   // 阿里百炼模型
   { value: 'qwen-mt-flash', label: 'Qwen MT Flash（翻译）', provider: 'aliyun' },
   { value: 'qwen-vl-ocr', label: 'Qwen VL OCR（图片识别）', provider: 'aliyun' },
