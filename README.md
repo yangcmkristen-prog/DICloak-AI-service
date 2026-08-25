@@ -361,3 +361,13 @@ export const useStore = create<Store>((set) => ({
 3. **遵循 Next.js App Router 规范**，正确区分服务端/客户端组件
 4. **使用 TypeScript** 进行类型安全开发
 5. **使用 `@/` 路径别名** 导入模块（已配置）
+
+# 飞书客户套餐自动同步
+
+在 Vercel 配置 `FEISHU_WEBHOOK_TOKEN`（也兼容旧变量名 `FEISHU_WEBHOOK_SECRET`），然后将飞书自动化的 HTTP 请求设置为：
+
+- `POST https://<你的域名>/api/customers/feishu-webhook`
+- Header：`Authorization: Bearer <FEISHU_WEBHOOK_TOKEN>` 与 `Content-Type: application/json`
+- Body：可发送单条 `{"record":{"fields":{...}}}`，也可发送 `{"records":[{"fields":{...}}]}`
+
+支持字段：`团队ID`、`联系人`（也兼容 `团队名字`）、`联系方式`（也兼容 `用户联系方式`）、`渠道`（也兼容 `私域渠道`）、`创建时间`、`到期时间`、`当前套餐`（也兼容 `套餐`）。`团队ID` 是必填且唯一的识别字段；一次请求中的重复 ID 仅处理第一条。
