@@ -257,7 +257,7 @@ type EditableSummary = {
   coreNeeds?: string;
   selectionReason?: string;
   churnReason?: string;
-  followUpStatus?: "待跟进" | "无需跟进" | "已跟进";
+  followUpStatus?: "待跟进" | "无需跟进" | "已跟进" | "暂无法联系";
   followUps?: unknown[];
 };
 
