@@ -367,7 +367,9 @@ export const useStore = create<Store>((set) => ({
 在 Vercel 配置 `FEISHU_WEBHOOK_TOKEN`（也兼容旧变量名 `FEISHU_WEBHOOK_SECRET`），然后将飞书自动化的 HTTP 请求设置为：
 
 - `POST https://<你的域名>/api/customers/feishu-webhook`
-- Header：`Authorization: Bearer <FEISHU_WEBHOOK_TOKEN>` 与 `Content-Type: application/json`
+- Header：推荐飞书使用 `X-Webhook-Token: <FEISHU_WEBHOOK_TOKEN>`；也支持 `Authorization: Bearer <FEISHU_WEBHOOK_TOKEN>`。同时设置 `Content-Type: application/json`
 - Body：可发送单条 `{"record":{"fields":{...}}}`，也可发送 `{"records":[{"fields":{...}}]}`
 
 支持字段：`团队ID`、`联系人`（也兼容 `团队名字`）、`联系方式`（也兼容 `用户联系方式`）、`渠道`（也兼容 `私域渠道`）、`创建时间`、`到期时间`、`当前套餐`（也兼容 `套餐`）。`团队ID` 是必填且唯一的识别字段；一次请求中的重复 ID 仅处理第一条。
+
+Windows Git Bash/Git for Windows 如果没有以 UTF-8 发送中文参数，可使用英文字段名 `teamId`、`contactName`、`contactDetail`、`contactMethod`、`createdAt`、`dueDate`、`currentPlan`；飞书自动化仍可直接使用上面的中文字段名。

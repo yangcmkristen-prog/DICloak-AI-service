@@ -20,6 +20,15 @@ test("accepts whitespace in field names and JSON encoded Feishu fields", () => {
   assert.equal(result.updates[0]?.teamId, "DIC-100");
 });
 
+test("accepts ASCII field names for encoding-safe Windows curl requests", () => {
+  const result = parseFeishuCustomerUpdates({ record: { fields: {
+    teamId: "jB327xG6", contactName: "Test", contactDetail: "test@example.com", contactMethod: "WhatsApp",
+    createdAt: "2026-08-01", dueDate: "2027-08-01", currentPlan: "Plus",
+  } } });
+  assert.equal(result.updates[0]?.teamId, "jB327xG6");
+  assert.equal(result.updates[0]?.currentPlan, "Plus");
+});
+
 test("parses the record.fields envelope used by Feishu automation", () => {
   assert.deepEqual(parseFeishuCustomerUpdates({ record: { fields: { 团队ID: "42", 联系人: "李四", 到期时间: "2027-01-02" } } }).updates[0], {
     teamId: "42", contactName: "李四", contactDetail: undefined, contactMethod: undefined,

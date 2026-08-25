@@ -11,7 +11,9 @@ function normalizedTeamId(value: unknown): string {
 
 function authorized(request: NextRequest): boolean {
   const token = process.env.FEISHU_WEBHOOK_TOKEN ?? process.env.FEISHU_WEBHOOK_SECRET;
-  return Boolean(token && request.headers.get("authorization") === `Bearer ${token}`);
+  const bearerToken = request.headers.get("authorization");
+  const webhookToken = request.headers.get("x-webhook-token");
+  return Boolean(token && (bearerToken === `Bearer ${token}` || webhookToken === token));
 }
 
 function externalIdForTeam(teamId: string): string {
@@ -22,9 +24,12 @@ export async function POST(request: NextRequest) {
   if (!authorized(request)) return NextResponse.json({ error: "Webhook 鉴权失败" }, { status: 401 });
   try {
     const parsed = parseFeishuCustomerUpdates(await request.json() as unknown);
+    const hasEncodingDamage = parsed.detectedFields.some((field) => field.includes("�"));
     if (!parsed.updates.length) return NextResponse.json({
       error: "请求中没有有效的团队 ID",
-      hint: "请确认 JSON 为 {\"record\":{\"fields\":{\"团队ID\":\"...\"}}}，且团队ID不是空值",
+      hint: hasEncodingDamage
+        ? "字段名在发送前发生了字符编码损坏；Windows 终端测试请改用 teamId、contactName 等英文字段名，或从 UTF-8 文件发送请求体"
+        : "请确认 JSON 为 {\"record\":{\"fields\":{\"团队ID\":\"...\"}}}，且团队ID不是空值",
       detectedFields: parsed.detectedFields,
     }, { status: 400 });
 
