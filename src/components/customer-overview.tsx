@@ -26,7 +26,7 @@ type IssueStatus = "未处理" | "处理中" | "已解决";
 type Issue = { title: string; description: string; resolution: string; status: IssueStatus; date: string };
 type FeatureStatus = "未评估" | "已评估" | "已上线" | "暂无法实现" | "已有可实现方案";
 type Feature = { title: string; description: string; status: FeatureStatus; date: string };
-type FollowUpStatus = "待跟进" | "无需跟进" | "已跟进";
+type FollowUpStatus = "待跟进" | "无需跟进" | "已跟进" | "暂无法联系";
 type FollowUpType = "功能回访" | "试用回访" | "需求调研" | "客户背景调研" | "流失原因调查";
 type FollowUp = { date: string; type: FollowUpType; result: string };
 type Customer = {
@@ -51,7 +51,7 @@ const statusStyle: Record<Customer["status"], string> = {
 
 const featureStatuses: FeatureStatus[] = ["未评估", "已评估", "已有可实现方案", "暂无法实现", "已上线"];
 const followUpTypes: FollowUpType[] = ["功能回访", "试用回访", "需求调研", "客户背景调研", "流失原因调查"];
-const followUpStatuses: FollowUpStatus[] = ["待跟进", "无需跟进", "已跟进"];
+const followUpStatuses: FollowUpStatus[] = ["待跟进", "无需跟进", "已跟进", "暂无法联系"];
 const planOptions = ["免费版", "基础版", "高阶版", "共享版+", "共享版", "专业版", "协作版", "独享版", "优享版", "进阶版", "明星版", "VIP版", "定制版"] as const;
 const customerSourceOptions = ["朋友推荐", "线上搜索", "社交媒体", "合作伙伴"] as const;
 type CustomerSourceType = (typeof customerSourceOptions)[number];
