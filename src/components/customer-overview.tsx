@@ -32,7 +32,7 @@ type FollowUp = { date: string; type: FollowUpType; result: string };
 type Customer = {
   id: string; name: string; initials: string; teamId: string; channel: string; contact: string;
   region: string; scenario: string; type: string; users: string; accounts: string; plan: string; monthlyFee: string;
-  status: "活跃" | "流失风险" | "已停滞" | "潜在客户"; createdAt: string; dueDate: string; updatedAt: string; note: string; issues: Issue[]; features: Feature[];
+  status: "活跃" | "流失风险" | "已停滞" | "潜在客户"; createdAt: string; dueDate: string; updatedAt: string; automaticUpdatedAt: string; note: string; issues: Issue[]; features: Feature[];
   customerSource: string; competitorUsage: string; coreNeeds: string; selectionReason: string; churnReason: string; followUpStatus: FollowUpStatus; followUps: FollowUp[];
 };
 
@@ -172,7 +172,7 @@ export function CustomerOverview() {
   const [sort, setSort] = useState<{ key: "monthlyFee" | "createdAt"; direction: "asc" | "desc" } | null>(null);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
     name: 150, teamId: 130, contact: 170, region: 110, plan: 110, monthlyFee: 120,
-    scenario: 210, status: 110, followUpStatus: 110, latestFollowUp: 130, dueDate: 130, createdAt: 130, updatedAt: 170, action: 80,
+    scenario: 210, status: 110, followUpStatus: 110, latestFollowUp: 130, dueDate: 130, createdAt: 130, updatedAt: 170, automaticUpdatedAt: 170, action: 80,
   });
   const selected = customers.find((customer) => customer.id === selectedId) ?? null;
 
@@ -193,7 +193,7 @@ export function CustomerOverview() {
             teamId: record.teamId || "—", channel: record.contactMethod || "WhatsApp", contact: record.contactDetail || record.contactName,
             region: record.region || "未知", scenario: record.useCase || "待 AI 补充", type: record.customerType || "未分类",
             users: record.userScale || "未知", accounts: record.accountScale || "未知", plan: record.currentPlan || "未知", monthlyFee: record.monthlyFee || "未知",
-            status, createdAt: formatInUtc8(record.createdAt || record.updatedAt || "—", false), dueDate: formatInUtc8(record.dueDate || "—", false), updatedAt: formatInUtc8(record.updatedAt || "—", true), note: record.notes || "",
+            status, createdAt: formatInUtc8(record.createdAt || record.updatedAt || "—", false), dueDate: formatInUtc8(record.dueDate || "—", false), updatedAt: formatInUtc8(record.updatedAt || "—", true), automaticUpdatedAt: formatInUtc8(record.automaticUpdatedAt || "—", true), note: record.notes || "",
             customerSource: record.customerSource || "", competitorUsage: record.competitorUsage || "", coreNeeds: record.coreNeeds || "", selectionReason: record.selectionReason || "", churnReason: record.churnReason || "",
             followUpStatus: followUpStatuses.includes(record.followUpStatus as FollowUpStatus) ? record.followUpStatus as FollowUpStatus : status === "活跃" ? "无需跟进" : "待跟进",
             followUps: newestFirst((record.followUps || []).map((followUp) => ({ date: formatInUtc8(followUp.followedAt || followUp.date || record.updatedAt || "", false), type: followUpTypes.includes(followUp.type as FollowUpType) ? followUp.type as FollowUpType : "客户背景调研", result: followUp.result || "" }))),
@@ -325,6 +325,7 @@ export function CustomerOverview() {
             <ResizableHead label="到期时间" width={columnWidths.dueDate} onResize={(startX) => startColumnResize("dueDate", startX)} />
             <ResizableHead label="创建时间" width={columnWidths.createdAt} onResize={(startX) => startColumnResize("createdAt", startX)} onSort={() => toggleSort("createdAt")} direction={sort?.key === "createdAt" ? sort.direction : undefined} />
             <ResizableHead label="AI最后总结时间" width={columnWidths.updatedAt} onResize={(startX) => startColumnResize("updatedAt", startX)} />
+            <ResizableHead label="自动更新时间" width={columnWidths.automaticUpdatedAt} onResize={(startX) => startColumnResize("automaticUpdatedAt", startX)} />
             <ResizableHead label="操作" width={columnWidths.action} onResize={(startX) => startColumnResize("action", startX)} />
           </TableRow></TableHeader>
           <TableBody>{pagedCustomers.map((customer) => <TableRow key={customer.id} className="h-[74px] cursor-pointer" onClick={() => setSelectedId(customer.id)}>
@@ -334,7 +335,7 @@ export function CustomerOverview() {
             <TableCell className="overflow-hidden text-ellipsis">{customer.region}</TableCell><TableCell>{customer.plan}</TableCell><TableCell>{customer.monthlyFee}</TableCell>
             <TableCell className="overflow-hidden text-ellipsis">{customer.scenario}</TableCell><TableCell>{customer.status === "已停滞" ? <Tooltip><TooltipTrigger asChild><Badge variant="outline" className={statusStyle[customer.status]}>{customer.status}</Badge></TooltipTrigger><TooltipContent className="max-w-72 whitespace-pre-wrap">流失原因：{customer.churnReason || "暂未记录"}</TooltipContent></Tooltip> : <Badge variant="outline" className={statusStyle[customer.status]}>{customer.status}</Badge>}</TableCell>
             <TableCell><button type="button" className="rounded-full" onClick={(event) => { event.stopPropagation(); if (customer.followUpStatus === "待跟进") setFollowUpCustomerId(customer.id); }}><Badge variant="outline" className={customer.followUpStatus === "待跟进" ? "border-amber-200 bg-amber-50 text-amber-700" : customer.followUpStatus === "已跟进" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600"}>{customer.followUpStatus}</Badge></button></TableCell>
-            <TableCell className="text-xs text-muted-foreground">{displayDate(customer.followUps[0]?.date || "—")}</TableCell><TableCell className="text-xs text-muted-foreground">{displayDate(customer.dueDate)}</TableCell><TableCell className="text-xs text-muted-foreground">{displayDate(customer.createdAt)}</TableCell><TableCell className="text-xs text-muted-foreground">{displayDate(customer.updatedAt)}</TableCell>
+            <TableCell className="text-xs text-muted-foreground">{displayDate(customer.followUps[0]?.date || "—")}</TableCell><TableCell className="text-xs text-muted-foreground">{displayDate(customer.dueDate)}</TableCell><TableCell className="text-xs text-muted-foreground">{displayDate(customer.createdAt)}</TableCell><TableCell className="text-xs text-muted-foreground">{displayDate(customer.updatedAt)}</TableCell><TableCell className="text-xs text-muted-foreground">{displayDate(customer.automaticUpdatedAt)}</TableCell>
             <TableCell><Button variant="ghost" size="sm" className="text-blue-600">详情<ChevronRight /></Button></TableCell>
           </TableRow>)}</TableBody>
         </Table>
