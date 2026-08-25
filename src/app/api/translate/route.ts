@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callExtensionTranslateModel, callExtensionTranslateModelStream, getExtensionTranslateApiConfig } from "../copilot/shared";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
-import { buildCustomerSupportTranslationGuidance } from "@/lib/customer-support-translation";
+import { buildCustomerSupportTranslationGuidance, customerSupportTranslationDomain } from "@/lib/customer-support-translation";
 import { getKnowledgeCacheGeneration } from "@/lib/server/translation-cache-control";
 
 const LANGUAGE_NAMES: Record<string, string> = {
@@ -49,6 +49,7 @@ let knowledgeTermsRequest: Promise<TermRecord[]> | null = null;
 const TRANSLATION_CACHE_TTL_MS = 60 * 60_000;
 const TRANSLATION_CACHE_MAX_ENTRIES = 500;
 const TRANSLATION_CACHE_MAX_INPUT_CHARS = 2_000;
+const TRANSLATION_POLICY_VERSION = "complete-source-v1";
 const translationCache = new Map<string, { value: string; expiresAt: number }>();
 let observedKnowledgeGeneration = getKnowledgeCacheGeneration();
 
@@ -410,7 +411,7 @@ export async function POST(request: NextRequest) {
         `Source language: ${normalizedSourceLanguage === "auto" ? `auto-detect${detectedSourceLanguage ? ` (detected: ${sourceLanguageName})` : ""}` : sourceLanguageName}.`,
         `Target language: ${targetLanguageName}.`,
         `You MUST output only in ${targetLanguageName}. Do not output English unless the target language is English.`,
-        "Preserve formatting and factual identifiers. Translate faithfully and naturally without adding or omitting meaning.",
+        "Translate every part of the input exactly once. Do not summarize, interpret, simplify, consolidate, omit, or add content.",
         ...customerSupportGuidance,
         "Output only the translated text. Do not add explanations, prefixes, suffixes, quotes, or language labels.",
         ...(glossaryTerms.length > 0 ? [
@@ -427,11 +428,12 @@ export async function POST(request: NextRequest) {
         terms: glossaryTerms,
         domains: [
           "DICloak support: browser profiles, proxies, accounts, teams, and troubleshooting.",
-          "Write natural, polite customer-support language without changing facts, requirements, or limitations.",
+          customerSupportTranslationDomain(targetLanguageName),
           "Use natural casing for terminology. Only capitalized plural Profiles in an operation path means the 环境管理 module; create/new profile(s) means 创建环境/新建环境.",
         ].join(" "),
       };
       const cacheKey = JSON.stringify([
+        TRANSLATION_POLICY_VERSION,
         normalizedSourceLanguage,
         detectedSourceLanguage,
         normalizedTargetLanguage,
@@ -480,7 +482,7 @@ export async function POST(request: NextRequest) {
       const systemPrompt = [
         "You are a professional DICloak customer-support translation engine.",
         `Source: ${normalizedSourceLanguage === "auto" ? `auto${detectedSourceLanguage ? ` (${sourceLanguageName})` : ""}` : sourceLanguageName}. Target: ${targetLanguageName}.`,
-        `Output only ${targetLanguageName}; preserve formatting and factual identifiers; translate naturally without adding or omitting meaning.`,
+        `Output only ${targetLanguageName}. Translate every part exactly once; do not summarize, interpret, simplify, consolidate, omit, or add content.`,
         ...guidance,
         ...(glossaryTerms.length ? [`Terminology: ${glossaryTerms.map((term) => `${term.source} => ${term.target}`).join("; ")}.`] : []),
       ].join("\n");
@@ -488,9 +490,12 @@ export async function POST(request: NextRequest) {
         sourceLang: normalizedSourceLanguage === "auto" ? "auto" : QWEN_MT_LANGUAGE_NAMES[normalizedSourceLanguage],
         targetLang: QWEN_MT_LANGUAGE_NAMES[normalizedTargetLanguage],
         terms: glossaryTerms,
-        domains: "DICloak support: browser profiles, proxies, accounts, teams, and troubleshooting. Write natural, polite support language without changing facts.",
+        domains: [
+          "DICloak support: browser profiles, proxies, accounts, teams, and troubleshooting.",
+          customerSupportTranslationDomain(targetLanguageName),
+        ].join(" "),
       };
-      const cacheKey = JSON.stringify([normalizedSourceLanguage, detectedSourceLanguage, normalizedTargetLanguage, text, translateConfig?.provider, translateConfig?.model, glossaryTerms]);
+      const cacheKey = JSON.stringify([TRANSLATION_POLICY_VERSION, normalizedSourceLanguage, detectedSourceLanguage, normalizedTargetLanguage, text, translateConfig?.provider, translateConfig?.model, glossaryTerms]);
       const cached = text.length <= TRANSLATION_CACHE_MAX_INPUT_CHARS ? getCachedTranslation(cacheKey) : null;
       if (cached !== null) {
         console.info("[Translation Metrics]", { requestId, cacheHit: true, totalMs: elapsedSince(requestStartedAt) });
