@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { invalidateSystemConfigCache } from '../../copilot/shared';
 
 const CONFIG_KEY = 'default';
 
@@ -94,6 +95,8 @@ export async function POST(request: NextRequest) {
       console.error('保存系统配置失败:', error);
       return NextResponse.json({ error: '保存失败' }, { status: 500 });
     }
+
+    invalidateSystemConfigCache();
 
     return NextResponse.json({
       success: true,

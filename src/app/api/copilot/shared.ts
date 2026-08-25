@@ -41,7 +41,7 @@ export interface ApiConfig {
   };
 }
 
-const SYSTEM_CONFIG_CACHE_TTL_MS = 60_000;
+const SYSTEM_CONFIG_CACHE_TTL_MS = 10 * 60_000;
 let systemConfigCache: { value: Record<string, unknown>; expiresAt: number } | null = null;
 let systemConfigRequest: Promise<Record<string, unknown> | null> | null = null;
 
@@ -83,6 +83,11 @@ async function getSystemConfigValue(): Promise<Record<string, unknown> | null> {
   }
 
   return systemConfigRequest;
+}
+
+export function invalidateSystemConfigCache(): void {
+  systemConfigCache = null;
+  systemConfigRequest = null;
 }
 
 export function validateSnapshot(value: unknown): CopilotSnapshot | null {
@@ -282,10 +287,104 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
   return data.choices?.[0]?.message?.content?.trim() || '';
 }
 
+function getModelRequest(config: ApiConfig, systemPrompt: string, userPrompt: string, temperature: number, translationOptions?: TranslationOptions): { endpoint: string; requestBody: Record<string, unknown> } {
+  if (!config.apiKey) throw new Error('未配置 API Key，请先在网页端设置中配置');
+  if (!['deepseek', 'gpt', 'aliyun', 'custom'].includes(config.provider)) {
+    throw new Error('当前模型提供商已不受支持，请在网页端设置中重新选择模型');
+  }
+
+  const baseUrl = config.baseUrl
+    || (config.provider === 'deepseek'
+      ? 'https://api.deepseek.com'
+      : config.provider === 'gpt'
+        ? 'https://api.tokenlab.sh/v1'
+        : 'https://dashscope.aliyuncs.com/compatible-mode/v1');
+  const isAliyunTranslationModel = config.provider === 'aliyun' && config.model.startsWith('qwen-mt-') && translationOptions;
+  const messages = isAliyunTranslationModel
+    ? [{ role: 'user', content: userPrompt }]
+    : config.provider === 'aliyun'
+      ? [{ role: 'user', content: `${systemPrompt}\n\n${userPrompt}` }]
+      : [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }];
+  const requestBody: Record<string, unknown> = {
+    model: config.model || (config.provider === 'gpt' ? 'gpt-5.4' : 'doubao-seed-2-0-lite-260215'),
+    messages,
+    temperature,
+  };
+  if (isAliyunTranslationModel) {
+    requestBody.translation_options = {
+      source_lang: translationOptions.sourceLang,
+      target_lang: translationOptions.targetLang,
+      ...(translationOptions.terms?.length ? { terms: translationOptions.terms } : {}),
+      ...(translationOptions.domains ? { domains: translationOptions.domains } : {}),
+    };
+  }
+  return {
+    endpoint: config.provider === 'custom' && config.customConfig?.endpoint
+      ? config.customConfig.endpoint
+      : `${baseUrl}/chat/completions`,
+    requestBody,
+  };
+}
+
+function readStreamDelta(payload: string): string {
+  try {
+    const data = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }> };
+    return data.choices?.[0]?.delta?.content || data.choices?.[0]?.message?.content || '';
+  } catch {
+    return '';
+  }
+}
+
+export async function callExtensionTranslateModelStream(
+  config: ApiConfig | null,
+  systemPrompt: string,
+  userPrompt: string,
+  temperature: number,
+  translationOptions?: TranslationOptions,
+): Promise<ReadableStream<Uint8Array>> {
+  if (!config) throw new Error('未配置 API Key，请先在网页端设置中配置');
+  const { endpoint, requestBody } = getModelRequest(config, systemPrompt, userPrompt, temperature, translationOptions);
+  requestBody.stream = true;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+    body: JSON.stringify(requestBody),
+  });
+  if (!response.ok || !response.body) {
+    const data = await response.json().catch((): { error?: { message?: string } } => ({}));
+    throw new Error(data.error?.message || '模型请求失败');
+  }
+
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let buffer = '';
+  return response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const payload = trimmed.slice(5).trim();
+        if (payload === '[DONE]') continue;
+        const delta = readStreamDelta(payload);
+        if (delta) controller.enqueue(encoder.encode(delta));
+      }
+    },
+    flush(controller) {
+      const trimmed = buffer.trim();
+      if (!trimmed.startsWith('data:')) return;
+      const delta = readStreamDelta(trimmed.slice(5).trim());
+      if (delta) controller.enqueue(encoder.encode(delta));
+    },
+  }));
+}
+
 export async function callTextModel(systemPrompt: string, userPrompt: string, temperature: number): Promise<string> {
   return callTextModelWithConfig(await getBackendApiConfig(), systemPrompt, userPrompt, temperature);
 }
 
-export async function callExtensionTranslateModel(systemPrompt: string, userPrompt: string, temperature: number, translationOptions?: TranslationOptions): Promise<string> {
-  return callTextModelWithConfig(await getExtensionTranslateApiConfig(), systemPrompt, userPrompt, temperature, translationOptions);
+export async function callExtensionTranslateModel(systemPrompt: string, userPrompt: string, temperature: number, translationOptions?: TranslationOptions, config?: ApiConfig | null): Promise<string> {
+  return callTextModelWithConfig(config === undefined ? await getExtensionTranslateApiConfig() : config, systemPrompt, userPrompt, temperature, translationOptions);
 }

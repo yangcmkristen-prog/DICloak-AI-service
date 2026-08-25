@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { invalidateKnowledgeTranslationCaches } from '@/lib/server/translation-cache-control';
 
 const CONFIG_KEY = 'default';
 
@@ -84,6 +85,8 @@ export async function POST(request: NextRequest) {
       console.error('保存知识库配置失败:', error);
       return NextResponse.json({ error: '保存失败' }, { status: 500 });
     }
+
+    invalidateKnowledgeTranslationCaches();
 
     return NextResponse.json({
       success: true,
