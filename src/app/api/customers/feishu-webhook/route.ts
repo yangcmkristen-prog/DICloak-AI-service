@@ -22,7 +22,11 @@ export async function POST(request: NextRequest) {
   if (!authorized(request)) return NextResponse.json({ error: "Webhook 鉴权失败" }, { status: 401 });
   try {
     const parsed = parseFeishuCustomerUpdates(await request.json() as unknown);
-    if (!parsed.updates.length) return NextResponse.json({ error: "请求中没有有效的团队 ID" }, { status: 400 });
+    if (!parsed.updates.length) return NextResponse.json({
+      error: "请求中没有有效的团队 ID",
+      hint: "请确认 JSON 为 {\"record\":{\"fields\":{\"团队ID\":\"...\"}}}，且团队ID不是空值",
+      detectedFields: parsed.detectedFields,
+    }, { status: 400 });
 
     const client = getSupabaseClient();
     const { data, error: readError } = await client.from("customer_summaries").select("external_chat_id, summary_data");

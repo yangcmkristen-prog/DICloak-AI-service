@@ -14,6 +14,26 @@ function objectValue(value: unknown): UnknownRecord | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as UnknownRecord : undefined;
 }
 
+function parsedObjectValue(value: unknown): UnknownRecord | undefined {
+  const object = objectValue(value);
+  if (object) return object;
+  if (typeof value !== "string") return undefined;
+  try {
+    return objectValue(JSON.parse(value) as unknown);
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizedFieldName(value: string): string {
+  return value.normalize("NFKC").replace(/[\s_\-\u200B-\u200D\uFEFF]/g, "").toLowerCase();
+}
+
+function fieldValue(fields: UnknownRecord, names: string[]): unknown {
+  const wanted = new Set(names.map(normalizedFieldName));
+  return Object.entries(fields).find(([name]) => wanted.has(normalizedFieldName(name)))?.[1];
+}
+
 function fieldText(value: unknown): string {
   if (typeof value === "string" || typeof value === "number") return String(value).trim();
   if (Array.isArray(value)) return value.map(fieldText).filter(Boolean).join("、");
@@ -37,11 +57,21 @@ function fieldDate(value: unknown): string {
 }
 
 function recordsFromPayload(payload: unknown): UnknownRecord[] {
+  if (typeof payload === "string") {
+    try {
+      return recordsFromPayload(JSON.parse(payload) as unknown);
+    } catch {
+      return [];
+    }
+  }
   if (Array.isArray(payload)) return payload.flatMap(recordsFromPayload);
   const object = objectValue(payload);
   if (!object) return [];
   for (const key of ["records", "items", "data"]) {
     if (Array.isArray(object[key])) return recordsFromPayload(object[key]);
+  }
+  for (const key of ["body", "payload", "data"]) {
+    if (parsedObjectValue(object[key])) return recordsFromPayload(object[key]);
   }
   const record = objectValue(object.record);
   if (record) return [record];
@@ -49,13 +79,15 @@ function recordsFromPayload(payload: unknown): UnknownRecord[] {
 }
 
 /** Accepts both the Feishu automation `record.fields` envelope and a plain fields object. */
-export function parseFeishuCustomerUpdates(payload: unknown): { updates: FeishuCustomerUpdate[]; skippedDuplicates: number } {
+export function parseFeishuCustomerUpdates(payload: unknown): { updates: FeishuCustomerUpdate[]; skippedDuplicates: number; detectedFields: string[] } {
   const updates: FeishuCustomerUpdate[] = [];
   const seen = new Set<string>();
+  const detectedFields = new Set<string>();
   let skippedDuplicates = 0;
   for (const record of recordsFromPayload(payload)) {
-    const fields = objectValue(record.fields) ?? record;
-    const teamId = fieldText(fields["团队ID"] ?? fields.teamId).trim();
+    const fields = parsedObjectValue(record.fields) ?? record;
+    Object.keys(fields).forEach((name) => detectedFields.add(name));
+    const teamId = fieldText(fieldValue(fields, ["团队ID", "团队 ID", "teamId"])).trim();
     if (!teamId) continue;
     const normalizedTeamId = teamId.toLowerCase();
     if (seen.has(normalizedTeamId)) {
@@ -64,11 +96,11 @@ export function parseFeishuCustomerUpdates(payload: unknown): { updates: FeishuC
     }
     seen.add(normalizedTeamId);
     const optionalText = (names: string[]): string | undefined => {
-      const text = fieldText(names.map((name) => fields[name]).find((value) => value !== undefined));
+      const text = fieldText(fieldValue(fields, names));
       return text || undefined;
     };
     const optionalDate = (names: string[]): string | undefined => {
-      const date = fieldDate(names.map((name) => fields[name]).find((value) => value !== undefined));
+      const date = fieldDate(fieldValue(fields, names));
       return date || undefined;
     };
     updates.push({
@@ -81,5 +113,5 @@ export function parseFeishuCustomerUpdates(payload: unknown): { updates: FeishuC
       currentPlan: optionalText(["当前套餐", "套餐", "currentPlan"]),
     });
   }
-  return { updates, skippedDuplicates };
+  return { updates, skippedDuplicates, detectedFields: [...detectedFields] };
 }
