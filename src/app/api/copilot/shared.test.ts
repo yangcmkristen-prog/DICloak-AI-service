@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { messagesAfterSummary, normalizeMessageTimestamp, snapshotToTranscript, type CopilotChatMessage } from "./shared";
+import { createStreamContentAccumulator, getModelRequest, messagesAfterSummary, normalizeMessageTimestamp, snapshotToTranscript, type CopilotChatMessage } from "./shared";
 
 const messages: CopilotChatMessage[] = [
   { id: "old", role: "customer", text: "old", timestamp: 1_700_000_000_000 },
@@ -27,4 +27,37 @@ test("AI transcripts use complete Shanghai dates", () => {
     sourceMessageHash: "hash",
   });
   assert.match(transcript, /2026\/08\/19 00:30/);
+});
+
+test("stream accumulator appends real token deltas", () => {
+  const accumulate = createStreamContentAccumulator();
+  assert.equal(accumulate("I thought"), "I thought");
+  assert.equal(accumulate(" so"), " so");
+  assert.equal(accumulate(" too."), " too.");
+});
+
+test("stream accumulator removes repeated cumulative snapshots", () => {
+  const accumulate = createStreamContentAccumulator();
+  assert.equal(accumulate("That"), "That");
+  assert.equal(accumulate("That explains"), " explains");
+  assert.equal(accumulate("That explains it."), " it.");
+  assert.equal(accumulate("That explains it."), "");
+});
+
+test("TokenLab Qwen MT models receive translation options", () => {
+  const { endpoint, requestBody } = getModelRequest(
+    { provider: "gpt", apiKey: "test-key", model: "qwen-mt-plus", baseUrl: "https://api.tokenlab.sh/v1" },
+    "system instructions",
+    "我说呢",
+    0.1,
+    { sourceLang: "Chinese", targetLang: "English", terms: [{ source: "环境", target: "profile" }] },
+  );
+
+  assert.equal(endpoint, "https://api.tokenlab.sh/v1/chat/completions");
+  assert.deepEqual(requestBody.messages, [{ role: "user", content: "我说呢" }]);
+  assert.deepEqual(requestBody.translation_options, {
+    source_lang: "Chinese",
+    target_lang: "English",
+    terms: [{ source: "环境", target: "profile" }],
+  });
 });
