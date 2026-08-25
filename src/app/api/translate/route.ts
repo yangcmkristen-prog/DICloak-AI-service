@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callExtensionTranslateModel } from "../copilot/shared";
+import { callExtensionTranslateModel, callExtensionTranslateModelStream, getExtensionTranslateApiConfig } from "../copilot/shared";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
-import { buildCustomerSupportTranslationGuidance, customerSupportTranslationDomain } from "@/lib/customer-support-translation";
+import { buildCustomerSupportTranslationGuidance } from "@/lib/customer-support-translation";
+import { getKnowledgeCacheGeneration } from "@/lib/server/translation-cache-control";
 
 const LANGUAGE_NAMES: Record<string, string> = {
   auto: "自动检测",
@@ -42,9 +43,40 @@ const QWEN_MT_LANGUAGE_NAMES: Record<string, string> = {
   ko: "Korean",
 };
 
-const KNOWLEDGE_TERMS_CACHE_TTL_MS = 60_000;
+const KNOWLEDGE_TERMS_CACHE_TTL_MS = 10 * 60_000;
 let knowledgeTermsCache: { terms: TermRecord[]; expiresAt: number } | null = null;
 let knowledgeTermsRequest: Promise<TermRecord[]> | null = null;
+const TRANSLATION_CACHE_TTL_MS = 60 * 60_000;
+const TRANSLATION_CACHE_MAX_ENTRIES = 500;
+const TRANSLATION_CACHE_MAX_INPUT_CHARS = 2_000;
+const translationCache = new Map<string, { value: string; expiresAt: number }>();
+let observedKnowledgeGeneration = getKnowledgeCacheGeneration();
+
+function getCachedTranslation(key: string): string | null {
+  const cached = translationCache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    translationCache.delete(key);
+    return null;
+  }
+  translationCache.delete(key);
+  translationCache.set(key, cached);
+  return cached.value;
+}
+
+function cacheTranslation(key: string, value: string): void {
+  if (!value) return;
+  translationCache.set(key, { value, expiresAt: Date.now() + TRANSLATION_CACHE_TTL_MS });
+  while (translationCache.size > TRANSLATION_CACHE_MAX_ENTRIES) {
+    const oldestKey = translationCache.keys().next().value;
+    if (typeof oldestKey !== "string") break;
+    translationCache.delete(oldestKey);
+  }
+}
+
+function elapsedSince(startedAt: number): number {
+  return Math.round(performance.now() - startedAt);
+}
 
 const LANGUAGE_PROMPT_NAMES: Record<string, string> = {
   auto: "Auto Detect",
@@ -241,6 +273,13 @@ async function fetchKnowledgeTerms(): Promise<TermRecord[]> {
 }
 
 async function getKnowledgeTerms(): Promise<TermRecord[]> {
+  const currentGeneration = getKnowledgeCacheGeneration();
+  if (observedKnowledgeGeneration !== currentGeneration) {
+    knowledgeTermsCache = null;
+    knowledgeTermsRequest = null;
+    translationCache.clear();
+    observedKnowledgeGeneration = currentGeneration;
+  }
   const now = Date.now();
   if (knowledgeTermsCache && knowledgeTermsCache.expiresAt > now) {
     return knowledgeTermsCache.terms;
@@ -323,6 +362,8 @@ function detectSourceLanguage(text: string): string | null {
 }
 
 export async function POST(request: NextRequest) {
+  const requestStartedAt = performance.now();
+  const requestId = crypto.randomUUID();
   try {
     const { text, sourceLanguage = "auto", targetLanguage = "zh", targetLanguages } = await request.json() as {
       text?: unknown;
@@ -335,22 +376,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "缺少文本内容" }, { status: 400 });
     }
 
+    const parseMs = elapsedSince(requestStartedAt);
+    const detectStartedAt = performance.now();
     const normalizedSourceLanguage = normalizeLanguage(sourceLanguage, "auto", true);
     const detectedSourceLanguage = normalizedSourceLanguage === "auto"
       ? detectSourceLanguage(text)
       : normalizedSourceLanguage;
+    const detectMs = elapsedSince(detectStartedAt);
     const requestedTargetLanguages = Array.isArray(targetLanguages) && targetLanguages.length > 0
       ? targetLanguages.map((language) => normalizeLanguage(language, "zh", false))
       : [normalizeLanguage(targetLanguage, "zh", false)];
     const uniqueTargetLanguages = [...new Set(requestedTargetLanguages)];
-    const knowledgeTerms = await getKnowledgeTerms();
+    const dependenciesStartedAt = performance.now();
+    const knowledgeCacheHit = Boolean(knowledgeTermsCache && knowledgeTermsCache.expiresAt > Date.now());
+    const [knowledgeTerms, translateConfig] = await Promise.all([
+      getKnowledgeTerms(),
+      getExtensionTranslateApiConfig(),
+    ]);
+    const dependenciesMs = elapsedSince(dependenciesStartedAt);
 
     const translateToLanguage = async (normalizedTargetLanguage: string): Promise<string> => {
+      const termMatchStartedAt = performance.now();
       const sourceLanguageName = detectedSourceLanguage
         ? LANGUAGE_PROMPT_NAMES[detectedSourceLanguage]
         : LANGUAGE_PROMPT_NAMES[normalizedSourceLanguage];
       const targetLanguageName = LANGUAGE_PROMPT_NAMES[normalizedTargetLanguage];
       const glossaryTerms = buildTranslationTerms(knowledgeTerms, text, detectedSourceLanguage || normalizedSourceLanguage, normalizedTargetLanguage);
+      const termMatchMs = elapsedSince(termMatchStartedAt);
       const customerSupportGuidance = buildCustomerSupportTranslationGuidance(targetLanguageName);
 
       const systemPrompt = [
@@ -358,8 +410,7 @@ export async function POST(request: NextRequest) {
         `Source language: ${normalizedSourceLanguage === "auto" ? `auto-detect${detectedSourceLanguage ? ` (detected: ${sourceLanguageName})` : ""}` : sourceLanguageName}.`,
         `Target language: ${targetLanguageName}.`,
         `You MUST output only in ${targetLanguageName}. Do not output English unless the target language is English.`,
-        "Preserve line breaks, numbers, emails, URLs, product names, account information, proper nouns, and contextual meaning.",
-        "Translate faithfully: do not omit, add, weaken, or change the meaning of any clause.",
+        "Preserve formatting and factual identifiers. Translate faithfully and naturally without adding or omitting meaning.",
         ...customerSupportGuidance,
         "Output only the translated text. Do not add explanations, prefixes, suffixes, quotes, or language labels.",
         ...(glossaryTerms.length > 0 ? [
@@ -368,19 +419,42 @@ export async function POST(request: NextRequest) {
         ] : []),
       ].join("\n");
 
-      return callExtensionTranslateModel(systemPrompt, text, 0.1, {
+      const translationOptions = {
         sourceLang: normalizedSourceLanguage === "auto"
           ? "auto"
           : QWEN_MT_LANGUAGE_NAMES[normalizedSourceLanguage],
         targetLang: QWEN_MT_LANGUAGE_NAMES[normalizedTargetLanguage],
         terms: glossaryTerms,
         domains: [
-          "DICloak customer support translation for browser profile, proxy, account, team, and troubleshooting scenarios.",
-          customerSupportTranslationDomain(targetLanguageName),
-          "When using terminology, treat term targets as preferred lexical choices rather than fixed capitalization; use natural in-sentence casing for common nouns, while preserving proper nouns and acronyms.",
-          "In DICloak context, only capitalized plural Profiles can mean the 环境管理 module in operation-path phrases such as enter/go to/open/click/navigate to Profiles. Singular profile/Profile never means 环境管理; translate create/new profile(s) as 创建环境/新建环境, not 环境管理 or 环境相关.",
+          "DICloak support: browser profiles, proxies, accounts, teams, and troubleshooting.",
+          "Write natural, polite customer-support language without changing facts, requirements, or limitations.",
+          "Use natural casing for terminology. Only capitalized plural Profiles in an operation path means the 环境管理 module; create/new profile(s) means 创建环境/新建环境.",
         ].join(" "),
+      };
+      const cacheKey = JSON.stringify([
+        normalizedSourceLanguage,
+        detectedSourceLanguage,
+        normalizedTargetLanguage,
+        text,
+        translateConfig?.provider,
+        translateConfig?.model,
+        glossaryTerms,
+      ]);
+      const cached = text.length <= TRANSLATION_CACHE_MAX_INPUT_CHARS ? getCachedTranslation(cacheKey) : null;
+      if (cached !== null) {
+        console.info("[Translation Metrics]", { requestId, cacheHit: true, termMatchMs, totalMs: elapsedSince(requestStartedAt) });
+        return cached;
+      }
+      const modelStartedAt = performance.now();
+      const result = await callExtensionTranslateModel(systemPrompt, text, 0.1, translationOptions, translateConfig);
+      const modelMs = elapsedSince(modelStartedAt);
+      if (text.length <= TRANSLATION_CACHE_MAX_INPUT_CHARS) cacheTranslation(cacheKey, result);
+      console.info("[Translation Metrics]", {
+        requestId, cacheHit: false, knowledgeCacheHit, parseMs, detectMs, dependenciesMs,
+        termMatchMs, modelMs, totalMs: elapsedSince(requestStartedAt), inputChars: text.length,
+        matchedTermCount: glossaryTerms.length, provider: translateConfig?.provider, model: translateConfig?.model,
       });
+      return result;
     };
 
     if (Array.isArray(targetLanguages) && targetLanguages.length > 0) {
@@ -394,6 +468,56 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedTargetLanguage = uniqueTargetLanguages[0];
+    if (request.headers.get("accept")?.includes("text/plain")) {
+      const sourceLanguageName = detectedSourceLanguage
+        ? LANGUAGE_PROMPT_NAMES[detectedSourceLanguage]
+        : LANGUAGE_PROMPT_NAMES[normalizedSourceLanguage];
+      const targetLanguageName = LANGUAGE_PROMPT_NAMES[normalizedTargetLanguage];
+      const termMatchStartedAt = performance.now();
+      const glossaryTerms = buildTranslationTerms(knowledgeTerms, text, detectedSourceLanguage || normalizedSourceLanguage, normalizedTargetLanguage);
+      const termMatchMs = elapsedSince(termMatchStartedAt);
+      const guidance = buildCustomerSupportTranslationGuidance(targetLanguageName);
+      const systemPrompt = [
+        "You are a professional DICloak customer-support translation engine.",
+        `Source: ${normalizedSourceLanguage === "auto" ? `auto${detectedSourceLanguage ? ` (${sourceLanguageName})` : ""}` : sourceLanguageName}. Target: ${targetLanguageName}.`,
+        `Output only ${targetLanguageName}; preserve formatting and factual identifiers; translate naturally without adding or omitting meaning.`,
+        ...guidance,
+        ...(glossaryTerms.length ? [`Terminology: ${glossaryTerms.map((term) => `${term.source} => ${term.target}`).join("; ")}.`] : []),
+      ].join("\n");
+      const options = {
+        sourceLang: normalizedSourceLanguage === "auto" ? "auto" : QWEN_MT_LANGUAGE_NAMES[normalizedSourceLanguage],
+        targetLang: QWEN_MT_LANGUAGE_NAMES[normalizedTargetLanguage],
+        terms: glossaryTerms,
+        domains: "DICloak support: browser profiles, proxies, accounts, teams, and troubleshooting. Write natural, polite support language without changing facts.",
+      };
+      const cacheKey = JSON.stringify([normalizedSourceLanguage, detectedSourceLanguage, normalizedTargetLanguage, text, translateConfig?.provider, translateConfig?.model, glossaryTerms]);
+      const cached = text.length <= TRANSLATION_CACHE_MAX_INPUT_CHARS ? getCachedTranslation(cacheKey) : null;
+      if (cached !== null) {
+        console.info("[Translation Metrics]", { requestId, cacheHit: true, totalMs: elapsedSince(requestStartedAt) });
+        return new NextResponse(cached, { headers: { "Content-Type": "text/plain; charset=utf-8", "X-Detected-Source-Language": detectedSourceLanguage || "" } });
+      }
+      const modelStartedAt = performance.now();
+      const upstream = await callExtensionTranslateModelStream(translateConfig, systemPrompt, text, 0.1, options);
+      let completedTranslation = "";
+      const decoder = new TextDecoder();
+      const measuredStream = upstream.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          completedTranslation += decoder.decode(chunk, { stream: true });
+          controller.enqueue(chunk);
+        },
+        flush() {
+          completedTranslation += decoder.decode();
+          if (text.length <= TRANSLATION_CACHE_MAX_INPUT_CHARS) cacheTranslation(cacheKey, completedTranslation.trim());
+          console.info("[Translation Metrics]", {
+            requestId, cacheHit: false, knowledgeCacheHit, parseMs, detectMs, dependenciesMs,
+            termMatchMs, modelMs: elapsedSince(modelStartedAt), totalMs: elapsedSince(requestStartedAt),
+            inputChars: text.length, matchedTermCount: glossaryTerms.length,
+            provider: translateConfig?.provider, model: translateConfig?.model,
+          });
+        },
+      }));
+      return new NextResponse(measuredStream, { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache", "X-Detected-Source-Language": detectedSourceLanguage || "" } });
+    }
     const translation = await translateToLanguage(normalizedTargetLanguage);
 
     return NextResponse.json({

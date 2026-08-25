@@ -1086,11 +1086,12 @@ const handleTranslate = async () => {
 
     setIsTranslating(true);
     setIsTranslationCopied(false);
+    setTranslationResult("");
 
     try {
       const response = await fetch("/api/translate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Accept: "text/plain" },
         body: JSON.stringify({
           text,
           sourceLanguage,
@@ -1098,19 +1099,31 @@ const handleTranslate = async () => {
         }),
       });
 
-      const data = await response.json() as { translation?: string; message?: string; error?: string; detectedSourceLanguage?: string | null };
       if (!response.ok) {
+        const data = await response.json().catch((): { error?: string } => ({}));
         throw new Error(data.error || "翻译失败");
       }
+      if (!response.body) throw new Error("浏览器不支持流式翻译");
 
-      const translatedText = data.translation || text;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let translatedText = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        translatedText += decoder.decode(value, { stream: true });
+        setTranslationResult(translatedText);
+      }
+      translatedText += decoder.decode();
+      translatedText = translatedText.trim();
+      if (!translatedText) throw new Error("翻译结果为空，请重试");
       setTranslationResult(translatedText);
-      setDetectedSourceLanguage(data.detectedSourceLanguage || null);
+      setDetectedSourceLanguage(response.headers.get("X-Detected-Source-Language") || null);
       try {
         await copyTextToClipboard(translatedText);
         setIsTranslationCopied(true);
         window.setTimeout(() => setIsTranslationCopied(false), 1500);
-        toast.success(data.message ? `${data.message}，结果已复制` : "翻译并复制成功");
+        toast.success("翻译并复制成功");
       } catch (copyError) {
         console.error("自动复制失败:", copyError);
         toast.error("翻译成功，但自动复制失败，请手动复制");
