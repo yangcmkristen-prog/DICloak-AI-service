@@ -59,8 +59,8 @@ export const MODEL_OPTIONS = [
   { value: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', provider: 'gpt' },
   { value: 'gpt-5.2', label: 'GPT-5.2', provider: 'gpt' },
   { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite', provider: 'gpt' },
-  { value: 'qwen-mt-plus', label: 'Qwen MT Plus（翻译）', provider: 'gpt' },
   { value: 'qwen-mt-flash', label: 'Qwen MT Flash（翻译）', provider: 'gpt' },
+  { value: 'qwen-mt-plus', label: 'Qwen MT Plus（翻译）', provider: 'gpt' },
   // 阿里百炼模型
   { value: 'qwen-mt-flash', label: 'Qwen MT Flash（翻译）', provider: 'aliyun' },
   { value: 'qwen-vl-ocr', label: 'Qwen VL OCR（图片识别）', provider: 'aliyun' },

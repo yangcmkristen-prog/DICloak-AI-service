@@ -243,8 +243,8 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
       : config.provider === 'gpt'
         ? 'https://api.tokenlab.sh/v1'
         : 'https://dashscope.aliyuncs.com/compatible-mode/v1');
-  const isAliyunTranslationModel = config.provider === 'aliyun' && config.model.startsWith('qwen-mt-') && translationOptions;
-  const messages = isAliyunTranslationModel
+  const isTranslationModel = config.model.startsWith('qwen-mt-') && translationOptions;
+  const messages = isTranslationModel
     ? [{ role: 'user', content: userPrompt }]
     : config.provider === 'aliyun'
       ? [{ role: 'user', content: `${systemPrompt}\n\n${userPrompt}` }]
@@ -258,7 +258,7 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
     temperature,
   };
 
-  if (isAliyunTranslationModel) {
+  if (isTranslationModel) {
     requestBody.translation_options = {
       source_lang: translationOptions.sourceLang,
       target_lang: translationOptions.targetLang,
@@ -287,7 +287,7 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
   return data.choices?.[0]?.message?.content?.trim() || '';
 }
 
-function getModelRequest(config: ApiConfig, systemPrompt: string, userPrompt: string, temperature: number, translationOptions?: TranslationOptions): { endpoint: string; requestBody: Record<string, unknown> } {
+export function getModelRequest(config: ApiConfig, systemPrompt: string, userPrompt: string, temperature: number, translationOptions?: TranslationOptions): { endpoint: string; requestBody: Record<string, unknown> } {
   if (!config.apiKey) throw new Error('未配置 API Key，请先在网页端设置中配置');
   if (!['deepseek', 'gpt', 'aliyun', 'custom'].includes(config.provider)) {
     throw new Error('当前模型提供商已不受支持，请在网页端设置中重新选择模型');
@@ -299,8 +299,8 @@ function getModelRequest(config: ApiConfig, systemPrompt: string, userPrompt: st
       : config.provider === 'gpt'
         ? 'https://api.tokenlab.sh/v1'
         : 'https://dashscope.aliyuncs.com/compatible-mode/v1');
-  const isAliyunTranslationModel = config.provider === 'aliyun' && config.model.startsWith('qwen-mt-') && translationOptions;
-  const messages = isAliyunTranslationModel
+  const isTranslationModel = config.model.startsWith('qwen-mt-') && translationOptions;
+  const messages = isTranslationModel
     ? [{ role: 'user', content: userPrompt }]
     : config.provider === 'aliyun'
       ? [{ role: 'user', content: `${systemPrompt}\n\n${userPrompt}` }]
@@ -310,7 +310,7 @@ function getModelRequest(config: ApiConfig, systemPrompt: string, userPrompt: st
     messages,
     temperature,
   };
-  if (isAliyunTranslationModel) {
+  if (isTranslationModel) {
     requestBody.translation_options = {
       source_lang: translationOptions.sourceLang,
       target_lang: translationOptions.targetLang,
@@ -326,13 +326,33 @@ function getModelRequest(config: ApiConfig, systemPrompt: string, userPrompt: st
   };
 }
 
-function readStreamDelta(payload: string): string {
+function readStreamContent(payload: string): string {
   try {
     const data = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }> };
     return data.choices?.[0]?.delta?.content || data.choices?.[0]?.message?.content || '';
   } catch {
     return '';
   }
+}
+
+export function createStreamContentAccumulator(): (content: string) => string {
+  let assembled = '';
+
+  return (content: string): string => {
+    if (!content) return '';
+
+    // Some OpenAI-compatible translation models emit the complete translation-so-far
+    // in every chunk instead of a true token delta. Only forward the new suffix so
+    // clients do not receive "ThatThat explainsThat explains it".
+    if (assembled && content.startsWith(assembled)) {
+      const suffix = content.slice(assembled.length);
+      assembled = content;
+      return suffix;
+    }
+
+    assembled += content;
+    return content;
+  };
 }
 
 export async function callExtensionTranslateModelStream(
@@ -355,8 +375,22 @@ export async function callExtensionTranslateModelStream(
     throw new Error(data.error?.message || '模型请求失败');
   }
 
+  if (response.headers.get('content-type')?.includes('application/json')) {
+    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } };
+    const content = data.choices?.[0]?.message?.content?.trim() || '';
+    if (!content) throw new Error(data.error?.message || '翻译结果为空');
+    const encoded = new TextEncoder().encode(content);
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoded);
+        controller.close();
+      },
+    });
+  }
+
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
+  const accumulateContent = createStreamContentAccumulator();
   let buffer = '';
   return response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
@@ -368,14 +402,14 @@ export async function callExtensionTranslateModelStream(
         if (!trimmed.startsWith('data:')) continue;
         const payload = trimmed.slice(5).trim();
         if (payload === '[DONE]') continue;
-        const delta = readStreamDelta(payload);
+        const delta = accumulateContent(readStreamContent(payload));
         if (delta) controller.enqueue(encoder.encode(delta));
       }
     },
     flush(controller) {
       const trimmed = buffer.trim();
       if (!trimmed.startsWith('data:')) return;
-      const delta = readStreamDelta(trimmed.slice(5).trim());
+      const delta = accumulateContent(readStreamContent(trimmed.slice(5).trim()));
       if (delta) controller.enqueue(encoder.encode(delta));
     },
   }));
