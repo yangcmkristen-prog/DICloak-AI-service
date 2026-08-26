@@ -387,3 +387,27 @@ Windows Git Bash/Git for Windows 如果没有以 UTF-8 发送中文参数，可�
 ```
 
 如果该 GET 成功，再用同一路径发送不带 Token 的 POST；快速返回 `401` 表示 POST 请求也已到达应用。随后恢复 `X-Webhook-Token` 和正式 JSON Body。若 GET 仍超时且 Vercel Runtime Logs 没有记录，则应检查飞书到动态函数的网络、Vercel Deployment Protection 和 Firewall Events，而不是修改 `robots.txt`。
+
+## Vercel Deployment Protection
+
+飞书属于未登录的服务器请求，不能通过 Vercel Authentication。用于正式 Webhook 的 Production 域名必须允许公开访问，再由本接口的 `X-Webhook-Token` 完成应用层鉴权。
+
+如果 Vercel 的 **Settings → Deployment Protection → Vercel Authentication → Require Log In** 已开启，请优先将它关闭并保存，然后重新测试 Production URL。浏览器在已登录 Vercel 的情况下能够打开页面，并不能证明飞书也能访问；请使用无痕窗口，或退出 Vercel 后访问下面的健康检查地址确认：
+
+```text
+https://<你的 Production 域名>/api/customers/feishu-webhook
+```
+
+若项目必须保留 Deployment Protection，则在 **Protection Bypass for Automation** 中创建 Secret，并在飞书请求中额外添加：
+
+```text
+x-vercel-protection-bypass: <创建的 bypass secret>
+```
+
+该值与业务鉴权 Token 不同；正式 POST 仍须同时发送：
+
+```text
+X-Webhook-Token: <FEISHU_WEBHOOK_TOKEN>
+```
+
+修改 Protection 设置后不需要改 Webhook 代码。Firewall 页面没有 IP Blocking、Project Rules，且 Bot Protection 为 Off 时，不需要添加 Firewall Allow 规则。
