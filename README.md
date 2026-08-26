@@ -388,26 +388,16 @@ Windows Git Bash/Git for Windows 如果没有以 UTF-8 发送中文参数，可�
 
 如果该 GET 成功，再用同一路径发送不带 Token 的 POST；快速返回 `401` 表示 POST 请求也已到达应用。随后恢复 `X-Webhook-Token` 和正式 JSON Body。若 GET 仍超时且 Vercel Runtime Logs 没有记录，则应检查飞书到动态函数的网络、Vercel Deployment Protection 和 Firewall Events，而不是修改 `robots.txt`。
 
-## Vercel Deployment Protection
+## 飞书超时与 Vercel 日志核对
 
-飞书属于未登录的服务器请求，不能通过 Vercel Authentication。用于正式 Webhook 的 Production 域名必须允许公开访问，再由本接口的 `X-Webhook-Token` 完成应用层鉴权。
+不要只看 Vercel 是否存在同一路径的 `200`，必须核对请求时间和请求来源。飞书自动化在 `16:02:53` 发起请求时，`15:59:17` 的日志不是同一次请求；详情中显示 `User-Agent: Mozilla/5.0 (Windows ...)` 且 `Prefetch: Yes` 的请求来自浏览器访问或页面预取，不是飞书服务器。
 
-如果 Vercel 的 **Settings → Deployment Protection → Vercel Authentication → Require Log In** 已开启，请优先将它关闭并保存，然后重新测试 Production URL。浏览器在已登录 Vercel 的情况下能够打开页面，并不能证明飞书也能访问；请使用无痕窗口，或退出 Vercel 后访问下面的健康检查地址确认：
-
-```text
-https://<你的 Production 域名>/api/customers/feishu-webhook
-```
-
-若项目必须保留 Deployment Protection，则在 **Protection Bypass for Automation** 中创建 Secret，并在飞书请求中额外添加：
+部署后可先让飞书请求不导入数据库依赖的轻量 Edge 诊断地址：
 
 ```text
-x-vercel-protection-bypass: <创建的 bypass secret>
+GET https://<你的域名>/api/customers/feishu-ping
 ```
 
-该值与业务鉴权 Token 不同；正式 POST 仍须同时发送：
+预期返回 `{"ok":true,"service":"feishu-webhook"}`。如果这个地址仍在约 16 秒后超时，并且 Vercel 在同一时间没有对应日志，则请求没有到达 Vercel，问题发生在飞书到 `vercel.app` 的连接链路；此时修改 Webhook、Supabase 或 JSON 解析没有作用。请为项目绑定自定义域名并在飞书中改用该域名；如果自定义域名仍不稳定，则使用飞书可稳定访问区域的 API Gateway、云函数或 Worker 转发请求。
 
-```text
-X-Webhook-Token: <FEISHU_WEBHOOK_TOKEN>
-```
-
-修改 Protection 设置后不需要改 Webhook 代码。Firewall 页面没有 IP Blocking、Project Rules，且 Bot Protection 为 Off 时，不需要添加 Firewall Allow 规则。
+如果 `feishu-ping` 成功而正式 GET 超时，再检查正式 GET 在 Vercel 中的同时间日志和执行时长。正式健康检查本身不访问 Supabase；Vercel 若已在几百毫秒内完成并返回 `200`，但飞书仍报告超时，需要使用自定义域名或中转服务解决 Vercel 返回链路兼容性，而不是继续优化数据库查询。
