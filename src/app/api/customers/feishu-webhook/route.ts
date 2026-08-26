@@ -25,6 +25,14 @@ function escapedIlikeValue(value: string): string {
   return value.replace(/[\\%_]/g, (character) => `\\${character}`);
 }
 
+export function GET() {
+  return NextResponse.json({
+    ok: true,
+    endpoint: "/api/customers/feishu-webhook",
+    message: "Feishu customer webhook is reachable; use POST to synchronize data.",
+  });
+}
+
 async function findCustomerByTeamId(teamId: string): Promise<ExistingCustomer | undefined> {
   const { data, error } = await getSupabaseClient().from("customer_summaries")
     .select("external_chat_id, summary_data")

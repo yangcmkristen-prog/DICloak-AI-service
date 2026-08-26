@@ -375,3 +375,15 @@ export const useStore = create<Store>((set) => ({
 Windows Git Bash/Git for Windows 如果没有以 UTF-8 发送中文参数，可使用英文字段名 `teamId`、`contactName`、`contactDetail`、`contactMethod`、`createdAt`、`dueDate`、`currentPlan`；飞书自动化仍可直接使用上面的中文字段名。
 
 飞书显示 `Connection Timed Out` 时，请先在 Vercel Functions Logs 检查 Supabase 连接；Webhook 仅按本次请求的团队 ID 查询客户，不会扫描并下载完整客户表。
+
+连通性排查时，不要用 `robots.txt` 中的 `Disallow: /api/` 判断 API 是否可访问：该规则只约束遵守 robots 协议的搜索引擎爬虫，不会阻止飞书 HTTP 请求。请在飞书中发送 `GET https://<你的域名>/api/customers/feishu-webhook`（无需 Header 和 Body）。接口应返回 JSON：
+
+```json
+{
+  "ok": true,
+  "endpoint": "/api/customers/feishu-webhook",
+  "message": "Feishu customer webhook is reachable; use POST to synchronize data."
+}
+```
+
+如果该 GET 成功，再用同一路径发送不带 Token 的 POST；快速返回 `401` 表示 POST 请求也已到达应用。随后恢复 `X-Webhook-Token` 和正式 JSON Body。若 GET 仍超时且 Vercel Runtime Logs 没有记录，则应检查飞书到动态函数的网络、Vercel Deployment Protection 和 Firewall Events，而不是修改 `robots.txt`。
