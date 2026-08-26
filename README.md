@@ -373,3 +373,5 @@ export const useStore = create<Store>((set) => ({
 支持字段：`团队ID`、`联系人`（也兼容 `团队名字`）、`联系方式`（也兼容 `用户联系方式`）、`渠道`（也兼容 `私域渠道`）、`创建时间`、`到期时间`、`当前套餐`（也兼容 `套餐`）。`团队ID` 是必填且唯一的识别字段；一次请求中的重复 ID 仅处理第一条。
 
 Windows Git Bash/Git for Windows 如果没有以 UTF-8 发送中文参数，可使用英文字段名 `teamId`、`contactName`、`contactDetail`、`contactMethod`、`createdAt`、`dueDate`、`currentPlan`；飞书自动化仍可直接使用上面的中文字段名。
+
+飞书显示 `Connection Timed Out` 时，请先在 Vercel Functions Logs 检查 Supabase 连接；Webhook 仅按本次请求的团队 ID 查询客户，不会扫描并下载完整客户表。
