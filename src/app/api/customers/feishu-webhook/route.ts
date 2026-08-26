@@ -4,6 +4,7 @@ import { parseFeishuCustomerUpdates } from "@/lib/feishu-customer-webhook";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 
 type SummaryRecord = Record<string, unknown>;
+type ExistingCustomer = { externalChatId: string; summary: SummaryRecord };
 
 function normalizedTeamId(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -20,6 +21,21 @@ function externalIdForTeam(teamId: string): string {
   return `feishu-${createHash("sha256").update(normalizedTeamId(teamId)).digest("hex").slice(0, 40)}`;
 }
 
+function escapedIlikeValue(value: string): string {
+  return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+async function findCustomerByTeamId(teamId: string): Promise<ExistingCustomer | undefined> {
+  const { data, error } = await getSupabaseClient().from("customer_summaries")
+    .select("external_chat_id, summary_data")
+    .ilike("summary_data->>teamId", escapedIlikeValue(teamId.trim()))
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return undefined;
+  return { externalChatId: data.external_chat_id, summary: data.summary_data as SummaryRecord };
+}
+
 export async function POST(request: NextRequest) {
   if (!authorized(request)) return NextResponse.json({ error: "Webhook 鉴权失败" }, { status: 401 });
   try {
@@ -34,21 +50,14 @@ export async function POST(request: NextRequest) {
     }, { status: 400 });
 
     const client = getSupabaseClient();
-    const { data, error: readError } = await client.from("customer_summaries").select("external_chat_id, summary_data");
-    if (readError) throw readError;
-    const existingByTeam = new Map<string, { externalChatId: string; summary: SummaryRecord }>();
-    for (const row of data ?? []) {
-      const summary = row.summary_data as SummaryRecord;
-      const key = normalizedTeamId(summary.teamId);
-      if (key && !existingByTeam.has(key)) existingByTeam.set(key, { externalChatId: row.external_chat_id, summary });
-    }
-
+    const existingByTeam = new Map<string, ExistingCustomer>();
     const automaticUpdatedAt = new Date().toISOString();
     let created = 0;
     let updated = 0;
     for (const incoming of parsed.updates) {
       const key = normalizedTeamId(incoming.teamId);
-      const existing = existingByTeam.get(key);
+      const existing = existingByTeam.get(key) ?? await findCustomerByTeamId(incoming.teamId);
+      if (existing) existingByTeam.set(key, existing);
       const nonEmptyFields = Object.fromEntries(Object.entries(incoming).filter(([, value]) => typeof value === "string" && value.trim()));
       if (existing) {
         const summary: SummaryRecord = { ...existing.summary, ...nonEmptyFields, teamId: incoming.teamId, automaticUpdatedAt };
