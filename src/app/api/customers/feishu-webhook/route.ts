@@ -26,11 +26,14 @@ function escapedIlikeValue(value: string): string {
 }
 
 export function GET() {
-  return NextResponse.json({
+  const response = NextResponse.json({
     ok: true,
     endpoint: "/api/customers/feishu-webhook",
+    deploymentCommit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
     message: "Feishu customer webhook is reachable; use POST to synchronize data.",
   });
+  response.headers.set("Cache-Control", "no-store");
+  return response;
 }
 
 async function findCustomerByTeamId(teamId: string): Promise<ExistingCustomer | undefined> {
