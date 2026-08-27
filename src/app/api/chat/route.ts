@@ -8,6 +8,7 @@ import { enforceReplyTerminology, translateTermPlaceholders } from '@/lib/term-t
 import { callExtensionTranslateModel } from "../copilot/shared";
 import { detectNonLatinLanguage } from '@/lib/copilot-language';
 import { selectApiEndpointsByProductAndKeywords, selectApiParameters } from '@/lib/api-parameters';
+import { getRequestId, logModelCall, logTiming, type ModelUsage } from '@/lib/server/request-telemetry';
 
 function sanitizeCustomerFacingContent(
   content: string,
@@ -520,7 +521,7 @@ function isReplyLanguageMismatch(content: string, targetLanguage: string): boole
   return hasUnexpectedReplyScript(stripMachineSectionMarkers(content), targetLanguage);
 }
 
-async function enforceReplyLanguage(config: ChatApiConfig, content: string, targetLanguage: string): Promise<string> {
+async function enforceReplyLanguage(config: ChatApiConfig, content: string, targetLanguage: string, requestId: string): Promise<string> {
   if (targetLanguage === "mixed") targetLanguage = "zh";
   if (!LANGUAGE_DISPLAY_NAMES[targetLanguage] || !content.trim()) return content;
 
@@ -533,7 +534,7 @@ async function enforceReplyLanguage(config: ChatApiConfig, content: string, targ
   // Spanish/Portuguese/English and other same-script mixtures cannot be
   // reliably distinguished by character counting alone.
   const candidates = [content];
-  const dedicatedTranslation = await callExtensionTranslateModel(translationPrompt, content, 0).catch(() => "");
+  const dedicatedTranslation = await callExtensionTranslateModel(translationPrompt, content, 0, undefined, undefined, { requestId, stage: 'language_repair' }).catch(() => "");
   if (dedicatedTranslation && !isReplyLanguageMismatch(dedicatedTranslation, targetLanguage)) {
     return dedicatedTranslation;
   }
@@ -541,7 +542,7 @@ async function enforceReplyLanguage(config: ChatApiConfig, content: string, targ
   const translated = await callModelOnce(config, [
     { role: "system", content: translationPrompt },
     { role: "user", content },
-  ], 0);
+  ], 0, { requestId, stage: 'language_repair', retry: true });
   if (translated && !isReplyLanguageMismatch(translated, targetLanguage)) return translated;
   if (translated) candidates.push(translated);
 
@@ -688,10 +689,11 @@ function getDefaultModelForProvider(config: ChatApiConfig): string {
   return 'deepseek-chat';
 }
 
-async function callModelOnce(config: ChatApiConfig, messages: Array<{ role: 'system' | 'user'; content: string }>, temperature: number): Promise<string> {
+async function callModelOnce(config: ChatApiConfig, messages: Array<{ role: 'system' | 'user'; content: string }>, temperature: number, telemetry?: { requestId: string; stage: string; retry?: boolean }): Promise<string> {
   const requestMessages = config.provider === 'aliyun'
     ? messages.map((message) => ({ role: message.role === 'system' ? 'user' : message.role, content: message.content }))
     : messages;
+  const startedAt = Date.now();
   const response = await fetch(getChatCompletionsUrl(config), {
       method: 'POST',
       headers: {
@@ -704,7 +706,8 @@ async function callModelOnce(config: ChatApiConfig, messages: Array<{ role: 'sys
         temperature,
       }),
   });
-  const data = await response.json() as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } };
+  const data = await response.json() as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string }; usage?: ModelUsage };
+  if (telemetry) logModelCall({ requestId: telemetry.requestId, stage: telemetry.stage, provider: config.provider, model: getDefaultModelForProvider(config), durationMs: Date.now() - startedAt, success: response.ok, retry: telemetry.retry, usage: data.usage });
   if (!response.ok) {
     throw new Error(data.error?.message || `模型质检失败: ${response.status} ${response.statusText}`);
   }
@@ -725,7 +728,7 @@ function shouldReviewCustomerFacingReply(config: ChatApiConfig, draft: string, r
   return reviewSignals.some((pattern) => pattern.test(draft) || pattern.test(referenceContext));
 }
 
-async function reviewCustomerFacingReply(config: ChatApiConfig, draft: string, referenceContext: string, languageRule: string, currentQuestion: string): Promise<string> {
+async function reviewCustomerFacingReply(config: ChatApiConfig, draft: string, referenceContext: string, languageRule: string, currentQuestion: string, requestId: string): Promise<string> {
   if (!shouldReviewCustomerFacingReply(config, draft, referenceContext)) return draft;
 
   const systemPrompt = `You are a strict QA editor for DICloak customer-service replies.
@@ -750,7 +753,7 @@ Checklist:
       role: 'user',
       content: `Current user question:\n${currentQuestion}\n\nReference context (authoritative, may contain internal IDs; do not output IDs):\n${referenceContext.slice(0, 18000)}\n\nDraft reply to QA and correct:\n${draft}`,
     },
-  ], 0);
+  ], 0, { requestId, stage: 'qa_review' });
 
   return reviewed || draft;
 }
@@ -1662,6 +1665,7 @@ Backend classification: ${isDICloakTechnicalLogic ? 'DICloak technical logic' : 
 
 export async function POST(request: NextRequest) {
   const t0 = Date.now();
+  const headerRequestId = getRequestId(request.headers);
   try {
     const body = await request.json();
     console.log(`[PERF][CHAT] body_parsed_ms=${Date.now() - t0}`);
@@ -1677,7 +1681,9 @@ export async function POST(request: NextRequest) {
       confirmedRole?: UserRole;
       roleSource?: "manual" | "ai" | null;
       product?: ProductName;
+      requestId?: string;
     };
+    const requestId = typeof body.requestId === 'string' && body.requestId.trim() ? body.requestId : headerRequestId;
     
     // 调试：检查接收到的 knowledge
     console.log('[DEBUG] 后端接收到的请求体字段:', Object.keys(body));
@@ -1701,7 +1707,9 @@ export async function POST(request: NextRequest) {
 
     // API 配置
     // 从后端获取 API 配置（安全：API Key 不暴露给前端）
+    const configStartedAt = Date.now();
     const backendConfig = await getBackendApiConfig();
+    logTiming(requestId, 'system_config_read', Date.now() - configStartedAt);
     const config = backendConfig || { provider: 'gpt', apiKey: '', model: 'gpt-5.4', baseUrl: 'https://api.tokenlab.sh/v1' };
     
     // 调试知识库数据
@@ -2743,6 +2751,7 @@ MANDATORY EXECUTION RULES:
       }
     } // end of if (knowledge ...)
     console.log(`[PERF][CHAT] knowledge_match_ms=${Date.now() - tKnowledgeStart}`);
+    logTiming(requestId, 'knowledge_match', Date.now() - tKnowledgeStart);
 
     // 构建对话历史上下文
     let historyContext = "";
@@ -2871,6 +2880,7 @@ MANDATORY EXECUTION RULES:
         controller.enqueue(encoder.encode(`[STATUS]${JSON.stringify({ label, detail, elapsedMs })}[/STATUS]\n`));
       };
       let fullContent = "";
+      let mainUsage: ModelUsage | undefined;
       controller.enqueue(encoder.encode(`[META]${metaData}[/META]\n`));
       enqueueStatus("正在整理上下文", "已完成知识库匹配，准备请求模型");
       
@@ -2893,6 +2903,7 @@ MANDATORY EXECUTION RULES:
             messages: requestMessages,
             temperature: responseShouldUsePricingTable ? 0.2 : 0.7,
             stream: true,
+            stream_options: { include_usage: true },
           }),
         });
   
@@ -2913,6 +2924,7 @@ MANDATORY EXECUTION RULES:
           const chunk = decoder.decode(value, { stream: true });
           if (!firstTokenLogged && chunk) {
             console.log(`[PERF][CHAT] llm_first_token_ms=${Date.now() - tLlmStart}`);
+            logTiming(requestId, 'main_model_first_token', Date.now() - tLlmStart);
             enqueueStatus("AI 正在生成回复", "已收到模型输出");
             firstTokenLogged = true;
           }
@@ -2924,6 +2936,7 @@ MANDATORY EXECUTION RULES:
               if (data === '[DONE]') continue;
               try {
                 const parsed = JSON.parse(data);
+                if (parsed.usage) mainUsage = parsed.usage as ModelUsage;
                 const content = parsed.choices?.[0]?.delta?.content || '';
                 if (content) {
                   fullContent += content;
@@ -2936,6 +2949,8 @@ MANDATORY EXECUTION RULES:
           }
         }
         console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
+        logTiming(requestId, 'main_model_generation', Date.now() - tLlmStart);
+        logModelCall({ requestId, stage: 'main_generation', provider: config.provider, model: getDefaultModelForProvider(config), durationMs: Date.now() - tLlmStart, success: true, usage: mainUsage });
       }
       if (fullContent) {
         const referenceContextForReview = `${productResponsibilityGuardrail}\n${selectedProductGuardrail}\n${knowledgeContext}`;
@@ -2945,12 +2960,14 @@ MANDATORY EXECUTION RULES:
         } else {
           enqueueStatus("正在完成回复", "低风险内容，跳过二次复核");
         }
+        const reviewStartedAt = Date.now();
         const reviewedContent = shouldRunReview
-          ? await reviewCustomerFacingReply(config, fullContent, referenceContextForReview, languageRule, currentMessageText).catch((reviewError: unknown) => {
+          ? await reviewCustomerFacingReply(config, fullContent, referenceContextForReview, languageRule, currentMessageText, requestId).catch((reviewError: unknown) => {
               console.error('[AI Review] 回复质检失败，使用原始回复:', reviewError);
               return fullContent;
             })
           : fullContent;
+        logTiming(requestId, 'qa_review', Date.now() - reviewStartedAt, { skipped: !shouldRunReview });
         enqueueStatus("正在整理最终回复");
         const needsExternalToolRoleClarification = isExternalToolAccountSupportRequest(currentMessageText) && userRole === 'unknown';
         const intentCorrectedContent = needsExternalToolRoleClarification
@@ -2966,10 +2983,12 @@ MANDATORY EXECUTION RULES:
         );
         // Terminology replacement can insert a fallback-language UI label, so
         // language QA must be the final prose-producing step.
-        const languageCorrectedContent = await enforceReplyLanguage(config, terminologyCorrectedContent, effectiveLanguage).catch((languageError: unknown) => {
+        const languageRepairStartedAt = Date.now();
+        const languageCorrectedContent = await enforceReplyLanguage(config, terminologyCorrectedContent, effectiveLanguage, requestId).catch((languageError: unknown) => {
           console.error('[Language QA] 回复语言纠正失败，使用术语修正后的回复:', languageError);
           return terminologyCorrectedContent;
         });
+        logTiming(requestId, 'language_repair', Date.now() - languageRepairStartedAt);
         const sanitizedContent = sanitizeCustomerFacingContent(
           languageCorrectedContent,
           effectiveLanguage,
@@ -2977,7 +2996,9 @@ MANDATORY EXECUTION RULES:
           productComparisonRequested
         );
         controller.enqueue(encoder.encode(`${sanitizedContent}${buildStructuredReplyPayload(sanitizedContent)}`));
+        logTiming(requestId, 'customer_first_content', Date.now() - t0);
       }
+      logTiming(requestId, 'complete_request', Date.now() - t0, { success: true });
       controller.close();
     };
 
@@ -2996,6 +3017,7 @@ MANDATORY EXECUTION RULES:
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
+        "x-request-id": requestId,
       },
     });
   } catch (error) {

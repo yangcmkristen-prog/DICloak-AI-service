@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { getRequestId, logModelCall, type ModelUsage } from '@/lib/server/request-telemetry';
 
 // 从后端获取 API 配置
 async function getBackendApiConfig(): Promise<{
@@ -32,7 +33,8 @@ async function getBackendApiConfig(): Promise<{
 async function callAIStream(
   systemPrompt: string,
   userPrompt: string,
-  config: { provider: string; apiKey: string; model: string; baseUrl: string; customConfig?: { endpoint?: string; modelName?: string } }
+  config: { provider: string; apiKey: string; model: string; baseUrl: string; customConfig?: { endpoint?: string; modelName?: string } },
+  requestId: string,
 ): Promise<string> {
   const messages = [
     { role: "system" as const, content: systemPrompt },
@@ -48,6 +50,8 @@ async function callAIStream(
     const endpoint = config.provider === 'custom' && config.customConfig?.endpoint
       ? config.customConfig.endpoint
       : `${baseUrl}/chat/completions`;
+    const model = config.customConfig?.modelName || config.model || (config.provider === 'gpt' ? 'gpt-5.4' : config.provider === 'aliyun' ? 'qwen-mt-flash' : 'deepseek-chat');
+    const startedAt = Date.now();
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -55,10 +59,11 @@ async function callAIStream(
         'Authorization': `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify({
-        model: config.customConfig?.modelName || config.model || (config.provider === 'gpt' ? 'gpt-5.4' : config.provider === 'aliyun' ? 'qwen-mt-flash' : 'deepseek-chat'),
+        model,
         messages: messages.map(m => ({ role: m.role, content: m.content })),
         temperature: 0.3,
         stream: true,
+        stream_options: { include_usage: true },
       }),
     });
 
@@ -70,6 +75,7 @@ async function callAIStream(
     if (!reader) throw new Error('No response body');
 
     let fullContent = '';
+    let usage: ModelUsage | undefined;
     const decoder = new TextDecoder();
 
     while (true) {
@@ -86,6 +92,7 @@ async function callAIStream(
           try {
             const parsed = JSON.parse(data);
             const content = parsed.choices?.[0]?.delta?.content || '';
+            if (parsed.usage) usage = parsed.usage as ModelUsage;
             fullContent += content;
           } catch {
             // Ignore parse errors
@@ -94,11 +101,13 @@ async function callAIStream(
       }
     }
 
+    logModelCall({ requestId, stage: 'keyword_extraction', provider: config.provider, model, durationMs: Date.now() - startedAt, success: true, usage });
     return fullContent;
   }
 }
 
 export async function POST(request: NextRequest) {
+  const requestId = getRequestId(request.headers);
   try {
     const { message } = await request.json();
 
@@ -157,7 +166,7 @@ Return ONLY a JSON object with two arrays, nothing else.`;
 Return JSON format: {"original_keywords": [...], "english_keywords": [...]}`;
 
     // 调用 AI API
-    const fullContent = await callAIStream(systemPrompt, userPrompt, config);
+    const fullContent = await callAIStream(systemPrompt, userPrompt, config, requestId);
 
     // 解析关键词
     console.log("[KEYWORDS] AI response:", fullContent);

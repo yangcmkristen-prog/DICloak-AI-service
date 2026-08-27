@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { logModelCall, type ModelUsage } from '@/lib/server/request-telemetry';
 
 export interface CopilotChatMessage {
   id?: string;
@@ -229,7 +230,7 @@ type TranslationOptions = {
   domains?: string;
 };
 
-async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: string, userPrompt: string, temperature: number, translationOptions?: TranslationOptions): Promise<string> {
+async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: string, userPrompt: string, temperature: number, translationOptions?: TranslationOptions, telemetry?: { requestId: string; stage: string }): Promise<string> {
   if (!config?.apiKey) {
     throw new Error('未配置 API Key，请先在网页端设置中配置');
   }
@@ -270,6 +271,7 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
   const endpoint = config.provider === 'custom' && config.customConfig?.endpoint
     ? config.customConfig.endpoint
     : `${baseUrl}/chat/completions`;
+  const startedAt = Date.now();
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -279,7 +281,8 @@ async function callTextModelWithConfig(config: ApiConfig | null, systemPrompt: s
     body: JSON.stringify(requestBody),
   });
 
-  const data = await response.json() as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } };
+  const data = await response.json() as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string }; usage?: ModelUsage };
+  if (telemetry) logModelCall({ requestId: telemetry.requestId, stage: telemetry.stage, provider: config.provider, model: config.model, durationMs: Date.now() - startedAt, success: response.ok, usage: data.usage });
   if (!response.ok) {
     throw new Error(data.error?.message || '模型请求失败');
   }
@@ -419,6 +422,6 @@ export async function callTextModel(systemPrompt: string, userPrompt: string, te
   return callTextModelWithConfig(await getBackendApiConfig(), systemPrompt, userPrompt, temperature);
 }
 
-export async function callExtensionTranslateModel(systemPrompt: string, userPrompt: string, temperature: number, translationOptions?: TranslationOptions, config?: ApiConfig | null): Promise<string> {
-  return callTextModelWithConfig(config === undefined ? await getExtensionTranslateApiConfig() : config, systemPrompt, userPrompt, temperature, translationOptions);
+export async function callExtensionTranslateModel(systemPrompt: string, userPrompt: string, temperature: number, translationOptions?: TranslationOptions, config?: ApiConfig | null, telemetry?: { requestId: string; stage: string }): Promise<string> {
+  return callTextModelWithConfig(config === undefined ? await getExtensionTranslateApiConfig() : config, systemPrompt, userPrompt, temperature, translationOptions, telemetry);
 }

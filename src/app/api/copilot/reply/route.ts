@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLatestCustomerMessage, validateSnapshot } from '../shared';
 import { getCopilotLanguageHint } from '@/lib/copilot-language';
+import { getRequestId, logTiming } from '@/lib/server/request-telemetry';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -19,6 +20,8 @@ async function readJson<T>(response: Response, fallback: T): Promise<T> {
 }
 
 export async function POST(request: NextRequest) {
+  const requestStartedAt = Date.now();
+  const requestId = getRequestId(request.headers);
   try {
     const snapshot = validateSnapshot(await request.json());
     if (!snapshot) {
@@ -31,15 +34,23 @@ export async function POST(request: NextRequest) {
     }
 
     const origin = request.nextUrl.origin;
+    const timedFetch = async (stage: string, input: string, init?: RequestInit): Promise<Response> => {
+      const startedAt = Date.now();
+      try {
+        return await fetch(input, { ...init, headers: { ...init?.headers, 'x-request-id': requestId } });
+      } finally {
+        logTiming(requestId, stage, Date.now() - startedAt);
+      }
+    };
     const [knowledgeRes, systemRes, keywordsRes, classifyRes] = await Promise.all([
-      fetch(`${origin}/api/config/knowledge`, { cache: 'no-store' }),
-      fetch(`${origin}/api/config/system`, { cache: 'no-store' }),
-      fetch(`${origin}/api/keywords`, {
+      timedFetch('knowledge_read', `${origin}/api/config/knowledge`, { cache: 'no-store' }),
+      timedFetch('system_config_read', `${origin}/api/config/system`, { cache: 'no-store' }),
+      timedFetch('keyword_extraction', `${origin}/api/keywords`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: latestCustomerMessage }),
       }),
-      fetch(`${origin}/api/classify`, {
+      timedFetch('intent_classification', `${origin}/api/classify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -57,7 +68,7 @@ export async function POST(request: NextRequest) {
     const keywordsData = await readJson<{ originalKeywords?: string[]; englishKeywords?: string[] }>(keywordsRes, {});
     const classification = classifyRes.ok ? await readJson<Record<string, unknown> | null>(classifyRes, null) : null;
 
-    const response = await fetch(`${origin}/api/chat`, {
+    const response = await timedFetch('chat_pipeline', `${origin}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -74,6 +85,7 @@ export async function POST(request: NextRequest) {
         apiConfig: systemData.success && !systemData.isEmpty ? systemData.data?.apiConfig : undefined,
         aiKeywords: keywordsData.englishKeywords || [],
         classification,
+        requestId,
         confirmedRole: snapshot.chat.confirmedRole,
         roleSource: snapshot.chat.confirmedRole ? "manual" : undefined,
       }),
@@ -95,14 +107,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    logTiming(requestId, 'customer_first_content', Date.now() - requestStartedAt);
+    logTiming(requestId, 'complete_request', Date.now() - requestStartedAt, { success: true });
     return NextResponse.json({
+      requestId,
       content,
       sourceMessageHash: snapshot.sourceMessageHash,
       detectedRole: snapshot.chat.confirmedRole || detectedRole,
       roleSource: snapshot.chat.confirmedRole ? 'manual' : (detectedRole ? 'ai' : null),
-    }, { headers: CORS_HEADERS });
+    }, { headers: { ...CORS_HEADERS, 'x-request-id': requestId } });
   } catch (error) {
-    console.error('[Copilot Reply] Error:', error);
+    console.error('[Copilot Reply] Error:', { requestId, error });
+    logTiming(requestId, 'complete_request', Date.now() - requestStartedAt, { success: false });
     return NextResponse.json({ error: error instanceof Error ? error.message : '生成推荐回复失败' }, { status: 500, headers: CORS_HEADERS });
   }
 }
