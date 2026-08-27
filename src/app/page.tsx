@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { DragEvent, KeyboardEvent } from "react";
 import { Archive, ArrowRightLeft, Check, ChevronRight, Copy, Edit, Folder, GripVertical, Languages, LayoutDashboard, Loader2, MessageCircle, MessageSquare, Plus, Search, Settings, Trash2, X } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -32,6 +32,7 @@ import {
   detectLanguage,
 } from "@/lib/store";
 import { toast } from "sonner";
+import { consumeEventStream } from "@/lib/stream-events";
 
 const TRANSLATION_LANGUAGES = [
   { value: "auto", label: "自动检测" },
@@ -77,7 +78,6 @@ type StructuredReplySection = {
 };
 
 const STRUCTURED_REPLY_REGEX = /\[STRUCTURED_REPLY\]([\s\S]*?)\[\/STRUCTURED_REPLY\]/;
-const STATUS_REGEX = /\[STATUS\]([\s\S]*?)\[\/STATUS\]\n?/g;
 
 function parseStructuredReplySections(content: string): StructuredReplySection[] {
   const match = content.match(STRUCTURED_REPLY_REGEX);
@@ -616,6 +616,7 @@ export default function Home() {
   const [isSavedPhraseSyncing, setIsSavedPhraseSyncing] = useState(false);
   const [isCreateConversationDialogOpen, setIsCreateConversationDialogOpen] = useState(false);
   const [newConversationProduct, setNewConversationProduct] = useState<ProductName>('dicloak');
+  const generationAbortRef = useRef<AbortController | null>(null);
 
   const handlePrimaryFolderToggle = (folderId: string) => {
     if (selectedPrimaryFolderId === folderId) {
@@ -709,6 +710,7 @@ export default function Home() {
 
   // 选择对话
   const handleSelectConversation = (id: string) => {
+    generationAbortRef.current?.abort();
     setCurrentConversationIdState(id);
     setCurrentConversationId(id);
   };
@@ -769,6 +771,7 @@ export default function Home() {
 
   // 发送消息并生成推荐回复
   const handleSendMessage = async (content: string, attachments: ImageAttachment[] = []) => {
+    if (generationAbortRef.current) return;
     if (!currentConversationId) {
       toast.error("请先选择一个对话");
       return;
@@ -780,6 +783,9 @@ export default function Home() {
     }
 
     const generationStartedAt = Date.now();
+    const requestConversationId = currentConversationId;
+    const abortController = new AbortController();
+    generationAbortRef.current = abortController;
     const updateGenerationStatus = (label: string, detail?: string): void => {
       setGenerationStatus({ label, detail, startedAt: generationStartedAt });
     };
@@ -823,6 +829,7 @@ export default function Home() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ images: attachments }),
+          signal: abortController.signal,
         });
 
         const ocrData = await ocrResponse.json() as { results?: Array<{ id: string; name: string; text: string }>; error?: string };
@@ -857,8 +864,8 @@ export default function Home() {
 
       // 直接从数据库获取最新配置，确保切换标签页后数据同步
       const [knowledgeRes, systemRes] = await Promise.all([
-        fetch("/api/config/knowledge"),
-        fetch("/api/config/system"),
+        fetch("/api/config/knowledge", { signal: abortController.signal }),
+        fetch("/api/config/system", { signal: abortController.signal }),
       ]);
       
       // 检查响应是否为 JSON（不是 HTML 或错误页面）
@@ -894,6 +901,7 @@ export default function Home() {
           message: contentForAnalysis,
           apiConfig: currentApiConfig,
         }),
+        signal: abortController.signal,
       });
       
       let aiKeywords: string[] = [];
@@ -924,6 +932,7 @@ export default function Home() {
                 : m.content,
             })) || [],
           }),
+          signal: abortController.signal,
         });
         if (classifyRes.ok) {
           classification = (await classifyRes.json()) as Record<string, unknown>;
@@ -972,48 +981,50 @@ export default function Home() {
           roleSource: currentConversation?.context?.roleSource === "manual" ? "manual" : undefined,
           product: currentConversation?.product || 'dicloak',
         }),
+        signal: abortController.signal,
       });
 
       if (!response.ok) {
         throw new Error("生成回复失败");
       }
 
-      // 处理流式响应
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
+      if (!response.body) throw new Error("生成接口未返回响应流");
+      const assistantMessageId = generateId();
       let fullContent = "";
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          fullContent += decoder.decode(value, { stream: true });
-          const statusMatches = Array.from(fullContent.matchAll(STATUS_REGEX));
-          const latestStatusMatch = statusMatches.at(-1);
-          if (latestStatusMatch) {
-            try {
-              const status = JSON.parse(latestStatusMatch[1]) as GenerationStatus;
-              setGenerationStatus({ ...status, startedAt: generationStartedAt, elapsedMs: Date.now() - generationStartedAt });
-            } catch (statusError) {
-              console.error("解析生成状态失败:", statusError);
-            }
-          }
+      let streamMeta: Record<string, unknown> | null = null;
+      const updateAssistant = (nextContent: string): void => {
+        setConversations((prev) => prev.map((conversation) => conversation.id === requestConversationId
+          ? { ...conversation, messages: conversation.messages.some((message) => message.id === assistantMessageId)
+              ? conversation.messages.map((message) => message.id === assistantMessageId ? { ...message, content: nextContent } : message)
+              : [...conversation.messages, { id: assistantMessageId, role: "assistant", content: nextContent, timestamp: Date.now() }] }
+          : conversation));
+      };
+      await consumeEventStream(response.body, (event) => {
+        if (abortController.signal.aborted || generationAbortRef.current !== abortController) return;
+        if (event.type === "status") {
+          setGenerationStatus({ label: event.label, detail: event.detail, startedAt: generationStartedAt, elapsedMs: event.elapsedMs });
+        } else if (event.type === "delta") {
+          fullContent += event.content;
+          updateAssistant(fullContent);
+        } else if (event.type === "final") {
+          fullContent = event.content;
+          updateAssistant(fullContent);
+        } else if (event.type === "error") {
+          throw new Error(event.message);
+        } else if (event.type === "meta") {
+          streamMeta = event.data;
         }
-        fullContent += decoder.decode();
-      }
-
-      fullContent = fullContent.replace(STATUS_REGEX, "");
+      });
       const totalGenerationMs = Date.now() - generationStartedAt;
       setGenerationStatus({ label: "生成完成", startedAt: generationStartedAt, done: true, totalMs: totalGenerationMs, elapsedMs: totalGenerationMs });
 
       const structuredSections = parseStructuredReplySections(fullContent);
       const aiReplyRole = getRoleFromAiReplySections(structuredSections);
-      const metaMatch = fullContent.match(/\[META\]([\s\S]*?)\[\/META\]/);
       let detectedRole: ConversationRole | null = aiReplyRole === "client" || aiReplyRole === "end_user" ? aiReplyRole : null;
       let shouldClearAiRole = aiReplyRole === "unknown";
-      if (metaMatch) {
+      if (streamMeta) {
         try {
-          const parsedMeta = JSON.parse(metaMatch[1].trim()) as { userRole?: unknown; outputFormatType?: unknown };
+          const parsedMeta = streamMeta as { userRole?: unknown; outputFormatType?: unknown };
           const outputFormatType = parsedMeta.outputFormatType === "A" || parsedMeta.outputFormatType === "B" || parsedMeta.outputFormatType === "C"
             ? parsedMeta.outputFormatType
             : null;
@@ -1022,23 +1033,12 @@ export default function Home() {
             detectedRole = outputFormatType === "C" ? null : metaRole;
             shouldClearAiRole = outputFormatType === "C" || parsedMeta.userRole === "unknown";
           }
-        } catch (metaError) {
-          console.error("解析角色元数据失败:", metaError);
-        }
+        } catch (metaError) { console.error("解析角色元数据失败:", metaError); }
       }
-
-      // 添加助手消息
-      const assistantMessage: Message = {
-        id: generateId(),
-        role: "assistant",
-        content: fullContent,
-        timestamp: Date.now(),
-        generationDurationMs: totalGenerationMs,
-      };
 
       setConversations((prev) => {
         const updated = prev.map((c) => {
-          if (c.id === currentConversationId) {
+          if (c.id === requestConversationId) {
             const canUpdateAiRole = c.context?.roleSource !== "manual";
             const nextContext = canUpdateAiRole && detectedRole
               ? { ...c.context, confirmedIdentity: detectedRole, roleSource: "ai" as const }
@@ -1047,7 +1047,7 @@ export default function Home() {
                 : c.context;
             return {
               ...c,
-              messages: [...c.messages, assistantMessage],
+              messages: c.messages.map((message) => message.id === assistantMessageId ? { ...message, content: fullContent, generationDurationMs: totalGenerationMs } : message),
               context: nextContext,
             };
           }
@@ -1057,6 +1057,7 @@ export default function Home() {
         return updated;
       });
     } catch (error) {
+      if (abortController.signal.aborted) return;
       console.error("生成回复失败:", error);
       toast.error("生成回复失败，请稍后重试");
 
@@ -1072,8 +1073,11 @@ export default function Home() {
         return updated;
       });
     } finally {
-      setIsGenerating(false);
-      setGenerationStatus(null);
+      if (generationAbortRef.current === abortController) {
+        generationAbortRef.current = null;
+        setIsGenerating(false);
+        setGenerationStatus(null);
+      }
     }
   };
 
@@ -2194,6 +2198,7 @@ const handleTranslate = async () => {
                 onSendMessage={handleSendMessage}
                 isGenerating={isGenerating}
                 generationStatus={generationStatus}
+                onCancel={() => generationAbortRef.current?.abort()}
               />
             </section>
           </div>

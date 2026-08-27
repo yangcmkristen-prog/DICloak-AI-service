@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
-import { Send, Loader2, Copy, Check, ChevronUp, Plus, X, ImageIcon } from "lucide-react";
+import { Send, Loader2, Copy, Check, ChevronUp, Plus, X, ImageIcon, Square, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -14,6 +14,7 @@ interface ChatAreaProps {
   onSendMessage: (content: string, attachments?: ImageAttachment[]) => Promise<void>;
   isGenerating: boolean;
   generationStatus: GenerationStatus | null;
+  onCancel: () => void;
 }
 
 
@@ -398,6 +399,7 @@ function ReplyCard({
   expandedTranslations,
   translations,
   translatingIds,
+  isIncomplete,
 }: { 
   reply: ParsedReply; 
   index: number;
@@ -408,6 +410,7 @@ function ReplyCard({
   expandedTranslations: Record<string, boolean>;
   translations: Record<string, string>;
   translatingIds: Record<string, boolean>;
+  isIncomplete: boolean;
 }) {
   const pureContent = extractPureContent(reply.content);
   
@@ -447,7 +450,7 @@ function ReplyCard({
               variant="ghost"
               className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
               onClick={() => onTranslate(pureContent, translationId)}
-              disabled={isTranslating}
+              disabled={isTranslating || isIncomplete}
             >
               {isTranslating ? (
                 <Loader2 className="w-3 h-3 mr-1 animate-spin" />
@@ -462,6 +465,7 @@ function ReplyCard({
               variant="ghost"
               className="h-7 px-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200"
               onClick={() => onCopy(pureContent, translationId)}
+              disabled={isIncomplete}
             >
               {copiedId === translationId ? (
                 <>
@@ -502,7 +506,8 @@ function AIReplies({
   copiedId,
   expandedTranslations,
   translations,
-  translatingIds
+  translatingIds,
+  isIncomplete,
 }: { 
   content: string;
   messageId: string;
@@ -512,6 +517,7 @@ function AIReplies({
   expandedTranslations: Record<string, boolean>;
   translations: Record<string, string>;
   translatingIds: Record<string, boolean>;
+  isIncomplete: boolean;
 }) {
   // 首先解析 META 数据
   const { metaData, cleanContent } = parseMetaData(content);
@@ -556,6 +562,15 @@ function AIReplies({
   
   return (
     <div className="space-y-4">
+      {isIncomplete && (
+        <div role="status" aria-live="polite" className="flex items-start gap-2 rounded-lg border border-amber-400 bg-amber-50 px-3 py-2.5 text-amber-950 shadow-sm dark:border-amber-600 dark:bg-amber-950/40 dark:text-amber-100">
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold">AI 正在生成</p>
+            <p className="text-xs leading-relaxed">当前内容尚未完成复核，请勿直接发送。</p>
+          </div>
+        </div>
+      )}
       {metaData && (
         <details className="rounded-md border border-dashed border-gray-300 bg-white/60 px-3 py-2 text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-400">
           <summary className="cursor-pointer select-none font-medium text-gray-600 dark:text-gray-300">回复结构诊断</summary>
@@ -580,13 +595,14 @@ function AIReplies({
           expandedTranslations={expandedTranslations}
           translations={translations}
           translatingIds={translatingIds}
+          isIncomplete={isIncomplete}
         />
       ))}
     </div>
   );
 }
 
-export function ChatArea({ messages, onSendMessage, isGenerating, generationStatus }: ChatAreaProps) {
+export function ChatArea({ messages, onSendMessage, isGenerating, generationStatus, onCancel }: ChatAreaProps) {
   const [input, setInput] = useState("");
   const [statusNow, setStatusNow] = useState(() => Date.now());
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -754,7 +770,7 @@ export function ChatArea({ messages, onSendMessage, isGenerating, generationStat
           </div>
         ) : (
           <div className="space-y-4 max-w-3xl mx-auto">
-            {messages.map((message) => (
+            {messages.map((message, messageIndex) => (
               <div
                 key={message.id}
                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
@@ -796,6 +812,7 @@ export function ChatArea({ messages, onSendMessage, isGenerating, generationStat
                         expandedTranslations={expandedTranslations}
                         translations={translations}
                         translatingIds={translatingIds}
+                        isIncomplete={isGenerating && messageIndex === messages.length - 1}
                       />
                       {message.generationDurationMs !== undefined && (
                         <div className="mt-3 border-t pt-2 text-xs text-muted-foreground">
@@ -810,12 +827,14 @@ export function ChatArea({ messages, onSendMessage, isGenerating, generationStat
 
             {isGenerating && (
               <div className="flex justify-start">
-                <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4">
-                  <div className="flex items-center gap-2 text-muted-foreground">
+                <div role="status" aria-live="polite" className="rounded-lg border border-amber-400 bg-amber-50 p-4 shadow-sm dark:border-amber-600 dark:bg-amber-950/40">
+                  <div className="flex items-start gap-2 text-amber-950 dark:text-amber-100">
                     <Loader2 className="w-4 h-4 animate-spin" />
                     <div className="space-y-1">
-                      <div className="text-sm">{generationStatus?.label || "AI 正在生成回复..."}</div>
+                      <div className="text-sm font-semibold">AI 正在生成</div>
+                      <div className="text-xs font-medium">当前内容尚未完成复核，请勿直接发送。</div>
                       <div className="text-xs">
+                        {generationStatus?.label || "AI 正在生成回复"} · {" "}
                         已思考 {formatDuration(getLiveGenerationElapsedMs(generationStatus, statusNow))}
                         {generationStatus?.detail ? ` · ${generationStatus.detail}` : ""}
                       </div>
@@ -893,11 +912,12 @@ export function ChatArea({ messages, onSendMessage, isGenerating, generationStat
           <Button
             size="icon"
             className="h-[56px] w-[56px] md:h-[60px] md:w-[60px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shrink-0 touch-manipulation"
-            onClick={handleSend}
-            disabled={(!input.trim() && attachments.length === 0) || isGenerating || isSubmitting}
+            onClick={isGenerating ? onCancel : handleSend}
+            disabled={isSubmitting || (!isGenerating && !input.trim() && attachments.length === 0)}
+            aria-label={isGenerating ? "停止生成" : "发送"}
           >
             {isGenerating || isSubmitting ? (
-              <Loader2 className="w-5 h-5 md:w-6 md:h-6" />
+              <Square className="w-5 h-5 md:w-6 md:h-6" />
             ) : (
               <Send className="w-5 h-5 md:w-6 md:h-6" />
             )}

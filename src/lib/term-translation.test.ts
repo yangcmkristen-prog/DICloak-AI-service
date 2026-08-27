@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { TermItem } from "@/lib/types";
-import { enforceReplyTerminology, translateTermPlaceholders } from "@/lib/term-translation";
+import { translateTermPlaceholders } from "@/lib/term-translation";
 
 const createProfileTerm: TermItem = {
   id: "1",
@@ -24,16 +24,16 @@ test("translates linked FAQ placeholders using imported TermItem fields", () => 
   );
 });
 
-test("replaces leaked English UI labels in the completed reply", () => {
+test("does not replace placeholders that are not linked by term id", () => {
   assert.equal(
-    enforceReplyTerminology('Clique em "Create Profile" e não em Create Profiles.', "pt", [createProfileTerm]),
-    'Clique em "Criar perfil" e não em Create Profiles.'
+    translateTermPlaceholders("Clique em {{Create Profile}}.", ["another_term"], "pt", [createProfileTerm]),
+    "Clique em {{Create Profile}}."
   );
 });
 
-test("does not rewrite terminology inside URLs", () => {
+test("does not replace unmarked terminology in standard answers", () => {
   assert.equal(
-    enforceReplyTerminology("Create Profile: https://help.test/Create%20Profile", "pt", [createProfileTerm]),
-    "Criar perfil: https://help.test/Create%20Profile"
+    translateTermPlaceholders("Clique em Create Profile.", ["profile_create"], "pt", [createProfileTerm]),
+    "Clique em Create Profile."
   );
 });

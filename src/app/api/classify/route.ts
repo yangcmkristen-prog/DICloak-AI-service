@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CLASSIFICATION_PROMPT } from "@/lib/classification-prompt";
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { getRequestId, logModelCall } from '@/lib/server/request-telemetry';
 
 type IntentType =
   | "api_problem"
@@ -109,6 +110,7 @@ function coerceClassification(raw: unknown): ClassificationResult {
 
 export async function POST(request: NextRequest) {
   const t0 = Date.now();
+  const requestId = getRequestId(request.headers);
   try {
     const { message, history } = await request.json() as {
       message?: string;
@@ -177,7 +179,9 @@ export async function POST(request: NextRequest) {
     const data = (await response.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
       error?: { message?: string };
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
+    logModelCall({ requestId, stage: 'intent_classification', provider: config.provider, model, durationMs: Date.now() - tModelStart, success: response.ok, usage: data.usage });
 
     if (!response.ok) {
       return NextResponse.json({ error: data.error?.message || "分类请求失败" }, { status: response.status });
