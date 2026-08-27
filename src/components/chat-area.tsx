@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
-import { Send, Loader2, Copy, Check, ChevronUp, Plus, X, ImageIcon } from "lucide-react";
+import { Send, Loader2, Copy, Check, ChevronUp, Plus, X, ImageIcon, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -14,6 +14,7 @@ interface ChatAreaProps {
   onSendMessage: (content: string, attachments?: ImageAttachment[]) => Promise<void>;
   isGenerating: boolean;
   generationStatus: GenerationStatus | null;
+  onCancel: () => void;
 }
 
 
@@ -586,7 +587,7 @@ function AIReplies({
   );
 }
 
-export function ChatArea({ messages, onSendMessage, isGenerating, generationStatus }: ChatAreaProps) {
+export function ChatArea({ messages, onSendMessage, isGenerating, generationStatus, onCancel }: ChatAreaProps) {
   const [input, setInput] = useState("");
   const [statusNow, setStatusNow] = useState(() => Date.now());
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -893,11 +894,12 @@ export function ChatArea({ messages, onSendMessage, isGenerating, generationStat
           <Button
             size="icon"
             className="h-[56px] w-[56px] md:h-[60px] md:w-[60px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 shrink-0 touch-manipulation"
-            onClick={handleSend}
-            disabled={(!input.trim() && attachments.length === 0) || isGenerating || isSubmitting}
+            onClick={isGenerating ? onCancel : handleSend}
+            disabled={isSubmitting || (!isGenerating && !input.trim() && attachments.length === 0)}
+            aria-label={isGenerating ? "停止生成" : "发送"}
           >
             {isGenerating || isSubmitting ? (
-              <Loader2 className="w-5 h-5 md:w-6 md:h-6" />
+              <Square className="w-5 h-5 md:w-6 md:h-6" />
             ) : (
               <Send className="w-5 h-5 md:w-6 md:h-6" />
             )}

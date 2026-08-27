@@ -63,6 +63,30 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       body: JSON.stringify(message.payload),
     }))
     .then(async (response) => {
+      if (message.action === "reply" && response.ok && response.body) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let content = "";
+        let detectedRole: ConversationRole | null = null;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const event = JSON.parse(line) as { type?: string; content?: string; message?: string; data?: { userRole?: unknown } };
+            if (event.type === "delta" && event.content) content += event.content;
+            if (event.type === "final" && event.content) content = event.content;
+            if (event.type === "meta") detectedRole = event.data?.userRole === "client" || event.data?.userRole === "end_user" ? event.data.userRole : null;
+            if (event.type === "error") throw new Error(event.message || "AI 请求失败");
+          }
+        }
+        sendResponse({ content, detectedRole, roleSource: detectedRole ? "ai" : null });
+        return;
+      }
       const payload = await response.json() as { content?: string; error?: string; detectedRole?: ConversationRole | null; roleSource?: ConversationRoleSource; summary?: CustomerSummary; webUrl?: string };
       if (!response.ok || (!payload.content && !payload.summary)) {
         sendResponse({ error: payload.error || "AI 请求失败" });

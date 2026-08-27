@@ -89,33 +89,25 @@ export async function POST(request: NextRequest) {
         confirmedRole: snapshot.chat.confirmedRole,
         roleSource: snapshot.chat.confirmedRole ? "manual" : undefined,
       }),
+      signal: request.signal,
     });
 
-    const content = await response.text();
     if (!response.ok) {
-      return NextResponse.json({ error: content || '生成推荐回复失败' }, { status: response.status, headers: CORS_HEADERS });
+      const errorBody = await response.text();
+      return NextResponse.json({ error: errorBody || '生成推荐回复失败' }, { status: response.status, headers: CORS_HEADERS });
     }
-
-    const metaMatch = content.match(/\[META\]([\s\S]*?)\[\/META\]/);
-    let detectedRole: 'client' | 'end_user' | null = null;
-    if (metaMatch) {
-      try {
-        const meta = JSON.parse(metaMatch[1].trim()) as { userRole?: unknown };
-        detectedRole = meta.userRole === 'client' || meta.userRole === 'end_user' ? meta.userRole : null;
-      } catch (metaError) {
-        console.error('[Copilot Reply] 解析角色元数据失败:', metaError);
-      }
-    }
-
-    logTiming(requestId, 'customer_first_content', Date.now() - requestStartedAt);
-    logTiming(requestId, 'complete_request', Date.now() - requestStartedAt, { success: true });
-    return NextResponse.json({
-      requestId,
-      content,
-      sourceMessageHash: snapshot.sourceMessageHash,
-      detectedRole: snapshot.chat.confirmedRole || detectedRole,
-      roleSource: snapshot.chat.confirmedRole ? 'manual' : (detectedRole ? 'ai' : null),
-    }, { headers: { ...CORS_HEADERS, 'x-request-id': requestId } });
+    if (!response.body) throw new Error('生成接口未返回响应流');
+    logTiming(requestId, 'upstream_stream_ready', Date.now() - requestStartedAt);
+    return new Response(response.body, {
+      status: response.status,
+      headers: {
+        ...CORS_HEADERS,
+        'Content-Type': response.headers.get('content-type') || 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        'x-request-id': requestId,
+        'x-source-message-hash': snapshot.sourceMessageHash,
+      },
+    });
   } catch (error) {
     console.error('[Copilot Reply] Error:', { requestId, error });
     logTiming(requestId, 'complete_request', Date.now() - requestStartedAt, { success: false });

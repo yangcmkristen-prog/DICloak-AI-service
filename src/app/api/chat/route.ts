@@ -9,6 +9,8 @@ import { callExtensionTranslateModel } from "../copilot/shared";
 import { detectNonLatinLanguage } from '@/lib/copilot-language';
 import { selectApiEndpointsByProductAndKeywords, selectApiParameters } from '@/lib/api-parameters';
 import { getRequestId, logModelCall, logTiming, type ModelUsage } from '@/lib/server/request-telemetry';
+import { encodeStreamEvent } from '@/lib/stream-events';
+import { consumeOpenAIStream } from '@/lib/server/openai-stream';
 
 function sanitizeCustomerFacingContent(
   content: string,
@@ -2873,15 +2875,14 @@ MANDATORY EXECUTION RULES:
 
     const streamChatResponse = async (controller: ReadableStreamDefaultController<Uint8Array>): Promise<void> => {
       // 首先发送元数据给前端
-      const encoder = new TextEncoder();
       const statusStartedAt = Date.now();
       const enqueueStatus = (label: string, detail?: string): void => {
         const elapsedMs = Date.now() - statusStartedAt;
-        controller.enqueue(encoder.encode(`[STATUS]${JSON.stringify({ label, detail, elapsedMs })}[/STATUS]\n`));
+        controller.enqueue(encodeStreamEvent({ type: "status", requestId, label, detail, elapsedMs }));
       };
       let fullContent = "";
       let mainUsage: ModelUsage | undefined;
-      controller.enqueue(encoder.encode(`[META]${metaData}[/META]\n`));
+      controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: JSON.parse(metaData) as Record<string, unknown> }));
       enqueueStatus("正在整理上下文", "已完成知识库匹配，准备请求模型");
       
       enqueueStatus("正在请求模型", "等待首个响应片段");
@@ -2905,6 +2906,7 @@ MANDATORY EXECUTION RULES:
             stream: true,
             stream_options: { include_usage: true },
           }),
+          signal: request.signal,
         });
   
         if (!response.ok) {
@@ -2912,42 +2914,17 @@ MANDATORY EXECUTION RULES:
           throw new Error(`${providerName} API error: ${response.status} ${response.statusText}`);
         }
   
-        const reader = response.body?.getReader();
-        if (!reader) throw new Error('No response body');
-  
-        const decoder = new TextDecoder();
-  
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-  
-          const chunk = decoder.decode(value, { stream: true });
-          if (!firstTokenLogged && chunk) {
+        if (!response.body) throw new Error('No response body');
+
+        fullContent = await consumeOpenAIStream(response.body, (content) => {
+          if (!firstTokenLogged) {
             console.log(`[PERF][CHAT] llm_first_token_ms=${Date.now() - tLlmStart}`);
             logTiming(requestId, 'main_model_first_token', Date.now() - tLlmStart);
             enqueueStatus("AI 正在生成回复", "已收到模型输出");
             firstTokenLogged = true;
           }
-          const lines = chunk.split('\n');
-  
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6);
-              if (data === '[DONE]') continue;
-              try {
-                const parsed = JSON.parse(data);
-                if (parsed.usage) mainUsage = parsed.usage as ModelUsage;
-                const content = parsed.choices?.[0]?.delta?.content || '';
-                if (content) {
-                  fullContent += content;
-                }
-              } catch (parseError) {
-                void parseError;
-                // Ignore parse errors
-              }
-            }
-          }
-        }
+          controller.enqueue(encodeStreamEvent({ type: "delta", requestId, content }));
+        }, { signal: request.signal, onUsage: (usage) => { mainUsage = usage as ModelUsage; } });
         console.log(`[PERF][CHAT] llm_total_ms=${Date.now() - tLlmStart}`);
         logTiming(requestId, 'main_model_generation', Date.now() - tLlmStart);
         logModelCall({ requestId, stage: 'main_generation', provider: config.provider, model: getDefaultModelForProvider(config), durationMs: Date.now() - tLlmStart, success: true, usage: mainUsage });
@@ -2995,7 +2972,8 @@ MANDATORY EXECUTION RULES:
           selectedProduct,
           productComparisonRequested
         );
-        controller.enqueue(encoder.encode(`${sanitizedContent}${buildStructuredReplyPayload(sanitizedContent)}`));
+        const finalContent = `${sanitizedContent}${buildStructuredReplyPayload(sanitizedContent)}`;
+        controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: finalContent }));
         logTiming(requestId, 'customer_first_content', Date.now() - t0);
       }
       logTiming(requestId, 'complete_request', Date.now() - t0, { success: true });
@@ -3006,7 +2984,10 @@ MANDATORY EXECUTION RULES:
       async start(controller) {
         await streamChatResponse(controller).catch((error: unknown) => {
           console.error("[Stream Error]:", error);
-          controller.error(error);
+          if (!request.signal.aborted) {
+            controller.enqueue(encodeStreamEvent({ type: "error", requestId, message: error instanceof Error ? error.message : "生成回复失败" }));
+          }
+          controller.close();
         });
       },
     });
@@ -3014,8 +2995,8 @@ MANDATORY EXECUTION RULES:
     console.log(`[PERF][CHAT] total_ms=${Date.now() - t0}`);
     return new Response(stream, {
       headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
         "Connection": "keep-alive",
         "x-request-id": requestId,
       },
