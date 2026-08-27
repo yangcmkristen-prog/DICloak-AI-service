@@ -4,7 +4,7 @@ import { extractGroundedKnowledgeKeywords } from '@/lib/knowledge-keywords';
 import { countUnexpectedChineseReplyEnglish, hasUnexpectedReplyScript } from '@/lib/language-quality';
 import type { KnowledgeBase, ProductName, SupportedProduct } from '@/lib/types';
 import { rewriteProductBrand, rewriteProductDomains } from '@/lib/product-url';
-import { enforceReplyTerminology, translateTermPlaceholders } from '@/lib/term-translation';
+import { translateTermPlaceholders } from '@/lib/term-translation';
 import { callExtensionTranslateModel } from "../copilot/shared";
 import { detectNonLatinLanguage } from '@/lib/copilot-language';
 import { selectApiEndpointsByProductAndKeywords, selectApiParameters } from '@/lib/api-parameters';
@@ -2953,17 +2953,13 @@ MANDATORY EXECUTION RULES:
           ? enforceSubscriptionSourceClarificationContent(reviewedContent, effectiveLanguage)
           : reviewedContent;
         const correctedContent = enforceSeatCalculationCorrections(intentCorrectedContent, actualUserCount, effectiveLanguage);
-        const terminologyCorrectedContent = enforceReplyTerminology(
-          correctedContent,
-          effectiveLanguage,
-          knowledge?.termItems || []
-        );
-        // Terminology replacement can insert a fallback-language UI label, so
-        // language QA must be the final prose-producing step.
+        // Term translations are intentionally limited to {{placeholders}} in the
+        // linked standard answers while building knowledgeContext. Do not apply
+        // glossary replacements globally to model-generated prose.
         const languageRepairStartedAt = Date.now();
-        const languageCorrectedContent = await enforceReplyLanguage(config, terminologyCorrectedContent, effectiveLanguage, requestId).catch((languageError: unknown) => {
-          console.error('[Language QA] 回复语言纠正失败，使用术语修正后的回复:', languageError);
-          return terminologyCorrectedContent;
+        const languageCorrectedContent = await enforceReplyLanguage(config, correctedContent, effectiveLanguage, requestId).catch((languageError: unknown) => {
+          console.error('[Language QA] 回复语言纠正失败，使用复核后的回复:', languageError);
+          return correctedContent;
         });
         logTiming(requestId, 'language_repair', Date.now() - languageRepairStartedAt);
         const sanitizedContent = sanitizeCustomerFacingContent(
