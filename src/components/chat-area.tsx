@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
-import { Send, Loader2, Copy, Check, ChevronUp, Plus, X, ImageIcon, Square, TriangleAlert } from "lucide-react";
+import { Send, Loader2, Copy, Check, ChevronUp, Plus, X, ImageIcon, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -562,15 +562,6 @@ function AIReplies({
   
   return (
     <div className="space-y-4">
-      {isIncomplete && (
-        <div role="status" aria-live="polite" className="flex items-start gap-2 rounded-lg border border-amber-400 bg-amber-50 px-3 py-2.5 text-amber-950 shadow-sm dark:border-amber-600 dark:bg-amber-950/40 dark:text-amber-100">
-          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-          <div>
-            <p className="text-sm font-semibold">AI 正在生成</p>
-            <p className="text-xs leading-relaxed">当前内容尚未完成复核，请勿直接发送。</p>
-          </div>
-        </div>
-      )}
       {metaData && (
         <details className="rounded-md border border-dashed border-gray-300 bg-white/60 px-3 py-2 text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-400">
           <summary className="cursor-pointer select-none font-medium text-gray-600 dark:text-gray-300">回复结构诊断</summary>
