@@ -14,6 +14,7 @@
     "extension:dev": "pnpm extension:build -- --watch",
     "lint:build": "eslint . --quiet",
     "validate": "pnpm run --parallel '/^(ts-check|lint:build)$/'",
+    "validate:knowledge-manifest": "node scripts/validate-knowledge-manifest.mjs",
     "test:stream": "node --experimental-strip-types --test src/lib/server/openai-stream.test.ts"
   },
   "dependencies": {
