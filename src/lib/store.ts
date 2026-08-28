@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-import type { ApiConfig, Conversation, ConversationContext, KnowledgeBase, ProductName } from './types';
-import { generateId } from './types';
+import type { AiEngine, ApiConfig, Conversation, ConversationContext, KnowledgeBase, ProductName } from './types';
+import { AI_ENGINE_VERSIONS, generateId } from './types';
 
 // Supabase 配置
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -348,11 +348,14 @@ export function getConversations(): Conversation[] {
   const stored = localStorage.getItem('diclok_conversations');
   if (!stored) return [];
 
-  const conversations = JSON.parse(stored) as Array<Omit<Conversation, 'product'> & { product?: ProductName }>;
+  const conversations = JSON.parse(stored) as Array<Omit<Conversation, 'product' | 'aiEngine' | 'aiEngineVersion'> & { product?: ProductName; aiEngine?: AiEngine; aiEngineVersion?: string }>;
   return conversations.map((conversation) => ({
     ...conversation,
     // Existing conversations predate product selection and belong to DICloak.
     product: conversation.product === 'paraturbo' ? 'paraturbo' : 'dicloak',
+    // Conversations created before V2 remain permanently on the V1 behavior.
+    aiEngine: conversation.aiEngine === 'v2' ? 'v2' : 'v1',
+    aiEngineVersion: conversation.aiEngineVersion || AI_ENGINE_VERSIONS[conversation.aiEngine === 'v2' ? 'v2' : 'v1'],
   }));
 }
 
@@ -360,12 +363,14 @@ export function saveConversations(conversations: Conversation[]): void {
   localStorage.setItem('diclok_conversations', JSON.stringify(conversations));
 }
 
-export function createConversation(product: ProductName, title?: string): Conversation {
+export function createConversation(product: ProductName, aiEngine: AiEngine = 'v1', title?: string): Conversation {
   const conversations = getConversations();
   const newConversation: Conversation = {
     id: generateId(),
     title: title || `对话 ${conversations.length + 1}`,
     product,
+    aiEngine,
+    aiEngineVersion: AI_ENGINE_VERSIONS[aiEngine],
     messages: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -403,9 +408,13 @@ export function updateConversation(id: string, updates: Partial<Conversation>): 
   const index = conversations.findIndex(c => c.id === id);
   
   if (index !== -1) {
+    const current = conversations[index];
+    const engineUpdates = current.messages.length > 0 && updates.aiEngine && updates.aiEngine !== current.aiEngine
+      ? { ...updates, aiEngine: current.aiEngine, aiEngineVersion: current.aiEngineVersion }
+      : updates;
     conversations[index] = {
-      ...conversations[index],
-      ...updates,
+      ...current,
+      ...engineUpdates,
       updatedAt: Date.now()
     };
     saveConversations(conversations);

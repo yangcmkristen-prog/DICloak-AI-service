@@ -1,5 +1,5 @@
 import { createHash } from "../shared/hash";
-import type { ChatSnapshot, ConversationRole, ConversationRoleSource, CopilotReplyResponse, CopilotResult, ExternalChatInfo, ExternalChatMessage } from "../shared/types";
+import type { AiEngine, ChatSnapshot, ConversationRole, ConversationRoleSource, CopilotReplyResponse, CopilotResult, ExternalChatInfo, ExternalChatMessage } from "../shared/types";
 import { detectSensitiveInformation, redactUnapprovedFindings, type SensitiveFinding } from "../../../src/lib/sensitive-data";
 
 type ChromeStorageItems = Record<string, unknown>;
@@ -61,6 +61,7 @@ const CONTENT_ROOT_ID = "dicloak-ai-copilot-root";
 const STORAGE_PREFIX = "dicloak_copilot_cache:";
 const ROLE_STORAGE_PREFIX = "dicloak_copilot_role:";
 const SUMMARY_STORAGE_PREFIX = "dicloak_customer_summary:";
+const ENGINE_STORAGE_PREFIX = "dicloak_copilot_engine:";
 
 const state: {
   snapshot: ChatSnapshot | null;
@@ -74,6 +75,7 @@ const state: {
   hidden: boolean;
   selectingResultText: boolean;
   pendingSensitiveRequest: PendingSensitiveRequest | null;
+  aiEngine: AiEngine;
 } = {
   snapshot: null,
   cache: null,
@@ -86,7 +88,16 @@ const state: {
   hidden: false,
   selectingResultText: false,
   pendingSensitiveRequest: null,
+  aiEngine: "v1",
 };
+
+function getEngineStorageKey(chatId: string): string { return `${ENGINE_STORAGE_PREFIX}${chatId}`; }
+function readEngine(chatId: string): Promise<AiEngine> {
+  return new Promise((resolve) => chrome.storage.local.get(getEngineStorageKey(chatId), (items) => resolve(items[getEngineStorageKey(chatId)] === "v2" ? "v2" : "v1")));
+}
+function writeEngine(chatId: string, engine: AiEngine): Promise<void> {
+  return new Promise((resolve) => chrome.storage.local.set({ [getEngineStorageKey(chatId)]: engine }, () => resolve()));
+}
 
 function getSummaryStorageKey(chatId: string): string { return `${SUMMARY_STORAGE_PREFIX}${chatId}`; }
 
@@ -559,7 +570,7 @@ function createSnapshot(): ChatSnapshot | null {
     ? mergeObservedTelegramMessages(chat.externalChatId, visibleMessages)
     : visibleMessages;
   const sourceMessageHash = createHash(JSON.stringify(messages.map((message) => ({ role: message.role, text: message.text, time: message.rawTimeText }))));
-  return { chat, messages, sourceMessageHash };
+  return { chat, messages, sourceMessageHash, aiEngine: "v1", aiEngineVersion: "1.0" };
 }
 
 function getSnapshotForRequest(): ChatSnapshot | null {
@@ -567,6 +578,8 @@ function getSnapshotForRequest(): ChatSnapshot | null {
   const confirmedRole = state.roleRecord?.role || undefined;
   return {
     ...state.snapshot,
+    aiEngine: state.aiEngine,
+    aiEngineVersion: state.aiEngine === "v2" ? "2.0-phase-1" : "1.0",
     chat: {
       ...state.snapshot.chat,
       confirmedRole,
@@ -852,6 +865,11 @@ function render(): void {
               <button class="dc-role-button ${currentRole === "end_user" ? "active" : ""}" data-action="role-end-user" title="设置为终端用户">🙋 终端用户</button>
               <button class="dc-role-button" data-action="role-clear" title="清除角色">不确认</button>
             </div>
+            <div class="dc-role-picker" role="group" aria-label="选择当前对话 AI 版本">
+              <button class="dc-role-button ${state.aiEngine === "v1" ? "active" : ""}" data-action="engine-v1" ${(state.cache?.results.length ?? 0) > 0 ? "disabled" : ""}>AI V1</button>
+              <button class="dc-role-button ${state.aiEngine === "v2" ? "active" : ""}" data-action="engine-v2" ${(state.cache?.results.length ?? 0) > 0 ? "disabled" : ""}>AI V2</button>
+              <span class="dc-muted">${(state.cache?.results.length ?? 0) > 0 ? "已绑定" : "生成前可选"}</span>
+            </div>
           ` : `<div class="dc-muted">请打开一个 ${isTelegram ? "Telegram" : "WhatsApp"} 聊天。</div>`}
         </section>
 
@@ -965,14 +983,16 @@ async function refreshSnapshot(): Promise<void> {
   state.snapshot = snapshot;
 
   if (!isSameChat || !state.cache) {
-    const [cache, roleRecord, summaryRecord] = await Promise.all([
+    const [cache, roleRecord, summaryRecord, aiEngine] = await Promise.all([
       readCache(snapshot.chat.externalChatId),
       readRoleRecord(snapshot.chat.externalChatId),
       readSummaryRecord(snapshot.chat.externalChatId),
+      readEngine(snapshot.chat.externalChatId),
     ]);
     state.cache = cache;
     state.roleRecord = roleRecord;
     state.summaryRecord = summaryRecord;
+    state.aiEngine = aiEngine;
     state.activeResultId = null;
     render();
     return;
@@ -1013,6 +1033,13 @@ async function setConversationRole(role: ConversationRole | null): Promise<void>
 
   state.roleRecord = nextRoleRecord;
   await writeRoleRecord(state.snapshot.chat.externalChatId, nextRoleRecord);
+  render();
+}
+
+async function setConversationEngine(engine: AiEngine): Promise<void> {
+  if (!state.snapshot || (state.cache?.results.length ?? 0) > 0) return;
+  state.aiEngine = engine;
+  await writeEngine(state.snapshot.chat.externalChatId, engine);
   render();
 }
 
@@ -1270,6 +1297,10 @@ function injectSidebar(): void {
       void setConversationRole("end_user");
     } else if (action === "role-clear") {
       void setConversationRole(null);
+    } else if (action === "engine-v1") {
+      void setConversationEngine("v1");
+    } else if (action === "engine-v2") {
+      void setConversationEngine("v2");
     } else if (action === "copy") {
       const activeResult = getActiveResult();
       if (activeResult) {

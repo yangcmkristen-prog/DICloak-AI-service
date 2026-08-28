@@ -36,6 +36,12 @@ export type ConversationRole = 'client' | 'end_user';
 export type ConversationRoleSource = 'manual' | 'ai' | null;
 export type ProductName = 'dicloak' | 'paraturbo';
 export type SupportedProduct = ProductName | 'all';
+export type AiEngine = 'v1' | 'v2';
+
+export const AI_ENGINE_VERSIONS: Record<AiEngine, string> = {
+  v1: '1.0',
+  v2: '2.0-phase-1',
+};
 
 export interface ConversationContext {
   // 客户信息
@@ -64,6 +70,8 @@ export interface Conversation {
   id: string;
   title: string;
   product: ProductName;
+  aiEngine: AiEngine;
+  aiEngineVersion: string;
   messages: Message[];
   createdAt: number;
   updatedAt: number;

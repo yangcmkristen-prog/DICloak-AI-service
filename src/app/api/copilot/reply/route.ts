@@ -33,6 +33,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '未找到客户消息，无法生成推荐回复' }, { status: 400, headers: CORS_HEADERS });
     }
 
+    if (snapshot.aiEngine === 'v2') {
+      const response = await fetch(`${request.nextUrl.origin}/api/v2/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-request-id': requestId },
+        body: JSON.stringify({
+          message: latestCustomerMessage,
+          history: snapshot.messages,
+          product: 'dicloak',
+          conversationId: snapshot.chat.externalChatId,
+          aiEngine: snapshot.aiEngine,
+          aiEngineVersion: snapshot.aiEngineVersion || '2.0-phase-1',
+        }),
+        signal: request.signal,
+      });
+      return new Response(response.body, { status: response.status, headers: { ...CORS_HEADERS, 'Content-Type': response.headers.get('content-type') || 'application/x-ndjson; charset=utf-8', 'x-ai-engine': 'v2' } });
+    }
+
     const origin = request.nextUrl.origin;
     const timedFetch = async (stage: string, input: string, init?: RequestInit): Promise<Response> => {
       const startedAt = Date.now();

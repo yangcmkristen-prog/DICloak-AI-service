@@ -183,6 +183,9 @@ export function ConversationList({
                         {conversation.title}
                       </span>
                       <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1">
+                          <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${conversation.aiEngine === "v2" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-200" : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"}`}>
+                            {conversation.aiEngine === "v2" ? "V2" : "V1"}
+                          </span>
                           <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] ${conversation.product === "paraturbo" ? "bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-200" : "bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-200"}`}>
                             {conversation.product === "paraturbo" ? "Paraturbo" : "DICloak"}
                           </span>

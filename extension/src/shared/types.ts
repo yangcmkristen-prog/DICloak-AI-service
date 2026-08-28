@@ -1,6 +1,7 @@
 export type Platform = "whatsapp" | "telegram";
 export type ConversationRole = "client" | "end_user";
 export type ConversationRoleSource = "manual" | "ai" | null;
+export type AiEngine = "v1" | "v2";
 
 export interface ExternalChatMessage {
   id: string;
@@ -25,6 +26,8 @@ export interface ChatSnapshot {
   chat: ExternalChatInfo;
   messages: ExternalChatMessage[];
   sourceMessageHash: string;
+  aiEngine: AiEngine;
+  aiEngineVersion: string;
 }
 
 export interface CopilotReplyResponse {
