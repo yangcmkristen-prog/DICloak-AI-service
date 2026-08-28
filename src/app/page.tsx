@@ -14,7 +14,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Conversation, ConversationRole, FAQItem, GenerationStatus, ImageAttachment, KnowledgeBase, Message, ProductName, TroubleshootingItem, generateId } from "@/lib/types";
+import { AiEngine, Conversation, ConversationRole, FAQItem, GenerationStatus, ImageAttachment, KnowledgeBase, Message, ProductName, TroubleshootingItem, generateId } from "@/lib/types";
 import {
   getConversations,
   saveConversations,
@@ -634,6 +634,7 @@ export default function Home() {
   const [isSavedPhraseSyncing, setIsSavedPhraseSyncing] = useState(false);
   const [isCreateConversationDialogOpen, setIsCreateConversationDialogOpen] = useState(false);
   const [newConversationProduct, setNewConversationProduct] = useState<ProductName>('dicloak');
+  const [newConversationAiEngine, setNewConversationAiEngine] = useState<AiEngine>('v1');
   const generationAbortRef = useRef<AbortController | null>(null);
 
   const handlePrimaryFolderToggle = (folderId: string) => {
@@ -707,16 +708,17 @@ export default function Home() {
   // 创建新对话
   const handleCreateConversation = () => {
     setNewConversationProduct('dicloak');
+    setNewConversationAiEngine('v1');
     setIsCreateConversationDialogOpen(true);
   };
 
   const handleConfirmCreateConversation = () => {
-    const newConversation = createConversation(newConversationProduct);
+    const newConversation = createConversation(newConversationProduct, newConversationAiEngine);
     setConversations((prev) => [newConversation, ...prev]);
     setCurrentConversationIdState(newConversation.id);
     setCurrentConversationId(newConversation.id);
     setIsCreateConversationDialogOpen(false);
-    toast.success(`${PRODUCT_LABELS[newConversationProduct]} 对话已创建`);
+    toast.success(`${PRODUCT_LABELS[newConversationProduct]} · ${newConversationAiEngine.toUpperCase()} 对话已创建`);
   };
 
   const handleUpdateConversationProduct = (product: ProductName) => {
@@ -909,6 +911,24 @@ export default function Home() {
       const ocrTextForModel = imageOcrResults.map((result) => `${result.name}: ${result.text}`).join("\n");
       const contentForAnalysis = ocrTextForModel ? `${content}\n\n图片识别结果：\n${ocrTextForModel}` : content;
 
+      let response: Response;
+      if (currentConversation?.aiEngine === "v2") {
+        updateGenerationStatus("V2 正在生成测试回复", "验证独立回答链路");
+        response = await fetch("/api/v2/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: contentForAnalysis,
+            history: currentConversation.messages.map((message) => ({ role: message.role, content: message.content })),
+            product: currentConversation.product,
+            conversationId: currentConversation.id,
+            aiEngine: currentConversation.aiEngine,
+            aiEngineVersion: currentConversation.aiEngineVersion,
+          }),
+          signal: abortController.signal,
+        });
+      } else {
+
       // Step 1: AI 提取关键词
       updateGenerationStatus("正在提取关键词", "用于匹配知识库");
       console.log('[DEBUG] 正在提取关键词...');
@@ -970,7 +990,7 @@ export default function Home() {
       const detectedLang = detectLanguage(content || ocrTextForModel);
       console.log('[DEBUG] 检测语言:', detectedLang, '原文:', content);
       updateGenerationStatus("AI 正在生成回复", "等待模型输出");
-      const response = await fetch("/api/chat", {
+      response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1001,6 +1021,7 @@ export default function Home() {
         }),
         signal: abortController.signal,
       });
+      }
 
       if (!response.ok) {
         throw new Error("生成回复失败");
@@ -2080,6 +2101,17 @@ export default function Home() {
                 <SelectItem value="paraturbo">Paraturbo</SelectItem>
               </SelectContent>
             </Select>
+            <label className="block pt-3 text-sm font-medium" htmlFor="new-conversation-engine">AI 回答链路</label>
+            <Select value={newConversationAiEngine} onValueChange={(value) => setNewConversationAiEngine(value as AiEngine)}>
+              <SelectTrigger id="new-conversation-engine" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="v1">V1（默认，当前正式链路）</SelectItem>
+                <SelectItem value="v2">V2（第一阶段测试链路）</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">版本将绑定到该对话；产生消息后不可切换。如需更换，请新建对话。</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsCreateConversationDialogOpen(false)}>取消</Button>
@@ -2172,7 +2204,7 @@ export default function Home() {
               <div className="flex h-14 min-w-0 shrink-0 items-center gap-2 border-b px-4">
                 <div className="flex min-w-0 flex-1 items-center gap-2">
                   <span className="grid size-8 place-items-center rounded-lg bg-blue-600 text-white"><MessageSquare className="size-4" /></span>
-                  <div className="min-w-0"><p className="text-sm font-semibold">AI 助手</p><p className="truncate text-[11px] text-muted-foreground" title={currentConversation?.title || "新对话"}>{currentConversation?.title || "新对话"}</p></div>
+                  <div className="min-w-0"><p className="text-sm font-semibold">AI 助手 {currentConversation ? `· ${currentConversation.aiEngine.toUpperCase()}` : ""}</p><p className="truncate text-[11px] text-muted-foreground" title={currentConversation?.title || "新对话"}>{currentConversation?.title || "新对话"}</p></div>
                 </div>
                 {currentConversation ? (
                   <Select value={currentConversation.product} onValueChange={(value) => handleUpdateConversationProduct(value as ProductName)}>

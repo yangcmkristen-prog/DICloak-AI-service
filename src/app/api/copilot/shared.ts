@@ -24,6 +24,8 @@ export interface CopilotSnapshot {
   chat: CopilotChatInfo;
   messages: CopilotChatMessage[];
   sourceMessageHash: string;
+  aiEngine?: 'v1' | 'v2';
+  aiEngineVersion?: string;
 }
 
 export interface SummaryCursor {
@@ -140,6 +142,8 @@ export function validateSnapshot(value: unknown): CopilotSnapshot | null {
     },
     messages: normalizedMessages,
     sourceMessageHash,
+    aiEngine: record.aiEngine === 'v2' ? 'v2' : 'v1',
+    aiEngineVersion: typeof record.aiEngineVersion === 'string' ? record.aiEngineVersion : '1.0',
   };
 }
 
