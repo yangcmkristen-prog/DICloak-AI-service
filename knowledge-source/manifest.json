@@ -6,7 +6,7 @@
     "terminology": "术语库8.11.xlsx",
     "functionKnowledge": "功能知识库8.11.xlsx",
     "api": "API端点与参数明细表8.17.xlsx",
-    "pricing": "DIC套餐功能支持表.xlsx",
+    "pricing": "DIC套餐功能支持表.xlsx"
   },
   "notes": "与当前 Supabase 正式知识库来源文件一致"
 }
