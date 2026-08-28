@@ -1,0 +1,13 @@
+{
+  "version": "2026-08-28.1",
+  "updatedAt": "2026-08-28",
+  "files": {
+    "faq": "faq.xlsx",
+    "terminology": "terminology.xlsx",
+    "functionKnowledge": "function-knowledge.xlsx",
+    "api": "api.xlsx",
+    "pricing": "pricing.xlsx",
+    "troubleshooting": "troubleshooting.xlsx"
+  },
+  "notes": "与当前 Supabase 正式知识库来源文件一致"
+}
