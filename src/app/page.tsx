@@ -169,6 +169,24 @@ async function copyTextToClipboard(text: string): Promise<void> {
   if (!copied) throw new Error("浏览器未允许复制");
 }
 
+async function copyPendingTextToClipboard(textPromise: Promise<string>): Promise<string> {
+  if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
+    try {
+      const clipboardItem = new ClipboardItem({
+        "text/plain": textPromise.then((text) => new Blob([text], { type: "text/plain" })),
+      });
+      await navigator.clipboard.write([clipboardItem]);
+      return await textPromise;
+    } catch {
+      // Safari 等移动端要求在点击事件仍具有用户激活状态时发起写入；不支持时降级处理。
+    }
+  }
+
+  const text = await textPromise;
+  await copyTextToClipboard(text);
+  return text;
+}
+
 function createEmptyPhraseTranslations(): Record<PhraseLanguage, string> {
   return PHRASE_TRANSLATION_LANGUAGES.reduce((result, language) => {
     result[language.value] = "";
@@ -1081,8 +1099,8 @@ export default function Home() {
     }
   };
 
-const handleTranslate = async () => {  
-  const text = translationInput.trim();
+  const handleTranslate = async () => {
+    const text = translationInput.trim();
     if (!text) {
       toast.error("请输入需要翻译的内容");
       return;
@@ -1093,48 +1111,47 @@ const handleTranslate = async () => {
     setTranslationResult("");
 
     try {
-      const response = await fetch("/api/translate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "text/plain" },
-        body: JSON.stringify({
-          text,
-          sourceLanguage,
-          targetLanguage,
-        }),
-      });
+      const translationPromise = (async (): Promise<string> => {
+        const response = await fetch("/api/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "text/plain" },
+          body: JSON.stringify({
+            text,
+            sourceLanguage,
+            targetLanguage,
+          }),
+        });
 
-      if (!response.ok) {
-        const data = await response.json().catch((): { error?: string } => ({}));
-        throw new Error(data.error || "翻译失败");
-      }
-      if (!response.body) throw new Error("浏览器不支持流式翻译");
+        if (!response.ok) {
+          const data = await response.json().catch((): { error?: string } => ({}));
+          throw new Error(data.error || "翻译失败");
+        }
+        if (!response.body) throw new Error("浏览器不支持流式翻译");
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let translatedText = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        translatedText += decoder.decode(value, { stream: true });
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let translatedText = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          translatedText += decoder.decode(value, { stream: true });
+          setTranslationResult(translatedText);
+        }
+        translatedText += decoder.decode();
+        translatedText = translatedText.trim();
+        if (!translatedText) throw new Error("翻译结果为空，请重试");
         setTranslationResult(translatedText);
-      }
-      translatedText += decoder.decode();
-      translatedText = translatedText.trim();
-      if (!translatedText) throw new Error("翻译结果为空，请重试");
-      setTranslationResult(translatedText);
-      setDetectedSourceLanguage(response.headers.get("X-Detected-Source-Language") || null);
-      try {
-        await copyTextToClipboard(translatedText);
-        setIsTranslationCopied(true);
-        window.setTimeout(() => setIsTranslationCopied(false), 1500);
-        toast.success("翻译并复制成功");
-      } catch (copyError) {
-        console.error("自动复制失败:", copyError);
-        toast.error("翻译成功，但自动复制失败，请手动复制");
-      }
+        setDetectedSourceLanguage(response.headers.get("X-Detected-Source-Language") || null);
+        return translatedText;
+      })();
+
+      await copyPendingTextToClipboard(translationPromise);
+      setIsTranslationCopied(true);
+      window.setTimeout(() => setIsTranslationCopied(false), 1500);
+      toast.success("翻译并复制成功");
     } catch (error) {
       console.error("翻译失败:", error);
-      toast.error(error instanceof Error ? error.message : "翻译失败，请稍后重试");
+      toast.error(error instanceof Error ? error.message : "翻译或复制失败，请稍后重试");
     } finally {
       setIsTranslating(false);
     }
@@ -1461,7 +1478,7 @@ const handleTranslate = async () => {
 
   const handleCopySavedPhrase = async (phrase: SavedPhrase, language: PhraseLanguage) => {
     try {
-      await navigator.clipboard.writeText(phrase.translations[language] || phrase.sourceText);
+      await copyTextToClipboard(phrase.translations[language] || phrase.sourceText);
       setCopiedSavedPhraseLanguage(language);
       toast.success("已复制");
       window.setTimeout(() => setCopiedSavedPhraseLanguage((currentLanguage) => currentLanguage === language ? null : currentLanguage), 1500);
@@ -1532,20 +1549,23 @@ const handleTranslate = async () => {
 
     setIsTranslatingSavedPhrase(true);
     try {
-      const response = await fetch("/api/translate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: phrase.sourceText,
-          sourceLanguage: "auto",
-          targetLanguage: otherPhraseLanguage,
-        }),
-      });
-      const data = await response.json() as { translation?: string; error?: string };
-      if (!response.ok || !data.translation) throw new Error(data.error || "翻译失败");
+      const translationPromise = (async (): Promise<string> => {
+        const response = await fetch("/api/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: phrase.sourceText,
+            sourceLanguage: "auto",
+            targetLanguage: otherPhraseLanguage,
+          }),
+        });
+        const data = await response.json() as { translation?: string; error?: string };
+        if (!response.ok || !data.translation) throw new Error(data.error || "翻译失败");
+        return data.translation;
+      })();
 
       // 其他语种按需翻译后直接复制，不写入话术状态或 localStorage。
-      await navigator.clipboard.writeText(data.translation);
+      await copyPendingTextToClipboard(translationPromise);
       setCopiedOtherPhraseLanguage(otherPhraseLanguage);
       toast.success(`${getTranslationLanguageLabel(otherPhraseLanguage)}译文已复制`);
       window.setTimeout(() => setCopiedOtherPhraseLanguage((currentLanguage) => (
