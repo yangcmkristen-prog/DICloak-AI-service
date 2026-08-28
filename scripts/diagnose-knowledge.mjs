@@ -25,7 +25,7 @@ const termFile = manifest.files.terminology;
 const termSheet = records[termFile].SheetNames[0];
 const termRows = sheetRows(termFile, termSheet);
 const termIds = new Set();
-const termByEnglish = new Map();
+const termIdsByEnglish = new Map();
 for (const { values, row } of termRows) {
   const id = text(values.term_id);
   if (!id) add('error', 'TERM_ID_EMPTY', '术语', termFile, termSheet, row, 'term_id', '术语 ID 为空');
@@ -33,7 +33,12 @@ for (const { values, row } of termRows) {
   else termIds.add(id);
   const english = text(values['英文']);
   if (!english) add('error', 'TERM_EN_EMPTY', '术语', termFile, termSheet, row, '英文', `术语 ${id || '(空 ID)'} 的英文为空`);
-  else termByEnglish.set(english.toLowerCase(), id);
+  else {
+    const normalizedEnglish = english.toLowerCase();
+    const matchingIds = termIdsByEnglish.get(normalizedEnglish) ?? new Set();
+    if (id) matchingIds.add(id);
+    termIdsByEnglish.set(normalizedEnglish, matchingIds);
+  }
   for (const column of ['俄语', '葡萄牙语（巴西）', '西班牙语', '越南语']) {
     if (!text(values[column])) add('warning', 'TERM_TRANSLATION_MISSING', '术语', termFile, termSheet, row, column, `术语 ${id || '(空 ID)'} 缺少目标语言译法`);
   }
@@ -61,8 +66,9 @@ for (const sheet of faqSheets) {
       if (openCount !== closeCount) add('error', 'PLACEHOLDER_UNCLOSED', 'FAQ', faqFile, sheet, row, column, '{{}} 占位符未闭合');
       for (const match of answer.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)) {
         const placeholder = match[1].trim().toLowerCase();
-        const placeholderTermId = termByEnglish.get(placeholder);
-        if (!placeholderTermId || !linkedTermIds.includes(placeholderTermId)) add('error', 'PLACEHOLDER_TERM_UNLINKED', 'FAQ', faqFile, sheet, row, column, `占位符「${match[1]}」无法关联当前知识的 term_id`);
+        const placeholderTermIds = termIdsByEnglish.get(placeholder);
+        const hasLinkedTerm = placeholderTermIds && linkedTermIds.some((termId) => placeholderTermIds.has(termId));
+        if (!hasLinkedTerm) add('error', 'PLACEHOLDER_TERM_UNLINKED', 'FAQ', faqFile, sheet, row, column, `占位符「${match[1]}」无法关联当前知识的 term_id`);
       }
     }
   }

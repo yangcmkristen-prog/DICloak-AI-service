@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-28T09:57:48.270Z",
+  "generatedAt": "2026-08-28T10:17:42.787Z",
   "manifestVersion": "2026-08-28.1",
   "summary": {
     "files": 5,
@@ -7,7 +7,7 @@
     "faq": 327,
     "functions": 310,
     "apiEndpoints": 118,
-    "errors": 134,
+    "errors": 80,
     "warnings": 163,
     "note": "仅含前 20 条且 ID 已脱敏；完整报告不提交 Git"
   },
