@@ -1,0 +1,412 @@
+{
+  "generatedAt": "2026-08-28T09:57:50.344Z",
+  "disclaimer": "固定 Mock 规则结果，不代表真实 AI 准确率。",
+  "summary": {
+    "total": 7,
+    "passed": 7,
+    "failed": 0
+  },
+  "results": [
+    {
+      "caseId": "EVAL-HTTP-001",
+      "target": "mock",
+      "answer": "请使用 POST /api/v1/environments，并保留参数 env_id。详情：https://docs.example.test/api/v1/environments",
+      "pass": true,
+      "checks": [
+        {
+          "name": "必须包含：POST",
+          "pass": true,
+          "detail": "POST"
+        },
+        {
+          "name": "必须包含：/api/v1/environments",
+          "pass": true,
+          "detail": "/api/v1/environments"
+        },
+        {
+          "name": "必须包含：env_id",
+          "pass": true,
+          "detail": "env_id"
+        },
+        {
+          "name": "禁止包含：Local API",
+          "pass": true,
+          "detail": "Local API"
+        },
+        {
+          "name": "保持原样：POST",
+          "pass": true,
+          "detail": "POST"
+        },
+        {
+          "name": "保持原样：/api/v1/environments",
+          "pass": true,
+          "detail": "/api/v1/environments"
+        },
+        {
+          "name": "保持原样：env_id",
+          "pass": true,
+          "detail": "env_id"
+        },
+        {
+          "name": "保持原样：https://docs.example.test/api/v1/environments",
+          "pass": true,
+          "detail": "https://docs.example.test/api/v1/environments"
+        },
+        {
+          "name": "不应追问",
+          "pass": true,
+          "detail": "未检测到追问"
+        },
+        {
+          "name": "产品不串线",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "HTTP/Local API 不混淆",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "内部知识 ID 不泄漏",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "无内部知识表达",
+          "pass": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "caseId": "EVAL-LOCAL-001",
+      "target": "mock",
+      "answer": "Local API 使用 GET /local/v2/profiles，参数为 profile_id。",
+      "pass": true,
+      "checks": [
+        {
+          "name": "必须包含：Local API",
+          "pass": true,
+          "detail": "Local API"
+        },
+        {
+          "name": "必须包含：GET",
+          "pass": true,
+          "detail": "GET"
+        },
+        {
+          "name": "必须包含：/local/v2/profiles",
+          "pass": true,
+          "detail": "/local/v2/profiles"
+        },
+        {
+          "name": "必须包含：profile_id",
+          "pass": true,
+          "detail": "profile_id"
+        },
+        {
+          "name": "禁止包含：HTTP API",
+          "pass": true,
+          "detail": "HTTP API"
+        },
+        {
+          "name": "保持原样：GET",
+          "pass": true,
+          "detail": "GET"
+        },
+        {
+          "name": "保持原样：/local/v2/profiles",
+          "pass": true,
+          "detail": "/local/v2/profiles"
+        },
+        {
+          "name": "保持原样：profile_id",
+          "pass": true,
+          "detail": "profile_id"
+        },
+        {
+          "name": "不应追问",
+          "pass": true,
+          "detail": "未检测到追问"
+        },
+        {
+          "name": "产品不串线",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "HTTP/Local API 不混淆",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "内部知识 ID 不泄漏",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "无内部知识表达",
+          "pass": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "caseId": "EVAL-URL-001",
+      "target": "mock",
+      "answer": "请访问 https://help.example.test/start?lang=en#install，并调用 /api/v1/status。",
+      "pass": true,
+      "checks": [
+        {
+          "name": "必须包含：https://help.example.test/start?lang=en#install",
+          "pass": true,
+          "detail": "https://help.example.test/start?lang=en#install"
+        },
+        {
+          "name": "必须包含：/api/v1/status",
+          "pass": true,
+          "detail": "/api/v1/status"
+        },
+        {
+          "name": "保持原样：https://help.example.test/start?lang=en#install",
+          "pass": true,
+          "detail": "https://help.example.test/start?lang=en#install"
+        },
+        {
+          "name": "保持原样：/api/v1/status",
+          "pass": true,
+          "detail": "/api/v1/status"
+        },
+        {
+          "name": "不应追问",
+          "pass": true,
+          "detail": "未检测到追问"
+        },
+        {
+          "name": "产品不串线",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "内部知识 ID 不泄漏",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "无内部知识表达",
+          "pass": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "caseId": "EVAL-TERM-001",
+      "target": "mock",
+      "answer": "请在 Profile settings 中检查 Browser fingerprint。",
+      "pass": true,
+      "checks": [
+        {
+          "name": "必须包含：Profile settings",
+          "pass": true,
+          "detail": "Profile settings"
+        },
+        {
+          "name": "必须包含：Browser fingerprint",
+          "pass": true,
+          "detail": "Browser fingerprint"
+        },
+        {
+          "name": "保持原样：Profile settings",
+          "pass": true,
+          "detail": "Profile settings"
+        },
+        {
+          "name": "保持原样：Browser fingerprint",
+          "pass": true,
+          "detail": "Browser fingerprint"
+        },
+        {
+          "name": "不应追问",
+          "pass": true,
+          "detail": "未检测到追问"
+        },
+        {
+          "name": "产品不串线",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "内部知识 ID 不泄漏",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "无内部知识表达",
+          "pass": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "caseId": "EVAL-I18N-001",
+      "target": "mock",
+      "answer": "Utilice POST /api/v1/environments y mantenga env_id sin cambios.",
+      "pass": true,
+      "checks": [
+        {
+          "name": "必须包含：POST",
+          "pass": true,
+          "detail": "POST"
+        },
+        {
+          "name": "必须包含：/api/v1/environments",
+          "pass": true,
+          "detail": "/api/v1/environments"
+        },
+        {
+          "name": "必须包含：env_id",
+          "pass": true,
+          "detail": "env_id"
+        },
+        {
+          "name": "禁止包含：Local API",
+          "pass": true,
+          "detail": "Local API"
+        },
+        {
+          "name": "保持原样：POST",
+          "pass": true,
+          "detail": "POST"
+        },
+        {
+          "name": "保持原样：/api/v1/environments",
+          "pass": true,
+          "detail": "/api/v1/environments"
+        },
+        {
+          "name": "保持原样：env_id",
+          "pass": true,
+          "detail": "env_id"
+        },
+        {
+          "name": "不应追问",
+          "pass": true,
+          "detail": "未检测到追问"
+        },
+        {
+          "name": "产品不串线",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "HTTP/Local API 不混淆",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "内部知识 ID 不泄漏",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "无内部知识表达",
+          "pass": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "caseId": "EVAL-ASK-001",
+      "target": "mock",
+      "answer": "请提供具体报错文本、复现步骤和截图，以便继续判断。",
+      "pass": true,
+      "checks": [
+        {
+          "name": "必须包含：报错",
+          "pass": true,
+          "detail": "报错"
+        },
+        {
+          "name": "必须包含：步骤",
+          "pass": true,
+          "detail": "步骤"
+        },
+        {
+          "name": "禁止包含：DICloak",
+          "pass": true,
+          "detail": "DICloak"
+        },
+        {
+          "name": "应该追问",
+          "pass": true,
+          "detail": "检测到追问"
+        },
+        {
+          "name": "产品不串线",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "内部知识 ID 不泄漏",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "无内部知识表达",
+          "pass": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "caseId": "EVAL-NONE-001",
+      "target": "mock",
+      "answer": "该问题需进一步确认，目前不能给出未经验证的操作步骤。",
+      "pass": true,
+      "checks": [
+        {
+          "name": "必须包含：需进一步确认",
+          "pass": true,
+          "detail": "需进一步确认"
+        },
+        {
+          "name": "禁止包含：保证",
+          "pass": true,
+          "detail": "保证"
+        },
+        {
+          "name": "禁止包含：根据知识库",
+          "pass": true,
+          "detail": "根据知识库"
+        },
+        {
+          "name": "禁止包含：FAQ_ID",
+          "pass": true,
+          "detail": "FAQ_ID"
+        },
+        {
+          "name": "不应追问",
+          "pass": true,
+          "detail": "未检测到追问"
+        },
+        {
+          "name": "产品不串线",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "内部知识 ID 不泄漏",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "无内部知识表达",
+          "pass": true,
+          "detail": ""
+        }
+      ]
+    }
+  ]
+}
