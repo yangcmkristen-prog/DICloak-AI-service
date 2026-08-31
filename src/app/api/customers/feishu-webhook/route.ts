@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { parseFeishuCustomerUpdates } from "@/lib/feishu-customer-webhook";
+import { changedFeishuCustomerFields, parseFeishuCustomerUpdates } from "@/lib/feishu-customer-webhook";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 
 type SummaryRecord = Record<string, unknown>;
 type ExistingCustomer = { externalChatId: string; summary: SummaryRecord };
+type AuditRecord = { teamId: string; action: "created" | "updated" | "unchanged"; changedFields: string[] };
 
 function normalizedTeamId(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -23,6 +24,19 @@ function externalIdForTeam(teamId: string): string {
 
 function escapedIlikeValue(value: string): string {
   return value.replace(/[\\%_]/g, (character) => `\\${character}`);
+}
+
+function auditContext(request: NextRequest, requestId: string) {
+  return {
+    event: "feishu_customer_sync",
+    requestId,
+    receivedAt: new Date().toISOString(),
+    source: request.headers.get("x-webhook-source") || "unspecified",
+    deployment: process.env.VERCEL_ENV || process.env.NODE_ENV || "unknown",
+    commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || "local",
+    host: request.nextUrl.hostname,
+    userAgent: request.headers.get("user-agent") || "unknown",
+  };
 }
 
 export function GET() {
@@ -48,37 +62,53 @@ async function findCustomerByTeamId(teamId: string): Promise<ExistingCustomer | 
 }
 
 export async function POST(request: NextRequest) {
-  if (!authorized(request)) return NextResponse.json({ error: "Webhook 鉴权失败" }, { status: 401 });
+  const requestId = crypto.randomUUID();
+  const audit = auditContext(request, requestId);
+  if (!authorized(request)) {
+    console.warn("[Feishu Customer Webhook Audit]", JSON.stringify({ ...audit, outcome: "unauthorized" }));
+    return NextResponse.json({ error: "Webhook 鉴权失败", requestId }, { status: 401 });
+  }
   try {
     const parsed = parseFeishuCustomerUpdates(await request.json() as unknown);
     const hasEncodingDamage = parsed.detectedFields.some((field) => field.includes("�"));
-    if (!parsed.updates.length && parsed.skippedMissingContact > 0) return NextResponse.json({
-      success: true,
-      received: 0,
-      created: 0,
-      updated: 0,
-      skippedDuplicates: parsed.skippedDuplicates,
-      skippedMissingContact: parsed.skippedMissingContact,
-    });
-    if (!parsed.updates.length) return NextResponse.json({
-      error: "请求中没有有效的团队 ID",
-      hint: hasEncodingDamage
-        ? "字段名在发送前发生了字符编码损坏；Windows 终端测试请改用 teamId、contactName 等英文字段名，或从 UTF-8 文件发送请求体"
-        : "请确认 JSON 为 {\"record\":{\"fields\":{\"团队ID\":\"...\"}}}，且团队ID不是空值",
-      detectedFields: parsed.detectedFields,
-    }, { status: 400 });
+    if (!parsed.updates.length && parsed.skippedMissingContact > 0) {
+      console.info("[Feishu Customer Webhook Audit]", JSON.stringify({ ...audit, outcome: "ignored", skippedMissingContact: parsed.skippedMissingContact }));
+      return NextResponse.json({
+        success: true, requestId, received: 0, created: 0, updated: 0, unchanged: 0,
+        skippedDuplicates: parsed.skippedDuplicates, skippedMissingContact: parsed.skippedMissingContact,
+      });
+    }
+    if (!parsed.updates.length) {
+      console.warn("[Feishu Customer Webhook Audit]", JSON.stringify({ ...audit, outcome: "invalid", detectedFields: parsed.detectedFields }));
+      return NextResponse.json({
+        error: "请求中没有有效的团队 ID",
+        requestId,
+        hint: hasEncodingDamage
+          ? "字段名在发送前发生了字符编码损坏；Windows 终端测试请改用 teamId、contactName 等英文字段名，或从 UTF-8 文件发送请求体"
+          : "请确认 JSON 为 {\"record\":{\"fields\":{\"团队ID\":\"...\"}}}，且团队ID不是空值",
+        detectedFields: parsed.detectedFields,
+      }, { status: 400 });
+    }
 
     const client = getSupabaseClient();
     const existingByTeam = new Map<string, ExistingCustomer>();
     const automaticUpdatedAt = new Date().toISOString();
     let created = 0;
     let updated = 0;
+    let unchanged = 0;
+    const records: AuditRecord[] = [];
     for (const incoming of parsed.updates) {
       const key = normalizedTeamId(incoming.teamId);
       const existing = existingByTeam.get(key) ?? await findCustomerByTeamId(incoming.teamId);
       if (existing) existingByTeam.set(key, existing);
       const nonEmptyFields = Object.fromEntries(Object.entries(incoming).filter(([, value]) => typeof value === "string" && value.trim()));
       if (existing) {
+        const changedFields = changedFeishuCustomerFields(existing.summary, incoming);
+        if (!changedFields.length) {
+          unchanged += 1;
+          records.push({ teamId: incoming.teamId, action: "unchanged", changedFields: [] });
+          continue;
+        }
         const summary: SummaryRecord = { ...existing.summary, ...nonEmptyFields, teamId: incoming.teamId, automaticUpdatedAt };
         const { error } = await client.from("customer_summaries").update({
           summary_data: summary,
@@ -86,6 +116,7 @@ export async function POST(request: NextRequest) {
         }).eq("external_chat_id", existing.externalChatId);
         if (error) throw error;
         updated += 1;
+        records.push({ teamId: incoming.teamId, action: "updated", changedFields });
         continue;
       }
 
@@ -108,17 +139,24 @@ export async function POST(request: NextRequest) {
       if (error) throw error;
       existingByTeam.set(key, { externalChatId, summary });
       created += 1;
+      records.push({ teamId: incoming.teamId, action: "created", changedFields: Object.keys(nonEmptyFields).filter((field) => field !== "teamId") });
     }
+    console.info("[Feishu Customer Webhook Audit]", JSON.stringify({
+      ...audit, outcome: "success", received: parsed.updates.length, created, updated, unchanged,
+      skippedDuplicates: parsed.skippedDuplicates, skippedMissingContact: parsed.skippedMissingContact, records,
+    }));
     return NextResponse.json({
       success: true,
+      requestId,
       received: parsed.updates.length,
       created,
       updated,
+      unchanged,
       skippedDuplicates: parsed.skippedDuplicates,
       skippedMissingContact: parsed.skippedMissingContact,
     });
   } catch (error) {
-    console.error("[Feishu Customer Webhook] 同步失败:", error);
-    return NextResponse.json({ error: "飞书客户数据同步失败" }, { status: 500 });
+    console.error("[Feishu Customer Webhook Audit]", JSON.stringify({ ...audit, outcome: "error" }), error);
+    return NextResponse.json({ error: "飞书客户数据同步失败", requestId }, { status: 500 });
   }
 }
