@@ -8,6 +8,19 @@ export type FeishuCustomerUpdate = {
   currentPlan?: string;
 };
 
+const feishuBusinessFields: Array<Exclude<keyof FeishuCustomerUpdate, "teamId">> = [
+  "contactName", "contactDetail", "contactMethod", "createdAt", "dueDate", "currentPlan",
+];
+
+export function changedFeishuCustomerFields(existing: Record<string, unknown>, incoming: FeishuCustomerUpdate): string[] {
+  return feishuBusinessFields.filter((key) => {
+    const incomingValue = incoming[key];
+    if (typeof incomingValue !== "string" || !incomingValue.trim()) return false;
+    const existingValue = existing[key];
+    return (typeof existingValue === "string" ? existingValue.trim() : "") !== incomingValue.trim();
+  });
+}
+
 type UnknownRecord = Record<string, unknown>;
 
 function objectValue(value: unknown): UnknownRecord | undefined {

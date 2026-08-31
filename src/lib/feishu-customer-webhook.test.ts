@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseFeishuCustomerUpdates } from "./feishu-customer-webhook.ts";
+import { changedFeishuCustomerFields, parseFeishuCustomerUpdates } from "./feishu-customer-webhook.ts";
 
 test("parses Feishu fields and keeps only the first duplicate team", () => {
   const result = parseFeishuCustomerUpdates({ records: [
@@ -45,4 +45,11 @@ test("ignores records when both contact detail and channel are empty", () => {
 
   assert.equal(result.skippedMissingContact, 1);
   assert.deepEqual(result.updates.map((update) => update.teamId), ["has-contact", "has-channel"]);
+});
+
+test("detects only non-empty Feishu fields whose values actually changed", () => {
+  assert.deepEqual(changedFeishuCustomerFields(
+    { contactName: "张三", contactDetail: "13800000000", contactMethod: "微信", currentPlan: "基础版" },
+    { teamId: "team-1", contactName: " 张三 ", contactDetail: "13800000000", contactMethod: "微信", currentPlan: "高阶版", dueDate: "2027-01-01T00:00:00.000Z" },
+  ), ["dueDate", "currentPlan"]);
 });

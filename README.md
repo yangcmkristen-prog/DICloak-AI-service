@@ -368,9 +368,12 @@ export const useStore = create<Store>((set) => ({
 
 - `POST https://<你的域名>/api/customers/feishu-webhook`
 - Header：推荐飞书使用 `X-Webhook-Token: <FEISHU_WEBHOOK_TOKEN>`；也支持 `Authorization: Bearer <FEISHU_WEBHOOK_TOKEN>`。同时设置 `Content-Type: application/json`
+- 建议不同自动化流程分别增加 `X-Webhook-Source`，例如 `plan-created`、`plan-updated`，便于在日志中定位来源
 - Body：可发送单条 `{"record":{"fields":{...}}}`，也可发送 `{"records":[{"fields":{...}}]}`
 
 支持字段：`团队ID`、`联系人`（也兼容 `团队名字`）、`联系方式`（也兼容 `用户联系方式`）、`渠道`（也兼容 `私域渠道`）、`创建时间`、`到期时间`、`当前套餐`（也兼容 `套餐`）。`团队ID` 是必填且唯一的识别字段；一次请求中的重复 ID 仅处理第一条。
+
+已有客户只有在至少一个非空业务字段真正变化时才会写入，并刷新 `automaticUpdatedAt`；完全相同的重复推送返回 `unchanged`，不会改变“自动更新时间”。每次请求的响应都包含 `requestId`，服务端同时输出前缀为 `[Feishu Customer Webhook Audit]` 的结构化日志。线上可在 Vercel 项目 **Logs / Runtime Logs** 中按该前缀、`requestId`、团队 ID 或 `source` 搜索；本地开发时日志显示在 `pnpm dev` 终端。审计日志不记录联系方式。
 
 Windows Git Bash/Git for Windows 如果没有以 UTF-8 发送中文参数，可使用英文字段名 `teamId`、`contactName`、`contactDetail`、`contactMethod`、`createdAt`、`dueDate`、`currentPlan`；飞书自动化仍可直接使用上面的中文字段名。
 
