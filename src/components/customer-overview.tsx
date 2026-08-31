@@ -36,6 +36,9 @@ type Customer = {
   customerSource: string; competitorUsage: string; coreNeeds: string; selectionReason: string; churnReason: string; followUpStatus: FollowUpStatus; followUps: FollowUp[];
 };
 
+type CustomerSortKey = "name" | "teamId" | "contact" | "region" | "plan" | "monthlyFee" | "scenario" | "status" | "followUpStatus" | "latestFollowUp" | "dueDate" | "createdAt" | "updatedAt" | "automaticUpdatedAt";
+type SortDirection = "asc" | "desc";
+
 type SummaryPayload = Partial<Omit<Customer, "id" | "name" | "initials" | "channel" | "contact" | "scenario" | "users" | "accounts" | "type" | "issues" | "features" | "followUps">> & {
   externalChatId?: string; contactName?: string; contactMethod?: string; contactDetail?: string; useCase?: string; userScale?: string; accountScale?: string; customerType?: string;
   currentPlan?: string; monthlyFee?: string; createdAt?: string; customerStatus?: string; customerSource?: string; notes?: string;
@@ -122,12 +125,49 @@ function monthlyFeeValue(value: string): number {
   return Number.isFinite(amount) ? amount : -1;
 }
 
+const customerTextCollator = new Intl.Collator("zh-CN-u-co-pinyin", {
+  numeric: true,
+  sensitivity: "base",
+});
+
+const customerDateSortKeys = new Set<CustomerSortKey>(["latestFollowUp", "dueDate", "createdAt", "updatedAt", "automaticUpdatedAt"]);
+
+function customerSortValue(customer: Customer, key: CustomerSortKey): string {
+  if (key === "latestFollowUp") return customer.followUps[0]?.date || "";
+  return customer[key];
+}
+
+function isEmptySortValue(value: string): boolean {
+  const normalized = value.trim();
+  return !normalized || normalized === "—" || normalized === "未知";
+}
+
+function compareCustomers(left: Customer, right: Customer, key: CustomerSortKey, direction: SortDirection): number {
+  const leftValue = customerSortValue(left, key);
+  const rightValue = customerSortValue(right, key);
+  const leftEmpty = isEmptySortValue(leftValue);
+  const rightEmpty = isEmptySortValue(rightValue);
+  if (leftEmpty !== rightEmpty) return leftEmpty ? 1 : -1;
+  if (leftEmpty && rightEmpty) return 0;
+
+  let comparison: number;
+  if (key === "monthlyFee") {
+    comparison = monthlyFeeValue(leftValue) - monthlyFeeValue(rightValue);
+  } else if (customerDateSortKeys.has(key)) {
+    comparison = Date.parse(leftValue) - Date.parse(rightValue);
+  } else {
+    comparison = customerTextCollator.compare(leftValue, rightValue);
+  }
+  if (Number.isNaN(comparison)) comparison = customerTextCollator.compare(leftValue, rightValue);
+  return direction === "asc" ? comparison : -comparison;
+}
+
 function ResizableHead({ label, width, onResize, onSort, direction, className = "" }: {
   label: string; width: number; onResize: (startX: number) => void; onSort?: () => void;
   direction?: "asc" | "desc"; className?: string;
 }) {
   return <TableHead className={`relative select-none ${className}`} style={{ width, minWidth: width, maxWidth: width }}>
-    {onSort ? <button className="flex w-full items-center gap-1 text-left" onClick={onSort}>{label}{direction === "asc" ? <ArrowUp className="size-3" /> : direction === "desc" ? <ArrowDown className="size-3" /> : null}</button> : label}
+    {onSort ? <button type="button" className="flex w-full items-center gap-1 text-left hover:text-foreground" aria-label={`${label}排序${direction === "asc" ? "，当前升序" : direction === "desc" ? "，当前降序" : ""}`} title={`按${label}${direction === "asc" ? "降序" : "升序"}排列`} onClick={onSort}>{label}{direction === "asc" ? <ArrowUp className="size-3" /> : direction === "desc" ? <ArrowDown className="size-3" /> : null}</button> : label}
     <span role="separator" aria-orientation="vertical" aria-label={`调整${label}列宽`} className="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none" onMouseDown={(event) => { event.preventDefault(); onResize(event.clientX); }} />
   </TableHead>;
 }
@@ -169,7 +209,7 @@ export function CustomerOverview() {
   const [followUpCustomerId, setFollowUpCustomerId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [sort, setSort] = useState<{ key: "monthlyFee" | "createdAt"; direction: "asc" | "desc" } | null>(null);
+  const [sort, setSort] = useState<{ key: CustomerSortKey; direction: SortDirection } | null>(null);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
     name: 150, teamId: 130, contact: 170, region: 110, plan: 110, monthlyFee: 120,
     scenario: 210, status: 110, followUpStatus: 110, latestFollowUp: 130, dueDate: 130, createdAt: 130, updatedAt: 170, automaticUpdatedAt: 170, action: 80,
@@ -232,14 +272,7 @@ export function CustomerOverview() {
   }), [customerSource, customers, featureQuery, followUpFrom, followUpTo, issueQuery, query, quickFilter, region, status, useCase]);
   const visibleCustomers = useMemo(() => {
     if (!sort) return filtered;
-    return [...filtered].sort((left, right) => {
-      const leftValue = sort.key === "monthlyFee" ? monthlyFeeValue(left.monthlyFee) : Date.parse(left.createdAt);
-      const rightValue = sort.key === "monthlyFee" ? monthlyFeeValue(right.monthlyFee) : Date.parse(right.createdAt);
-      if (leftValue < 0 || Number.isNaN(leftValue)) return 1;
-      if (rightValue < 0 || Number.isNaN(rightValue)) return -1;
-      const comparison = leftValue - rightValue;
-      return sort.direction === "asc" ? comparison : -comparison;
-    });
+    return [...filtered].sort((left, right) => compareCustomers(left, right, sort.key, sort.direction));
   }, [filtered, sort]);
   const pageCount = Math.max(1, Math.ceil(visibleCustomers.length / pageSize));
   const pagedCustomers = visibleCustomers.slice((page - 1) * pageSize, page * pageSize);
@@ -253,10 +286,12 @@ export function CustomerOverview() {
     { label: "潜力客户", filter: "潜在客户", count: customers.filter((item) => item.status === "潜在客户").length, className: "text-blue-700" },
   ];
 
-  const toggleSort = (key: "monthlyFee" | "createdAt") => {
+  const toggleSort = (key: CustomerSortKey) => {
     setSort((current) => current?.key === key
-      ? { key, direction: current.direction === "desc" ? "asc" : "desc" }
-      : { key, direction: "desc" });
+      ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
+      : { key, direction: "asc" });
+    setPage(1);
+    setJumpPage("1");
   };
   const startColumnResize = (key: string, startX: number) => {
     const initialWidth = columnWidths[key];
@@ -316,16 +351,16 @@ export function CustomerOverview() {
           <TableHeader className="bg-muted/40"><TableRow>
             {([
               ["name", "联系人"], ["teamId", "团队 ID"], ["contact", "联系方式"], ["region", "地区"], ["plan", "当前套餐"],
-            ] as const).map(([key, label]) => <ResizableHead key={key} label={label} width={columnWidths[key]} onResize={(startX) => startColumnResize(key, startX)} />)}
+            ] as const).map(([key, label]) => <ResizableHead key={key} label={label} width={columnWidths[key]} onResize={(startX) => startColumnResize(key, startX)} onSort={() => toggleSort(key)} direction={sort?.key === key ? sort.direction : undefined} className={key === "name" ? "pl-5" : undefined} />)}
             <ResizableHead label="套餐月费" width={columnWidths.monthlyFee} onResize={(startX) => startColumnResize("monthlyFee", startX)} onSort={() => toggleSort("monthlyFee")} direction={sort?.key === "monthlyFee" ? sort.direction : undefined} />
-            <ResizableHead label="使用场景" width={columnWidths.scenario} onResize={(startX) => startColumnResize("scenario", startX)} />
-            <ResizableHead label="状态" width={columnWidths.status} onResize={(startX) => startColumnResize("status", startX)} />
-            <ResizableHead label="跟进状态" width={columnWidths.followUpStatus} onResize={(startX) => startColumnResize("followUpStatus", startX)} />
-            <ResizableHead label="最近跟进时间" width={columnWidths.latestFollowUp} onResize={(startX) => startColumnResize("latestFollowUp", startX)} />
-            <ResizableHead label="到期时间" width={columnWidths.dueDate} onResize={(startX) => startColumnResize("dueDate", startX)} />
+            <ResizableHead label="使用场景" width={columnWidths.scenario} onResize={(startX) => startColumnResize("scenario", startX)} onSort={() => toggleSort("scenario")} direction={sort?.key === "scenario" ? sort.direction : undefined} />
+            <ResizableHead label="状态" width={columnWidths.status} onResize={(startX) => startColumnResize("status", startX)} onSort={() => toggleSort("status")} direction={sort?.key === "status" ? sort.direction : undefined} />
+            <ResizableHead label="跟进状态" width={columnWidths.followUpStatus} onResize={(startX) => startColumnResize("followUpStatus", startX)} onSort={() => toggleSort("followUpStatus")} direction={sort?.key === "followUpStatus" ? sort.direction : undefined} />
+            <ResizableHead label="最近跟进时间" width={columnWidths.latestFollowUp} onResize={(startX) => startColumnResize("latestFollowUp", startX)} onSort={() => toggleSort("latestFollowUp")} direction={sort?.key === "latestFollowUp" ? sort.direction : undefined} />
+            <ResizableHead label="到期时间" width={columnWidths.dueDate} onResize={(startX) => startColumnResize("dueDate", startX)} onSort={() => toggleSort("dueDate")} direction={sort?.key === "dueDate" ? sort.direction : undefined} />
             <ResizableHead label="创建时间" width={columnWidths.createdAt} onResize={(startX) => startColumnResize("createdAt", startX)} onSort={() => toggleSort("createdAt")} direction={sort?.key === "createdAt" ? sort.direction : undefined} />
-            <ResizableHead label="AI最后总结时间" width={columnWidths.updatedAt} onResize={(startX) => startColumnResize("updatedAt", startX)} />
-            <ResizableHead label="自动更新时间" width={columnWidths.automaticUpdatedAt} onResize={(startX) => startColumnResize("automaticUpdatedAt", startX)} />
+            <ResizableHead label="AI最后总结时间" width={columnWidths.updatedAt} onResize={(startX) => startColumnResize("updatedAt", startX)} onSort={() => toggleSort("updatedAt")} direction={sort?.key === "updatedAt" ? sort.direction : undefined} />
+            <ResizableHead label="自动更新时间" width={columnWidths.automaticUpdatedAt} onResize={(startX) => startColumnResize("automaticUpdatedAt", startX)} onSort={() => toggleSort("automaticUpdatedAt")} direction={sort?.key === "automaticUpdatedAt" ? sort.direction : undefined} />
             <ResizableHead label="操作" width={columnWidths.action} onResize={(startX) => startColumnResize("action", startX)} />
           </TableRow></TableHeader>
           <TableBody>{pagedCustomers.map((customer) => <TableRow key={customer.id} className="h-[74px] cursor-pointer" onClick={() => setSelectedId(customer.id)}>
