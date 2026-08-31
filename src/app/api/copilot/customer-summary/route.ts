@@ -154,10 +154,15 @@ function utc8Date(value: number | string): string {
   return `${getPart("year")}-${getPart("month")}-${getPart("day")}`;
 }
 
-function addMissingItemDates(analysis: Record<string, unknown>, fallbackDate: string): Record<string, unknown> {
+function normalizeItemDates(analysis: Record<string, unknown>, fallbackDate: string, validMessageDates: Set<string>): Record<string, unknown> {
   const withDate = (items: unknown, field: "occurredAt" | "requestedAt") => Array.isArray(items)
     ? items.map((item) => item && typeof item === "object" && !Array.isArray(item)
-      ? { ...(item as Record<string, unknown>), [field]: String((item as Record<string, unknown>)[field] || fallbackDate) }
+      ? (() => {
+          const value = item as Record<string, unknown>;
+          const proposedDate = typeof value[field] === "string" ? value[field].trim().replaceAll("/", "-").slice(0, 10) : "";
+          const date = proposedDate && (validMessageDates.size === 0 || validMessageDates.has(proposedDate)) ? proposedDate : fallbackDate;
+          return { ...value, [field]: date };
+        })()
       : item)
     : items;
   return {
@@ -454,7 +459,11 @@ export async function POST(request: NextRequest) {
       return timestamp ? Math.max(latest, timestamp) : latest;
     }, 0);
     const fallbackItemDate = utc8Date(latestMessageTimestamp || Date.now());
-    const analysis = addMissingItemDates(parseJsonObject(content), fallbackItemDate);
+    const validMessageDates = new Set(messages.flatMap((message) => {
+      const timestamp = normalizeMessageTimestamp(message.timestamp);
+      return timestamp ? [utc8Date(timestamp)] : [];
+    }));
+    const analysis = normalizeItemDates(parseJsonObject(content), fallbackItemDate, validMessageDates);
     const updatedAt = new Date().toISOString();
     const generated: SummaryRecord = {
       externalChatId: snapshot.chat.externalChatId,
