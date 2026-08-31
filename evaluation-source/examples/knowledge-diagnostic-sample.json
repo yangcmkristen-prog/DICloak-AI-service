@@ -1,0 +1,216 @@
+{
+  "generatedAt": "2026-08-28T10:17:42.787Z",
+  "manifestVersion": "2026-08-28.1",
+  "summary": {
+    "files": 5,
+    "terms": 589,
+    "faq": 327,
+    "functions": 310,
+    "apiEndpoints": 118,
+    "errors": 80,
+    "warnings": 163,
+    "note": "仅含前 20 条且 ID 已脱敏；完整报告不提交 Git"
+  },
+  "findings": [
+    {
+      "severity": "error",
+      "code": "TERM_EN_EMPTY",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 3,
+      "column": "英文",
+      "message": "术语 [已脱敏ID] 的英文为空"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 3,
+      "column": "俄语",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 3,
+      "column": "葡萄牙语（巴西）",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 3,
+      "column": "西班牙语",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 3,
+      "column": "越南语",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    },
+    {
+      "severity": "error",
+      "code": "TERM_EN_EMPTY",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 4,
+      "column": "英文",
+      "message": "术语 [已脱敏ID] 的英文为空"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 4,
+      "column": "俄语",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 4,
+      "column": "葡萄牙语（巴西）",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 4,
+      "column": "西班牙语",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 4,
+      "column": "越南语",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    },
+    {
+      "severity": "error",
+      "code": "TERM_EN_EMPTY",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 14,
+      "column": "英文",
+      "message": "术语 [已脱敏ID] 的英文为空"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 14,
+      "column": "俄语",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 14,
+      "column": "葡萄牙语（巴西）",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 14,
+      "column": "西班牙语",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 14,
+      "column": "越南语",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    },
+    {
+      "severity": "error",
+      "code": "TERM_EN_EMPTY",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 15,
+      "column": "英文",
+      "message": "术语 [已脱敏ID] 的英文为空"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 15,
+      "column": "俄语",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 15,
+      "column": "葡萄牙语（巴西）",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 15,
+      "column": "西班牙语",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    },
+    {
+      "severity": "warning",
+      "code": "TERM_TRANSLATION_MISSING",
+      "type": "术语",
+      "file": "术语库8.11.xlsx",
+      "sheet": "Sheet1",
+      "row": 15,
+      "column": "越南语",
+      "message": "术语 [已脱敏ID] 缺少目标语言译法"
+    }
+  ]
+}

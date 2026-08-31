@@ -41,6 +41,13 @@ pids
 
 # Diagnostic reports
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+reports/knowledge/latest.html
+reports/knowledge/latest.json
+reports/evaluation/mock-latest.html
+reports/evaluation/mock-latest.json
+reports/evaluation/v1-baseline.html
+reports/evaluation/v1-baseline.json
+evaluation-source/*.local.xlsx
 
 # Cache
 .cache/
@@ -48,6 +55,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .eslintcache
 .stylelintcache
 .npm
+.pnpm-store/
 .yarn/cache
 .yarn/unplugged
 .yarn/build-state.yml
@@ -83,6 +91,7 @@ Desktop.ini
 *.temp
 .tmp/
 .temp/
+outputs/
 
 # Optional files
 *.tgz

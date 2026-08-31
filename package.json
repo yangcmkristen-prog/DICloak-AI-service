@@ -15,6 +15,12 @@
     "lint:build": "eslint . --quiet",
     "validate": "pnpm run --parallel '/^(ts-check|lint:build)$/'",
     "validate:knowledge-manifest": "node scripts/validate-knowledge-manifest.mjs",
+    "evaluation:validate": "node scripts/validate-evaluation.mjs",
+    "evaluation:diagnose-knowledge": "node scripts/diagnose-knowledge.mjs",
+    "evaluation:mock": "node scripts/run-mock-evaluation.mjs",
+    "evaluation:v1-baseline": "node scripts/run-v1-baseline.mjs",
+    "evaluation:test": "node --test scripts/evaluation/*.test.mjs",
+    "evaluation:all": "pnpm evaluation:validate && pnpm evaluation:test && pnpm evaluation:diagnose-knowledge && pnpm evaluation:mock",
     "test:stream": "node --experimental-strip-types --test src/lib/server/openai-stream.test.ts"
   },
   "dependencies": {

@@ -52,6 +52,14 @@ export async function POST(request: NextRequest) {
   try {
     const parsed = parseFeishuCustomerUpdates(await request.json() as unknown);
     const hasEncodingDamage = parsed.detectedFields.some((field) => field.includes("�"));
+    if (!parsed.updates.length && parsed.skippedMissingContact > 0) return NextResponse.json({
+      success: true,
+      received: 0,
+      created: 0,
+      updated: 0,
+      skippedDuplicates: parsed.skippedDuplicates,
+      skippedMissingContact: parsed.skippedMissingContact,
+    });
     if (!parsed.updates.length) return NextResponse.json({
       error: "请求中没有有效的团队 ID",
       hint: hasEncodingDamage
@@ -101,7 +109,14 @@ export async function POST(request: NextRequest) {
       existingByTeam.set(key, { externalChatId, summary });
       created += 1;
     }
-    return NextResponse.json({ success: true, received: parsed.updates.length, created, updated, skippedDuplicates: parsed.skippedDuplicates });
+    return NextResponse.json({
+      success: true,
+      received: parsed.updates.length,
+      created,
+      updated,
+      skippedDuplicates: parsed.skippedDuplicates,
+      skippedMissingContact: parsed.skippedMissingContact,
+    });
   } catch (error) {
     console.error("[Feishu Customer Webhook] 同步失败:", error);
     return NextResponse.json({ error: "飞书客户数据同步失败" }, { status: 500 });

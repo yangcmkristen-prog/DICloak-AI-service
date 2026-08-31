@@ -1,0 +1,9 @@
+{
+  "EVAL-HTTP-001": "请使用 POST /api/v1/environments，并保留参数 env_id。详情：https://docs.example.test/api/v1/environments",
+  "EVAL-LOCAL-001": "Local API 使用 GET /local/v2/profiles，参数为 profile_id。",
+  "EVAL-URL-001": "请访问 https://help.example.test/start?lang=en#install，并调用 /api/v1/status。",
+  "EVAL-TERM-001": "请在 Profile settings 中检查 Browser fingerprint。",
+  "EVAL-I18N-001": "Utilice POST /api/v1/environments y mantenga env_id sin cambios.",
+  "EVAL-ASK-001": "请提供具体报错文本、复现步骤和截图，以便继续判断。",
+  "EVAL-NONE-001": "该问题需进一步确认，目前不能给出未经验证的操作步骤。"
+}
