@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseFeishuCustomerUpdates } from "./feishu-customer-webhook";
+import { parseFeishuCustomerUpdates } from "./feishu-customer-webhook.ts";
 
 test("parses Feishu fields and keeps only the first duplicate team", () => {
   const result = parseFeishuCustomerUpdates({ records: [
@@ -16,7 +16,7 @@ test("parses Feishu fields and keeps only the first duplicate team", () => {
 });
 
 test("accepts whitespace in field names and JSON encoded Feishu fields", () => {
-  const result = parseFeishuCustomerUpdates({ body: JSON.stringify({ record: { fields: JSON.stringify({ "团队 ID\u200b": "DIC-100" }) } }) });
+  const result = parseFeishuCustomerUpdates({ body: JSON.stringify({ record: { fields: JSON.stringify({ "团队 ID\u200b": "DIC-100", 联系方式: "dic@example.com" }) } }) });
   assert.equal(result.updates[0]?.teamId, "DIC-100");
 });
 
@@ -30,8 +30,19 @@ test("accepts ASCII field names for encoding-safe Windows curl requests", () => 
 });
 
 test("parses the record.fields envelope used by Feishu automation", () => {
-  assert.deepEqual(parseFeishuCustomerUpdates({ record: { fields: { 团队ID: "42", 联系人: "李四", 到期时间: "2027-01-02" } } }).updates[0], {
-    teamId: "42", contactName: "李四", contactDetail: undefined, contactMethod: undefined,
+  assert.deepEqual(parseFeishuCustomerUpdates({ record: { fields: { 团队ID: "42", 联系人: "李四", 渠道: "微信", 到期时间: "2027-01-02" } } }).updates[0], {
+    teamId: "42", contactName: "李四", contactDetail: undefined, contactMethod: "微信",
     createdAt: undefined, dueDate: "2027-01-02T00:00:00.000Z", currentPlan: undefined,
   });
+});
+
+test("ignores records when both contact detail and channel are empty", () => {
+  const result = parseFeishuCustomerUpdates({ records: [
+    { fields: { 团队ID: "empty-contact", 联系方式: "  ", 渠道: [] } },
+    { fields: { 团队ID: "has-contact", 联系方式: "customer@example.com" } },
+    { fields: { 团队ID: "has-channel", 渠道: { name: "WhatsApp" } } },
+  ] });
+
+  assert.equal(result.skippedMissingContact, 1);
+  assert.deepEqual(result.updates.map((update) => update.teamId), ["has-contact", "has-channel"]);
 });
