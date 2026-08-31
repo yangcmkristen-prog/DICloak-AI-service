@@ -1,4 +1,5 @@
 import { createHash } from "../shared/hash";
+import { parseTelegramDateLabel, telegramDateTimestamp, type TelegramCalendarDate } from "../shared/telegram-date";
 import type { AiEngine, ChatSnapshot, ConversationRole, ConversationRoleSource, CopilotReplyResponse, CopilotResult, ExternalChatInfo, ExternalChatMessage } from "../shared/types";
 import { detectSensitiveInformation, redactUnapprovedFindings, type SensitiveFinding } from "../../../src/lib/sensitive-data";
 
@@ -383,6 +384,25 @@ function getTelegramMessageRole(node: Element): ExternalChatMessage["role"] {
   return "unknown";
 }
 
+type TelegramDateSeparator = { element: Element; date: TelegramCalendarDate };
+
+function getTelegramDateSeparators(scope: ParentNode): TelegramDateSeparator[] {
+  const candidates = Array.from(scope.querySelectorAll("div, span"))
+    .map((element) => ({ element, date: parseTelegramDateLabel(textOf(element)) }))
+    .filter((candidate): candidate is TelegramDateSeparator => Boolean(candidate.date))
+    .filter(({ element }) => !element.closest(TELEGRAM_MESSAGE_SELECTOR));
+
+  return candidates.filter(({ element }, index) => !candidates.some((candidate, candidateIndex) => (
+    candidateIndex !== index && element.contains(candidate.element)
+  )));
+}
+
+function getTelegramSeparatorTimestamp(node: Element, separators: TelegramDateSeparator[], rawTimeText?: string): number | undefined {
+  const preceding = separators.filter(({ element }) => Boolean(element.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
+  const latest = preceding.at(-1);
+  return latest ? telegramDateTimestamp(latest.date, rawTimeText) : undefined;
+}
+
 function extractTelegramMessages(): ExternalChatMessage[] {
   const main = getTelegramChatRoot();
   if (!main) return [];
@@ -398,6 +418,7 @@ function extractTelegramMessages(): ExternalChatMessage[] {
     ? scopedCandidates
     : documentCandidates;
   const fallbackCandidates = scopedTextCandidates.length > 0 ? scopedTextCandidates : documentTextCandidates;
+  const dateSeparators = getTelegramDateSeparators(scopedCandidates.length > 0 ? main : document);
 
   const extractFromCandidates = (candidates: Element[]): ExternalChatMessage[] => {
     // A Telegram message can match both an outer container and an inner text
@@ -412,7 +433,8 @@ function extractTelegramMessages(): ExternalChatMessage[] {
       const messageContainer = node.closest("[data-message-id], [data-mid], [id^='message'], .Message, .bubble, .message-list-item") || node;
       const role = getTelegramMessageRole(node);
       const rawTimeText = textOf(messageContainer.querySelector("time, .time, .message-time")) || undefined;
-      const timestamp = getTelegramMessageTimestamp(messageContainer);
+      const timestamp = getTelegramMessageTimestamp(messageContainer)
+        ?? getTelegramSeparatorTimestamp(messageContainer, dateSeparators, rawTimeText);
       const stableId = messageContainer.getAttribute("data-message-id") || messageContainer.getAttribute("data-mid") || messageContainer.id || `${role}|${rawTimeText ?? ""}|${text}`;
       return { id: createHash(`${stableId}|${role}|${text}`), role, text, rawTimeText, timestamp };
     }).filter((message): message is ExternalChatMessage => message !== null);
@@ -433,6 +455,7 @@ function extractTelegramMessages(): ExternalChatMessage[] {
     usedTextFallback,
     messageCount: messages.length,
     genericMessageClassCount: document.querySelectorAll("[class*='message' i]").length,
+    dateSeparatorCount: dateSeparators.length,
     selector: TELEGRAM_MESSAGE_SELECTOR,
   };
   if (messages.length === 0) {
