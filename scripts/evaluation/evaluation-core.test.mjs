@@ -14,3 +14,9 @@ test('固定规则识别 URL/Endpoint、参数和内部 ID 问题', () => {
   assert.ok(result.checks.some((check) => !check.pass && check.name.includes('保持原样')));
   assert.ok(result.checks.some((check) => !check.pass && check.name === '内部知识 ID 不泄漏'));
 });
+
+test('追问检测同时识别中文和英文问号', () => {
+  const askCase = { ...base, knowledgeType: '无知识', knowledgeIds: [], mustInclude: [], mustNotInclude: [], preserveExact: [], shouldAsk: true };
+  assert.equal(evaluateAnswer(askCase, '请说明你需要访问的是哪个链接，以及该链接的具体用途？').pass, true);
+  assert.equal(evaluateAnswer(askCase, 'Which link do you need?').pass, true);
+});

@@ -1,5 +1,5 @@
 const internalPatterns = [/FAQ_ID/i, /TS_ID/i, /FUNCTION_ID/i, /根据(?:内部)?知识库/, /knowledge base/i];
-const askPatterns = [/请(?:提供|补充|告知|问)/, /能否提供/, /please (?:provide|share|confirm)/i, /could you/i, /\?\s*$/];
+const askPatterns = [/请(?:提供|补充|告知|问)/, /能否提供/, /please (?:provide|share|confirm)/i, /could you/i, /[?？]\s*$/];
 
 function occurrences(text, token) {
   return text.split(token).length - 1;
