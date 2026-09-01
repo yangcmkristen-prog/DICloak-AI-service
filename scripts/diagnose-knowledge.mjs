@@ -5,6 +5,10 @@ import { root, writeReport } from './evaluation/evaluation-utils.mjs';
 
 const knowledgeDirectory = path.join(root, 'knowledge-source');
 const manifest = JSON.parse(await fs.readFile(path.join(knowledgeDirectory, 'manifest.json'), 'utf8'));
+const faqOverrideIndex = process.argv.indexOf('--faq');
+const faqOverridePath = faqOverrideIndex >= 0 && process.argv[faqOverrideIndex + 1]
+  ? path.resolve(process.argv[faqOverrideIndex + 1])
+  : null;
 const findings = [];
 const records = {};
 const add = (severity, code, type, file, sheet, row, column, message) => findings.push({ severity, code, type, file, sheet, row, column, message });
@@ -19,7 +23,12 @@ function sheetRows(fileName, sheetName) {
   return XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true }).map((row, index) => ({ values: row, row: index + 2 }));
 }
 
-for (const fileName of Object.values(manifest.files)) records[fileName] = XLSX.readFile(path.join(knowledgeDirectory, fileName), { cellDates: true });
+for (const fileName of Object.values(manifest.files)) {
+  const sourcePath = fileName === manifest.files.faq && faqOverridePath
+    ? faqOverridePath
+    : path.join(knowledgeDirectory, fileName);
+  records[fileName] = XLSX.readFile(sourcePath, { cellDates: true });
+}
 
 const termFile = manifest.files.terminology;
 const termSheet = records[termFile].SheetNames[0];
@@ -32,43 +41,46 @@ for (const { values, row } of termRows) {
   else if (termIds.has(id)) add('error', 'TERM_ID_DUPLICATE', '术语', termFile, termSheet, row, 'term_id', `术语 ID 重复：${id}`);
   else termIds.add(id);
   const english = text(values['英文']);
-  if (!english) add('error', 'TERM_EN_EMPTY', '术语', termFile, termSheet, row, '英文', `术语 ${id || '(空 ID)'} 的英文为空`);
+  const visibleValue = text(values.is_ui_visible).toLowerCase();
+  const isUiVisible = values.is_ui_visible === 1 || ['1', 'true', '是', 'yes'].includes(visibleValue);
+  if (isUiVisible && !english) add('error', 'TERM_EN_EMPTY', '术语', termFile, termSheet, row, '英文', `界面可见术语 ${id || '(空 ID)'} 的英文为空`);
   else {
     const normalizedEnglish = english.toLowerCase();
     const matchingIds = termIdsByEnglish.get(normalizedEnglish) ?? new Set();
     if (id) matchingIds.add(id);
     termIdsByEnglish.set(normalizedEnglish, matchingIds);
   }
-  for (const column of ['俄语', '葡萄牙语（巴西）', '西班牙语', '越南语']) {
+  for (const column of isUiVisible ? ['俄语', '葡萄牙语（巴西）', '西班牙语', '越南语'] : []) {
     if (!text(values[column])) add('warning', 'TERM_TRANSLATION_MISSING', '术语', termFile, termSheet, row, column, `术语 ${id || '(空 ID)'} 缺少目标语言译法`);
   }
 }
 
 const faqFile = manifest.files.faq;
+const faqReportFile = faqOverridePath ? path.basename(faqOverridePath) : faqFile;
 const faqSheets = ['feature_faq', 'troubleshooting', 'user_routing', 'out_of_scope'];
 const faqIds = new Map();
 for (const sheet of faqSheets) {
   for (const { values, row } of sheetRows(faqFile, sheet)) {
     const id = text(values.FAQ_ID);
-    if (!id) add('error', 'FAQ_ID_EMPTY', 'FAQ', faqFile, sheet, row, 'FAQ_ID', 'FAQ ID 为空');
-    else if (faqIds.has(id)) add('error', 'FAQ_ID_DUPLICATE', 'FAQ', faqFile, sheet, row, 'FAQ_ID', `FAQ ID 重复，首次位于 ${faqIds.get(id)}`);
+    if (!id) add('error', 'FAQ_ID_EMPTY', 'FAQ', faqReportFile, sheet, row, 'FAQ_ID', 'FAQ ID 为空');
+    else if (faqIds.has(id)) add('error', 'FAQ_ID_DUPLICATE', 'FAQ', faqReportFile, sheet, row, 'FAQ_ID', `FAQ ID 重复，首次位于 ${faqIds.get(id)}`);
     else faqIds.set(id, `${sheet}:${row}`);
     const question = text(values['标准问题（中文）']) || text(values['标准问题（英文）']);
     const answerColumns = sheet === 'troubleshooting' ? ['标准答案（通用）', '标准答案（client）', '标准答案（end_user）'] : sheet === 'out_of_scope' ? ['标准答案（英文）'] : ['标准答案'];
-    if (!question) add('error', 'FAQ_QUESTION_EMPTY', 'FAQ', faqFile, sheet, row, '标准问题', `FAQ ${id || '(空 ID)'} 的问题为空`);
-    if (!answerColumns.some((column) => text(values[column]))) add('error', 'FAQ_ANSWER_EMPTY', 'FAQ', faqFile, sheet, row, answerColumns.join('/'), `FAQ ${id || '(空 ID)'} 的答案为空`);
+    if (sheet !== 'out_of_scope' && !question) add('error', 'FAQ_QUESTION_EMPTY', 'FAQ', faqReportFile, sheet, row, '标准问题', `FAQ ${id || '(空 ID)'} 的问题为空`);
+    if (!answerColumns.some((column) => text(values[column]))) add('error', 'FAQ_ANSWER_EMPTY', 'FAQ', faqReportFile, sheet, row, answerColumns.join('/'), `FAQ ${id || '(空 ID)'} 的答案为空`);
     const linkedTermIds = splitIds(values.term_id ?? values['术语ID'] ?? values['涉及术语']);
-    for (const termId of linkedTermIds) if (!termIds.has(termId)) add('error', 'FAQ_TERM_ID_UNKNOWN', 'FAQ', faqFile, sheet, row, 'term_id', `FAQ ${id || '(空 ID)'} 引用了不存在的 term_id：${termId}`);
+    for (const termId of linkedTermIds) if (!termIds.has(termId)) add('error', 'FAQ_TERM_ID_UNKNOWN', 'FAQ', faqReportFile, sheet, row, 'term_id', `FAQ ${id || '(空 ID)'} 引用了不存在的 term_id：${termId}`);
     for (const column of answerColumns) {
       const answer = text(values[column]);
       const openCount = (answer.match(/\{\{/g) ?? []).length;
       const closeCount = (answer.match(/\}\}/g) ?? []).length;
-      if (openCount !== closeCount) add('error', 'PLACEHOLDER_UNCLOSED', 'FAQ', faqFile, sheet, row, column, '{{}} 占位符未闭合');
+      if (openCount !== closeCount) add('error', 'PLACEHOLDER_UNCLOSED', 'FAQ', faqReportFile, sheet, row, column, '{{}} 占位符未闭合');
       for (const match of answer.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)) {
         const placeholder = match[1].trim().toLowerCase();
         const placeholderTermIds = termIdsByEnglish.get(placeholder);
         const hasLinkedTerm = placeholderTermIds && linkedTermIds.some((termId) => placeholderTermIds.has(termId));
-        if (!hasLinkedTerm) add('error', 'PLACEHOLDER_TERM_UNLINKED', 'FAQ', faqFile, sheet, row, column, `占位符「${match[1]}」无法关联当前知识的 term_id`);
+        if (!hasLinkedTerm) add('error', 'PLACEHOLDER_TERM_UNLINKED', 'FAQ', faqReportFile, sheet, row, column, `占位符「${match[1]}」无法关联当前知识的 term_id`);
       }
     }
   }
@@ -119,7 +131,7 @@ for (const { values, row } of pricingRows) if (!text(values.Features)) add('erro
 
 const counts = findings.reduce((summary, finding) => ({ ...summary, [finding.severity]: (summary[finding.severity] ?? 0) + 1 }), { error: 0, warning: 0 });
 const summary = { files: Object.keys(records).length, terms: termRows.length, faq: faqIds.size, functions: functionIds.size, apiEndpoints: apiIds.size, errors: counts.error, warnings: counts.warning };
-const data = { generatedAt: new Date().toISOString(), manifestVersion: manifest.version, summary, findings };
+const data = { generatedAt: new Date().toISOString(), manifestVersion: manifest.version, faqSource: faqReportFile, summary, findings };
 const rows = findings.map((finding) => ({ 级别: finding.severity, 代码: finding.code, 类型: finding.type, 文件: finding.file, Sheet: finding.sheet, 行: finding.row, 列: finding.column, 说明: finding.message }));
 await writeReport(path.join(root, 'reports', 'knowledge'), 'latest', data, rows, '正式知识诊断报告');
 const sampleFindings = findings.slice(0, 20).map((finding) => ({ ...finding, message: finding.message.replace(/[A-Z]{2,}-[A-Z0-9-]+/g, '[已脱敏ID]') }));
