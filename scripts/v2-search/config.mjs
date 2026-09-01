@@ -17,6 +17,7 @@ export function getSearchConfig(environment = process.env) {
     hasEmbeddingKey: Boolean(environment.V2_EMBEDDING_API_KEY),
     hasSupabase: Boolean(environment.SUPABASE_URL && (environment.SUPABASE_SERVICE_ROLE_KEY || environment.SUPABASE_ANON_KEY)),
     hasDatabaseUrl: Boolean(environment.SUPABASE_DB_URL),
+    rejectUnauthorized: environment.SUPABASE_DB_SSL_REJECT_UNAUTHORIZED !== 'false',
   };
 }
 

@@ -69,7 +69,7 @@ create or replace function v2_search.search_chunks(
   query_embedding vector(1536), query_text text, match_count integer default 10,
   product_filter text default null, api_type_filter text default null
 ) returns table (chunk_id text, knowledge_id text, title text, metadata jsonb, semantic_score double precision, text_rank real)
-language sql stable security invoker set search_path = '' as $$
+language sql stable security invoker set search_path = public, extensions, pg_catalog as $$
   select c.chunk_id, c.knowledge_id, c.title, c.metadata,
     1 - (c.embedding <=> query_embedding) as semantic_score,
     ts_rank_cd(c.search_document, plainto_tsquery('simple', query_text)) as text_rank
