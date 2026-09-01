@@ -13,7 +13,7 @@
     "extension:build": "tsup extension/src/content/copilot-content.ts --format iife --global-name DICloakCopilot --platform browser --target es2019 --out-dir extension/dist --clean && tsup extension/src/background.ts --format iife --global-name DICloakCopilotBackground --platform browser --target es2019 --out-dir extension/dist",
     "extension:dev": "pnpm extension:build -- --watch",
     "lint:build": "eslint . --quiet",
-    "validate": "pnpm run --parallel '/^(ts-check|lint:build)$/'",
+    "validate": "pnpm ts-check && pnpm lint:build",
     "validate:knowledge-manifest": "node scripts/validate-knowledge-manifest.mjs",
     "evaluation:validate": "node scripts/validate-evaluation.mjs",
     "evaluation:diagnose-knowledge": "node scripts/diagnose-knowledge.mjs",
@@ -21,6 +21,8 @@
     "evaluation:v1-baseline": "node scripts/run-v1-baseline.mjs",
     "evaluation:test": "node --test scripts/evaluation/*.test.mjs",
     "evaluation:all": "pnpm evaluation:validate && pnpm evaluation:test && pnpm evaluation:diagnose-knowledge && pnpm evaluation:mock",
+    "v2:knowledge:build": "node scripts/build-v2-knowledge.mjs",
+    "v2:knowledge:test": "node --test scripts/v2-knowledge/*.test.mjs",
     "test:stream": "node --experimental-strip-types --test src/lib/server/openai-stream.test.ts"
   },
   "dependencies": {
