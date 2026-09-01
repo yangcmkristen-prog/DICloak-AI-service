@@ -17,13 +17,14 @@ Supabase 是线上应用实际读取的运行时知识数据。本目录保存�
 - 更新仓库 Excel 不会自动更新 Supabase。
 - 更新正式知识时，必须同步更新 Supabase 运行时数据、本目录中的仓库文件，以及 `manifest.json` 的文件映射、`version` 和 `updatedAt`。
 - Codex Cloud 可以使用仓库中的 Excel 进行知识诊断，但诊断结果不代表 Supabase 已自动同步。
+- 正式 Excel 使用稳定文件名，不在文件名中添加日期或版本；更新时覆盖对应文件，并通过 Git 历史和 `manifest.json` 的版本字段追踪变更。
 
 ## 正式文件
 
-- FAQ：`FAQ库8.28.xlsx`
-- 术语：`术语库8.11.xlsx`
-- 功能知识：`功能知识库8.11.xlsx`
-- API：`API端点与参数明细表8.17.xlsx`
+- FAQ：`FAQ库.xlsx`
+- 术语：`术语库.xlsx`
+- 功能知识：`功能知识库.xlsx`
+- API：`API端点与参数明细表.xlsx`
 - 套餐与功能支持：`DIC套餐功能支持表.xlsx`
 
 运行 `pnpm validate:knowledge-manifest` 可校验 manifest 格式、必需字段、文件映射和目录完整性。
