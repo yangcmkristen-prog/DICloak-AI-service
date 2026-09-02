@@ -48,6 +48,7 @@ reports/evaluation/mock-latest.json
 reports/evaluation/v1-baseline.html
 reports/evaluation/v1-baseline.json
 reports/v2-knowledge/
+reports/v2-index/
 evaluation-source/*.local.xlsx
 
 # Cache
