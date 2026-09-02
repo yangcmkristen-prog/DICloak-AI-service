@@ -49,6 +49,9 @@ reports/evaluation/v1-baseline.html
 reports/evaluation/v1-baseline.json
 reports/v2-knowledge/
 reports/v2-index/
+reports/evaluation/v2-retrieval-latest.html
+reports/evaluation/v2-retrieval-latest.json
+reports/evaluation/v2-retrieval-debug.png
 evaluation-source/*.local.xlsx
 
 # Cache
