@@ -3,7 +3,7 @@ import {
   parseEnabled, protectedField, source, splitList, splitUtterances, text, unique, uniqueProtectedFields, valuesBody,
 } from './utils.mjs';
 
-function faqRecord({ values, row, file, sheet, version, type, answerColumns, questionEnglishColumn = '标准问题（英文）', utteranceColumn = '用户问法' }) {
+function faqRecord({ values, row, file, sheet, version, type, answerColumns, questionEnglishColumn = '标准问题（英文）', utteranceColumn = '用户问法', defaultProducts = ['dicloak'] }) {
   const id = text(values.FAQ_ID);
   const answers = answerColumns.map((column) => [column, values[column]]).filter(([, value]) => text(value));
   const body = answers.length === 1 ? text(answers[0][1]) : valuesBody(answers);
@@ -12,7 +12,7 @@ function faqRecord({ values, row, file, sheet, version, type, answerColumns, que
   return createRecord({
     id,
     type,
-    productScope: normalizeProductScope(values['已支持产品'] ?? values['产品'], ['dicloak']),
+    productScope: normalizeProductScope(values['已支持产品'] ?? values['产品'], defaultProducts),
     enabled: parseEnabled(values['是否启用'], true),
     sourceLanguage: 'en',
     title: text(values['标准问题（英文）']) || text(values['标准问题（中文）']) || id,
@@ -39,15 +39,15 @@ function faqRecord({ values, row, file, sheet, version, type, answerColumns, que
 export function adaptFaqWorkbook({ workbook, file, version, warnings }) {
   const records = [];
   const specs = [
-    ['feature_faq', 'faq', ['标准答案'], '用户问法'],
-    ['troubleshooting', 'troubleshooting', ['标准答案（通用）', '标准答案（client）', '标准答案（end_user）'], '用户问法（英文）'],
-    ['user_routing', 'user_routing', ['标准答案'], '用户问法'],
-    ['out_of_scope', 'out_of_scope', ['标准答案（英文）'], '英文关键词'],
+    ['feature_faq', 'faq', ['标准答案'], '用户问法', ['dicloak']],
+    ['troubleshooting', 'troubleshooting', ['标准答案（通用）', '标准答案（client）', '标准答案（end_user）'], '用户问法（英文）', ['dicloak']],
+    ['user_routing', 'user_routing', ['标准答案'], '用户问法', ['dicloak']],
+    ['out_of_scope', 'out_of_scope', ['标准答案（英文）'], '英文关键词', ['dicloak', 'paraturbo']],
   ];
-  for (const [sheet, type, answerColumns, utteranceColumn] of specs) {
+  for (const [sheet, type, answerColumns, utteranceColumn, defaultProducts] of specs) {
     const rows = workbook.rows(sheet);
     for (const entry of rows) {
-      const record = faqRecord({ ...entry, file, sheet, version, type, answerColumns, utteranceColumn });
+      const record = faqRecord({ ...entry, file, sheet, version, type, answerColumns, utteranceColumn, defaultProducts });
       if (!record.id) warnings.push({ code: 'FAQ_ID_MISSING', message: 'FAQ 缺少稳定 ID', source: record.source });
       else records.push(record);
     }
@@ -224,7 +224,7 @@ export function adaptPricing({ workbook, file, version, warnings }) {
       const rawValue = values[column];
       const value = typeof rawValue === 'number' ? rawValue : text(rawValue);
       return createRecord({
-        id: `PRICING:${feature}:${planKey}`, type: 'pricing', productScope: ['dicloak'], enabled: true, sourceLanguage: 'structured',
+        id: `PRICING:${feature}:${planKey}`, type: 'pricing', productScope: ['dicloak', 'paraturbo'], enabled: true, sourceLanguage: 'structured',
         title: `${column} · ${feature}`, canonicalQuestions: [], utterances: [feature, column],
         body: valuesBody([['套餐', column], ['功能项', feature], ['值/限制', value]]), termIds: [], tags: ['pricing', planKey, feature],
         metadata: { planKey, planName: column, feature, value, valueType: typeof rawValue === 'number' ? 'number' : 'text' },

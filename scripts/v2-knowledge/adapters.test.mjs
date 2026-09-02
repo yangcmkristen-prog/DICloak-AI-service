@@ -27,6 +27,11 @@ test('FAQ 保留双语问题、用户问法、原始占位符、termIds、Functi
   assert.equal(records[0].source.row, 2);
 });
 
+test('Out of Scope 默认同时支持 DICloak 和 ParaTurbo', () => {
+  const records = adaptFaqWorkbook({ workbook: workbook({ feature_faq: [], troubleshooting: [], user_routing: [], out_of_scope: [{ FAQ_ID: 'OOS-X', '标准答案（英文）': 'Unsupported' }], troubleshooting_flow: [] }), file: 'FAQ.xlsx', version: '1', warnings: [] });
+  assert.deepEqual(records[0].productScope, ['dicloak', 'paraturbo']);
+});
+
 test('排障流程把同一节点的多条匹配分支聚合为一个稳定知识 ID', () => {
   const warnings = [];
   const records = adaptFaqWorkbook({
@@ -108,6 +113,7 @@ test('套餐按套餐和功能项生成结构化记录，不复制整张横向�
   assert.equal(records.length, 4);
   assert.equal(records[0].metadata.feature, 'included profiles');
   assert.equal(records[0].metadata.value, 5);
+  assert.ok(records.every((record) => record.productScope.join(',') === 'dicloak,paraturbo'));
   assert.ok(records.every((record) => record.body.includes('功能项：included profiles')));
 });
 

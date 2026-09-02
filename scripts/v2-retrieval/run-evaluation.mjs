@@ -28,7 +28,8 @@ async function worker() {
     } catch (error) { results[index] = { caseId: item.caseId, question: item.question, language: item.language, knowledgeType: item.knowledgeType, expectedIds: item.knowledgeIds, actualIds: [], rank: null, confidence: 'none', productErrors: 0, apiTypeErrors: 0, noKnowledgeError: false, timings: {}, top: [], error: error instanceof Error ? error.message : String(error), milliseconds: Math.round(performance.now() - started) }; }
   }
 }
-await Promise.all(Array.from({ length: Math.min(3, cases.length) }, () => worker()));
+const concurrency = Math.max(1, Math.min(Number(process.env.V2_EVALUATION_CONCURRENCY ?? 2), cases.length));
+await Promise.all(Array.from({ length: concurrency }, () => worker()));
 
 const percentile = (values, p) => { const sorted = [...values].sort((a, b) => a - b); return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)] ?? 0; };
 const positive = results.filter((result) => result.knowledgeType !== '无知识');

@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-09-01T07:52:13.636Z",
-  "manifestVersion": "2026-09-01.2",
+  "generatedAt": "2026-09-02T10:17:46.994Z",
+  "manifestVersion": "2026-09-02.3",
   "faqSource": "FAQ库.xlsx",
   "summary": {
     "files": 5,
     "terms": 589,
-    "faq": 327,
+    "faq": 328,
     "functions": 310,
     "apiEndpoints": 118,
     "errors": 0,
