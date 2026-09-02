@@ -33,6 +33,7 @@ import {
 } from "@/lib/store";
 import { toast } from "sonner";
 import { consumeEventStream } from "@/lib/stream-events";
+import { convertSavedPhraseProduct, createSavedPhraseProductVersions, type ProductPhraseVersions, type SavedPhraseProductSelection } from "@/lib/saved-phrase-products";
 
 const TRANSLATION_LANGUAGES = [
   { value: "auto", label: "自动检测" },
@@ -137,7 +138,7 @@ function getRoleFromAiReplySections(sections: StructuredReplySection[]): Convers
 
 type PhraseLanguage = typeof PHRASE_TRANSLATION_LANGUAGES[number]["value"];
 type SavedPhraseFolder = { id: string; name: string; parentId: string | null };
-type SavedPhrase = { id: string; name: string; sourceText: string; folderId: string | null; translations: Record<PhraseLanguage, string>; createdAt: number };
+type SavedPhrase = { id: string; name: string; sourceText: string; folderId: string | null; translations: Record<PhraseLanguage, string>; productVersions: ProductPhraseVersions; createdAt: number };
 type SavedPhraseState = { folders: SavedPhraseFolder[]; phrases: SavedPhrase[] };
 type SavedPhraseDragItem = { type: "phrase" | "folder"; id: string };
 
@@ -265,7 +266,10 @@ function getSavedPhraseState(): SavedPhraseState {
     const parsed = JSON.parse(raw) as Partial<SavedPhraseState>;
     return {
       folders: Array.isArray(parsed.folders) ? parsed.folders.map(normalizeSavedPhraseFolder) : [],
-      phrases: Array.isArray(parsed.phrases) ? parsed.phrases : [],
+      phrases: Array.isArray(parsed.phrases) ? parsed.phrases.map((phrase) => ({
+        ...phrase,
+        productVersions: createSavedPhraseProductVersions(phrase.sourceText, phrase.translations),
+      })) : [],
     };
   } catch (error) {
     console.error("读取收纳话术失败:", error);
@@ -608,6 +612,7 @@ export default function Home() {
   const [isTranslating, setIsTranslating] = useState(false);
   const [isTranslationCopied, setIsTranslationCopied] = useState(false);
   const [savedPhraseState, setSavedPhraseState] = useState<SavedPhraseState>({ folders: [], phrases: [] });
+  const [savedPhraseProduct, setSavedPhraseProduct] = useState<SavedPhraseProductSelection>("original");
   const [phraseSearch, setPhraseSearch] = useState("");
   const [isSavePhraseDialogOpen, setIsSavePhraseDialogOpen] = useState(false);
   const [selectedFolderIdForSave, setSelectedFolderIdForSave] = useState("root");
@@ -1334,6 +1339,7 @@ export default function Home() {
         sourceText: text,
         folderId: selectedFolderIdForSave === "root" ? null : selectedFolderIdForSave,
         translations,
+        productVersions: createSavedPhraseProductVersions(text, translations),
         createdAt: Date.now(),
       };
       await persistSavedPhraseState({ ...savedPhraseState, phrases: [phrase, ...savedPhraseState.phrases] });
@@ -1499,7 +1505,8 @@ export default function Home() {
 
   const handleCopySavedPhrase = async (phrase: SavedPhrase, language: PhraseLanguage) => {
     try {
-      await copyTextToClipboard(phrase.translations[language] || phrase.sourceText);
+      const version = savedPhraseProduct === "original" ? phrase : phrase.productVersions[savedPhraseProduct];
+      await copyTextToClipboard(version.translations[language] || version.sourceText);
       setCopiedSavedPhraseLanguage(language);
       toast.success("已复制");
       window.setTimeout(() => setCopiedSavedPhraseLanguage((currentLanguage) => currentLanguage === language ? null : currentLanguage), 1500);
@@ -1542,7 +1549,12 @@ export default function Home() {
         translations[language.value] = translation;
       }
 
-      const updatedPhrase: SavedPhrase = { ...phrase, sourceText, translations };
+      const updatedPhrase: SavedPhrase = {
+        ...phrase,
+        sourceText,
+        translations,
+        productVersions: createSavedPhraseProductVersions(sourceText, translations),
+      };
       const nextState = {
         ...savedPhraseState,
         phrases: savedPhraseState.phrases.map((item) => item.id === phrase.id ? updatedPhrase : item),
@@ -1575,14 +1587,16 @@ export default function Home() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            text: phrase.sourceText,
+            text: savedPhraseProduct === "original" ? phrase.sourceText : phrase.productVersions[savedPhraseProduct].sourceText,
             sourceLanguage: "auto",
             targetLanguage: otherPhraseLanguage,
           }),
         });
         const data = await response.json() as { translation?: string; error?: string };
         if (!response.ok || !data.translation) throw new Error(data.error || "翻译失败");
-        return data.translation;
+        return savedPhraseProduct === "original"
+          ? data.translation
+          : convertSavedPhraseProduct(data.translation, savedPhraseProduct);
       })();
 
       // 其他语种按需翻译后直接复制，不写入话术状态或 localStorage。
@@ -1812,7 +1826,17 @@ export default function Home() {
                         </div>
                         {isSavedPhraseSyncing && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                       </div>
-                       <div className="mb-4 flex justify-end">
+                       <div className="mb-4 flex items-center justify-end gap-2">
+                        <Select value={savedPhraseProduct} onValueChange={(value) => setSavedPhraseProduct(value as SavedPhraseProductSelection)}>
+                          <SelectTrigger className="w-[132px]" aria-label="切换话术产品">
+                            <SelectValue placeholder="选择产品" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="original">未选择产品</SelectItem>
+                            <SelectItem value="dicloak">DICloak</SelectItem>
+                            <SelectItem value="paraturbo">Paraturbo</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <Button size="sm" variant="outline" onClick={() => setIsAddFolderDialogOpen(true)}>
                           <Plus className="mr-1 h-4 w-4" />
                           新建文件夹
@@ -2360,7 +2384,9 @@ export default function Home() {
                     </div>
                   </div>
                 ) : (
-                  <div className="max-h-40 overflow-auto rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{selectedPhrase.sourceText}</div>
+                  <div className="max-h-40 overflow-auto rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                    {savedPhraseProduct === "original" ? selectedPhrase.sourceText : selectedPhrase.productVersions[savedPhraseProduct].sourceText}
+                  </div>
                 )}
               </div>
               <div className="space-y-2">

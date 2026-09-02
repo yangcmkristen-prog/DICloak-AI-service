@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
+import { createSavedPhraseProductVersions, type ProductPhraseVersions } from "@/lib/saved-phrase-products";
 
 const CONFIG_KEY = "saved_phrases";
 
@@ -10,6 +11,7 @@ type SavedPhrase = {
   sourceText: string;
   folderId: string | null;
   translations: Record<string, string>;
+  productVersions: ProductPhraseVersions;
   createdAt: number;
 };
 type SavedPhraseState = { folders: SavedPhraseFolder[]; phrases: SavedPhrase[] };
@@ -32,7 +34,23 @@ function normalizeSavedPhraseState(value: unknown): SavedPhraseState {
   const data = value as Partial<SavedPhraseState>;
   return {
     folders: Array.isArray(data.folders) ? data.folders.map(normalizeSavedPhraseFolder) : [],
-    phrases: Array.isArray(data.phrases) ? data.phrases : [],
+    phrases: Array.isArray(data.phrases) ? data.phrases.flatMap((phrase): SavedPhrase[] => {
+      if (!phrase || typeof phrase !== "object") return [];
+      const candidate = phrase as Partial<SavedPhrase>;
+      if (typeof candidate.id !== "string" || typeof candidate.sourceText !== "string") return [];
+      const translations = candidate.translations && typeof candidate.translations === "object"
+        ? candidate.translations
+        : {};
+      return [{
+        id: candidate.id,
+        name: typeof candidate.name === "string" ? candidate.name : candidate.sourceText,
+        sourceText: candidate.sourceText,
+        folderId: typeof candidate.folderId === "string" ? candidate.folderId : null,
+        translations,
+        productVersions: createSavedPhraseProductVersions(candidate.sourceText, translations),
+        createdAt: typeof candidate.createdAt === "number" ? candidate.createdAt : Date.now(),
+      }];
+    }) : [],
   };
 }
 
@@ -50,9 +68,27 @@ export async function GET() {
       return NextResponse.json({ error: "获取失败" }, { status: 500 });
     }
 
+    const normalizedState = normalizeSavedPhraseState(data?.config_value);
+    const needsProductVersionMigration = data !== null
+      && JSON.stringify(data.config_value) !== JSON.stringify(normalizedState);
+
+    if (needsProductVersionMigration) {
+      const { error: migrationError } = await client
+        .from("system_configs")
+        .upsert(
+          {
+            config_key: CONFIG_KEY,
+            config_value: normalizedState,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "config_key" },
+        );
+      if (migrationError) console.error("迁移收纳话术产品版本失败:", migrationError);
+    }
+
     return NextResponse.json({
       success: true,
-      data: normalizeSavedPhraseState(data?.config_value),
+      data: normalizedState,
       isEmpty: !data,
       updatedAt: data?.updated_at || null,
     });
