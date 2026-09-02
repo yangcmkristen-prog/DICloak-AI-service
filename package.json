@@ -30,6 +30,8 @@
     "v2:index:sync": "node scripts/v2-search/sync-postgres-index.mjs",
     "v2:index:verify-live": "node scripts/v2-search/verify-live-index.mjs",
     "v2:index:test": "node --test scripts/v2-search/*.test.mjs",
+    "v2:retrieval:test": "node --experimental-strip-types --test src/lib/server/v2/retrieval/*.test.ts",
+    "v2:retrieval:evaluate": "node --experimental-strip-types scripts/v2-retrieval/run-evaluation.mjs",
     "test:stream": "node --experimental-strip-types --test src/lib/server/openai-stream.test.ts"
   },
   "dependencies": {

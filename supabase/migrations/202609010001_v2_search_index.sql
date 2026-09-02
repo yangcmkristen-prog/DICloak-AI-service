@@ -1,5 +1,6 @@
 -- Additive-only V2 search schema. Review and run on a test Supabase project first.
 create extension if not exists vector;
+create extension if not exists pg_trgm;
 create schema if not exists v2_search;
 
 create table if not exists v2_search.index_versions (
@@ -48,6 +49,8 @@ create table if not exists v2_search.chunks (
 
 create index if not exists v2_chunks_embedding_hnsw on v2_search.chunks using hnsw (embedding vector_cosine_ops);
 create index if not exists v2_chunks_full_text_gin on v2_search.chunks using gin (search_document);
+create index if not exists v2_chunks_full_text_trgm on v2_search.chunks using gin (full_text gin_trgm_ops);
+create index if not exists v2_chunks_title_trgm on v2_search.chunks using gin (title gin_trgm_ops);
 create index if not exists v2_chunks_filters on v2_search.chunks (index_version_id, enabled, knowledge_type, api_type);
 create index if not exists v2_chunks_products_gin on v2_search.chunks using gin (products);
 create index if not exists v2_chunks_exact_terms_gin on v2_search.chunks using gin (exact_terms);
