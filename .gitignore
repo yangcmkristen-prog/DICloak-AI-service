@@ -54,6 +54,7 @@ reports/evaluation/v2-retrieval-latest.json
 reports/evaluation/v2-retrieval-debug.png
 reports/evaluation/v2-decision-latest.html
 reports/evaluation/v2-decision-latest.json
+reports/v2-terminology/
 evaluation-source/*.local.xlsx
 
 # Cache

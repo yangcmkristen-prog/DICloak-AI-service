@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { adaptApi, adaptFaqWorkbook, adaptFunctions, adaptPricing } from './adapters.mjs';
 import { chunkKnowledge, validateChunks } from './chunker.mjs';
+import { extractTextProtectedFields } from './utils.mjs';
 
 function workbook(sheets) {
   return {
@@ -102,6 +103,17 @@ test('分块保持各自产品范围，不合并不同产品知识', () => {
   assert.deepEqual(chunks.find((chunk) => chunk.knowledgeId === 'FUNC-D').productScope, ['dicloak']);
   assert.deepEqual(chunks.find((chunk) => chunk.knowledgeId === 'FUNC-P').productScope, ['paraturbo']);
   assert.deepEqual(validateChunks(records, chunks), []);
+});
+
+test('自然语言中的技术字段被结构化识别，永久 API Path 完整保留', () => {
+  const body = 'Use PATCH /openapi/v1/env/{env_id}/open with {"env_id":123} in DICloak v1.2.3; price $19.99.';
+  const fields = extractTextProtectedFields(body, 'answer');
+  assert.ok(fields.some((field) => field.kind === 'method' && field.value === 'PATCH'));
+  assert.ok(fields.some((field) => field.kind === 'endpoint' && field.value === '/openapi/v1/env/{env_id}/open'));
+  assert.ok(fields.some((field) => field.kind === 'json_key' && field.value === 'env_id'));
+  assert.ok(fields.some((field) => field.kind === 'product' && field.value === 'DICloak'));
+  assert.ok(fields.some((field) => field.kind === 'version' && field.value === 'v1.2.3'));
+  assert.ok(fields.some((field) => field.kind === 'price' && field.value === '$19.99'));
 });
 
 test('套餐按套餐和功能项生成结构化记录，不复制整张横向表', () => {
