@@ -1,0 +1,1775 @@
+{
+  "generatedAt": "2026-09-03T03:25:40.904Z",
+  "mode": "real-response-decision",
+  "summary": {
+    "cases": 24,
+    "broadCases": 20,
+    "beforeClarifyOnly": 9,
+    "afterClarifyOnly": 1,
+    "answerFirst": 23,
+    "executionFailures": 0
+  },
+  "results": [
+    {
+      "id": "CORE-BROAD",
+      "question": "环境打不开",
+      "before": {
+        "responseStrategy": "clarify_only",
+        "selectedKnowledgeIds": []
+      },
+      "after": {
+        "questionMode": "broad_troubleshooting",
+        "evidenceConfidence": "medium",
+        "responseStrategy": "answer_then_clarify",
+        "selectedKnowledgeIds": [
+          "ERR-NETWORK-003",
+          "ERR-ENVSTART-006",
+          "ERR-ENVSTART-004",
+          "ERR-PROXYISSUE-001"
+        ],
+        "knowledgeGroups": [
+          {
+            "key": "network",
+            "label": "网络连接",
+            "knowledgeIds": [
+              "ERR-NETWORK-003",
+              "ERR-ENVSTART-006",
+              "ERR-ENVSTART-002",
+              "ERR-PROXYISSUE-001",
+              "ERR-ENVSTART-007",
+              "ERR-NETWORK-001",
+              "ERR-LIST-001",
+              "ERR-PROXYISSUE-003"
+            ]
+          },
+          {
+            "key": "cache",
+            "label": "缓存或环境文件",
+            "knowledgeIds": [
+              "ERR-NETWORK-003",
+              "ERR-ENVSTART-006",
+              "ERR-ENVSTART-004",
+              "ERR-ENVSTART-002",
+              "ERR-PROXYISSUE-001",
+              "ERR-ENVSTART-009",
+              "ERR-KERNELISSUE-001",
+              "ERR-ENVSTART-001",
+              "ERR-KERNELISSUE-002",
+              "ERR-ENVSTART-007",
+              "ERR-ENVSTART-003",
+              "ERR-NETWORK-001",
+              "ERR-KERNELISSUE-005",
+              "ERR-DOWNLOAD-003",
+              "ERR-ENVSTART-005",
+              "ERR-LIST-001",
+              "ROUTING-ACCESS-013",
+              "ERR-PROXYISSUE-003",
+              "TS_SESSION_EXPIRED_001:start"
+            ]
+          },
+          {
+            "key": "disk",
+            "label": "磁盘空间或路径",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ERR-ENVSTART-004",
+              "ERR-ENVSTART-002",
+              "ERR-ENVSTART-007"
+            ]
+          },
+          {
+            "key": "extension",
+            "label": "扩展",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ERR-ENVSTART-003"
+            ]
+          },
+          {
+            "key": "permission",
+            "label": "文件或系统权限",
+            "knowledgeIds": [
+              "ERR-ENVSTART-004",
+              "ERR-ENVSTART-002",
+              "ERR-ENVSTART-009",
+              "ERR-KERNELISSUE-001",
+              "ERR-ENVSTART-003",
+              "ERR-NETWORK-001",
+              "ERR-KERNELISSUE-005",
+              "ERR-ENVSTART-005",
+              "ROUTING-ACCESS-013"
+            ]
+          },
+          {
+            "key": "kernel",
+            "label": "浏览器内核",
+            "knowledgeIds": [
+              "ERR-ENVSTART-004",
+              "ERR-ENVSTART-009",
+              "ERR-KERNELISSUE-001",
+              "ERR-KERNELISSUE-002",
+              "ERR-ENVSTART-003",
+              "ERR-KERNELISSUE-005"
+            ]
+          },
+          {
+            "key": "proxy",
+            "label": "代理配置或连通性",
+            "knowledgeIds": [
+              "ERR-PROXYISSUE-001",
+              "ERR-NETWORK-001",
+              "ERR-PROXYISSUE-003"
+            ]
+          }
+        ],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [
+          "错误提示",
+          "发生步骤",
+          "操作系统"
+        ],
+        "decisionReasons": [
+          "问题属于已知故障类别，但暂时不能确定唯一根因",
+          "Top-1=0.374",
+          "差距=0.065"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 1933.3,
+        "embedding": 1798.8,
+        "vector": 789.2,
+        "fusion": 0.4,
+        "rerank": 2.6,
+        "total": 2731.5
+      }
+    },
+    {
+      "id": "CORE-LOGIN",
+      "question": "无法登录",
+      "before": {
+        "responseStrategy": "clarify_only",
+        "selectedKnowledgeIds": []
+      },
+      "after": {
+        "questionMode": "ambiguous_with_safe_branches",
+        "evidenceConfidence": "low",
+        "responseStrategy": "conditional",
+        "selectedKnowledgeIds": [
+          "ERR-NETWORK-004",
+          "ERR-TOOLERR-006",
+          "ERR-SHARESEC-001",
+          "ERR-TOOLERR-003"
+        ],
+        "knowledgeGroups": [],
+        "branches": [
+          {
+            "label": "DICloak 账号登录",
+            "knowledgeIds": [
+              "ERR-NETWORK-004",
+              "ERR-SHARESEC-001"
+            ]
+          },
+          {
+            "label": "第三方平台账号登录",
+            "knowledgeIds": [
+              "ERR-TOOLERR-006",
+              "ERR-TOOLERR-003"
+            ]
+          }
+        ],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [
+          "登录对象",
+          "错误提示"
+        ],
+        "decisionReasons": [
+          "可能是 DICloak 账号或环境内第三方平台账号，两个分支可安全并列",
+          "Top-1=0.238",
+          "差距=0.008",
+          "缺失条件：symptomDetails",
+          "缺少唯一根因所需的故障细节，但不否定已有排障证据"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 821,
+        "embedding": 951.3,
+        "vector": 1101.6,
+        "fusion": 0.1,
+        "rerank": 0.3,
+        "total": 2055.2
+      }
+    },
+    {
+      "id": "CORE-HTTP",
+      "question": "HTTP API 打开环境的 Endpoint 是什么？",
+      "before": {
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "API-HTTP-ENV-002",
+          "API-HTTP-GROUP-002",
+          "API-HTTP-GROUP-001",
+          "API-HTTP-ENV-003",
+          "API-HTTP-ENV-004"
+        ]
+      },
+      "after": {
+        "questionMode": "precise",
+        "evidenceConfidence": "low",
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "API-HTTP-ENV-002",
+          "API-HTTP-GROUP-002",
+          "API-HTTP-GROUP-001",
+          "API-HTTP-ENV-003",
+          "API-HTTP-ENV-004"
+        ],
+        "knowledgeGroups": [],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [],
+        "decisionReasons": [
+          "对象和意图足以直接选择知识",
+          "Top-1=0.352",
+          "差距=0.018",
+          "缺失条件：method"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 2293.2,
+        "embedding": 1295.4,
+        "vector": 1749.6,
+        "fusion": 0.1,
+        "rerank": 0.5,
+        "total": 4043.8
+      }
+    },
+    {
+      "id": "CORE-RISK",
+      "question": "帮我删除它",
+      "before": {
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "FUNC-ENV-037",
+          "FUNC-PROXY-006",
+          "FUNC-TEAM-018",
+          "FUNC-ENV-089",
+          "FUNC-GROUP-006"
+        ]
+      },
+      "after": {
+        "questionMode": "missing_critical_information",
+        "evidenceConfidence": "low",
+        "responseStrategy": "clarify_only",
+        "selectedKnowledgeIds": [],
+        "knowledgeGroups": [],
+        "branches": [],
+        "missingCriticalInformation": [
+          "操作对象"
+        ],
+        "optionalFollowUpFields": [],
+        "decisionReasons": [
+          "模糊请求涉及不可逆或高风险操作",
+          "Top-1=0.254",
+          "差距=0.001"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 1314.2,
+        "embedding": 2434.2,
+        "vector": 832.3,
+        "fusion": 0.1,
+        "rerank": 0.7,
+        "total": 3267.5
+      }
+    },
+    {
+      "id": "BROAD-01",
+      "question": "点击打开环境没有反应",
+      "before": {
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "FUNC-ENV-008",
+          "FUNC-ENV-077",
+          "FUNC-GLOBAL-005",
+          "FUNC-GLOBAL-019",
+          "FUNC-GLOBAL-004"
+        ]
+      },
+      "after": {
+        "questionMode": "precise",
+        "evidenceConfidence": "medium",
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "FUNC-ENV-008",
+          "FUNC-ENV-077",
+          "FUNC-GLOBAL-005",
+          "FUNC-GLOBAL-019",
+          "FUNC-GLOBAL-004"
+        ],
+        "knowledgeGroups": [],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [],
+        "decisionReasons": [
+          "对象和意图足以直接选择知识",
+          "Top-1=0.415",
+          "差距=0.021"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 1115.8,
+        "embedding": 888.3,
+        "vector": 738.1,
+        "fusion": 0.2,
+        "rerank": 1.6,
+        "total": 1856.8
+      }
+    },
+    {
+      "id": "BROAD-02",
+      "question": "浏览器环境启动失败",
+      "before": {
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-KERNELISSUE-002",
+          "ERR-ENVSTART-001",
+          "ERR-ENVSTART-002",
+          "ERR-PROXYISSUE-001",
+          "ERR-ENVSTART-006"
+        ]
+      },
+      "after": {
+        "questionMode": "precise",
+        "evidenceConfidence": "low",
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-KERNELISSUE-002",
+          "ERR-ENVSTART-001",
+          "ERR-ENVSTART-002",
+          "ERR-PROXYISSUE-001",
+          "ERR-ENVSTART-006"
+        ],
+        "knowledgeGroups": [],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [],
+        "decisionReasons": [
+          "对象和意图足以直接选择知识",
+          "Top-1=0.327",
+          "差距=0.004"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 1381.6,
+        "embedding": 1158.2,
+        "vector": 955.4,
+        "fusion": 0.2,
+        "rerank": 0.8,
+        "total": 2339.5
+      }
+    },
+    {
+      "id": "BROAD-03",
+      "question": "页面加载失败",
+      "before": {
+        "responseStrategy": "clarify_only",
+        "selectedKnowledgeIds": []
+      },
+      "after": {
+        "questionMode": "broad_troubleshooting",
+        "evidenceConfidence": "medium",
+        "responseStrategy": "answer_then_clarify",
+        "selectedKnowledgeIds": [
+          "ERR-ENVSTART-006",
+          "ERR-KERNELISSUE-004"
+        ],
+        "knowledgeGroups": [
+          {
+            "key": "network",
+            "label": "网络连接",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ERR-KERNELISSUE-004",
+              "ERR-NETWORK-002",
+              "ERR-ENVSTART-008",
+              "ERR-LIST-001",
+              "ERR-ENVSTART-002",
+              "ERR-PROXYISSUE-001",
+              "ERR-NETWORK-001"
+            ]
+          },
+          {
+            "key": "disk",
+            "label": "磁盘空间或路径",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ERR-KERNELISSUE-004",
+              "ERR-ENVSTART-002",
+              "ERR-KERNELISSUE-003"
+            ]
+          },
+          {
+            "key": "cache",
+            "label": "缓存或环境文件",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ERR-KERNELISSUE-004",
+              "ERR-ENVSTART-008",
+              "ERR-TECH-001",
+              "ERR-LIST-001",
+              "ERR-ENVSTART-002",
+              "ERR-PROXYISSUE-001",
+              "ERR-TOOLERR-005",
+              "ERR-NETWORK-001",
+              "ERR-TOOLERR-004",
+              "ERR-TOOLERR-008",
+              "ERR-TOOLERR-003",
+              "ERR-TOOLERR-001",
+              "ERR-KERNELISSUE-003",
+              "ERR-INSTALL-001"
+            ]
+          },
+          {
+            "key": "extension",
+            "label": "扩展",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ERR-ENVSTART-008",
+              "ERR-TOOLERR-004",
+              "ERR-TOOLERR-008",
+              "ERR-TOOLERR-001"
+            ]
+          },
+          {
+            "key": "antivirus",
+            "label": "杀毒软件或安全软件",
+            "knowledgeIds": [
+              "ERR-KERNELISSUE-004",
+              "ERR-KERNELISSUE-003",
+              "ERR-INSTALL-001"
+            ]
+          },
+          {
+            "key": "permission",
+            "label": "文件或系统权限",
+            "knowledgeIds": [
+              "ERR-KERNELISSUE-004",
+              "ERR-NETWORK-002",
+              "ERR-ENVSTART-008",
+              "ERR-ENVSTART-002",
+              "ERR-NETWORK-001",
+              "ERR-KERNELISSUE-003",
+              "ERR-INSTALL-001"
+            ]
+          },
+          {
+            "key": "kernel",
+            "label": "浏览器内核",
+            "knowledgeIds": [
+              "ERR-KERNELISSUE-004",
+              "ERR-TOOLERR-004",
+              "ERR-TOOLERR-008",
+              "ERR-KERNELISSUE-003"
+            ]
+          }
+        ],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [
+          "错误提示",
+          "发生步骤",
+          "操作系统"
+        ],
+        "decisionReasons": [
+          "问题属于已知故障类别，但暂时不能确定唯一根因",
+          "Top-1=0.328",
+          "差距=0.063"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 999,
+        "embedding": 3707.6,
+        "vector": 527.2,
+        "fusion": 0.1,
+        "rerank": 0.5,
+        "total": 4237
+      }
+    },
+    {
+      "id": "BROAD-04",
+      "question": "代理连接不上",
+      "before": {
+        "responseStrategy": "clarify_only",
+        "selectedKnowledgeIds": []
+      },
+      "after": {
+        "questionMode": "broad_troubleshooting",
+        "evidenceConfidence": "low",
+        "responseStrategy": "answer_then_clarify",
+        "selectedKnowledgeIds": [
+          "FUNC-USER-012",
+          "FUNC-GLOBAL-030",
+          "ERR-PROXYISSUE-001",
+          "ROUTING-PROXYISSUE-001"
+        ],
+        "knowledgeGroups": [
+          {
+            "key": "proxy",
+            "label": "代理配置或连通性",
+            "knowledgeIds": [
+              "FUNC-USER-012",
+              "FUNC-GLOBAL-030",
+              "FUNC-PROXY-007",
+              "FUNC-PROXY-001",
+              "FUNC-ENV-041",
+              "FUNC-ENV-060",
+              "FUNC-ENV-092",
+              "FUNC-ENV-016",
+              "FUNC-ENV-042",
+              "FUNC-PROXY-003",
+              "FUNC-PROXY-008",
+              "FUNC-PROXY-002",
+              "FUNC-PROXY-010",
+              "FUNC-PROXY-012",
+              "FUNC-USER-013",
+              "ERR-PROXYISSUE-001",
+              "ROUTING-PROXYISSUE-001",
+              "FUNC-ENV-018",
+              "PROXY-PROXYSVC-002",
+              "PROXY-PROXYREC-002"
+            ]
+          },
+          {
+            "key": "network",
+            "label": "网络连接",
+            "knowledgeIds": [
+              "FUNC-GLOBAL-030",
+              "ERR-PROXYISSUE-001",
+              "ROUTING-PROXYISSUE-001",
+              "PROXY-PROXYSVC-002"
+            ]
+          },
+          {
+            "key": "cache",
+            "label": "缓存或环境文件",
+            "knowledgeIds": [
+              "ERR-PROXYISSUE-001",
+              "ROUTING-PROXYISSUE-001",
+              "PROXY-PROXYSVC-002"
+            ]
+          },
+          {
+            "key": "permission",
+            "label": "文件或系统权限",
+            "knowledgeIds": [
+              "ROUTING-PROXYISSUE-001"
+            ]
+          }
+        ],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [
+          "错误提示",
+          "发生步骤",
+          "操作系统"
+        ],
+        "decisionReasons": [
+          "问题属于已知故障类别，但暂时不能确定唯一根因",
+          "Top-1=0.432",
+          "差距=0.007"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 736.5,
+        "embedding": 3441.3,
+        "vector": 322.9,
+        "fusion": 0.1,
+        "rerank": 0.2,
+        "total": 3765.4
+      }
+    },
+    {
+      "id": "BROAD-05",
+      "question": "代理检测失败怎么办",
+      "before": {
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-INSTALL-001",
+          "ROUTING-BILLISSUE-004",
+          "ERR-PROXYISSUE-001",
+          "ERR-SIGNUP-001",
+          "ROUTING-USAGE-006"
+        ]
+      },
+      "after": {
+        "questionMode": "precise",
+        "evidenceConfidence": "low",
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-INSTALL-001",
+          "ROUTING-BILLISSUE-004",
+          "ERR-PROXYISSUE-001",
+          "ERR-SIGNUP-001",
+          "ROUTING-USAGE-006"
+        ],
+        "knowledgeGroups": [],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [],
+        "decisionReasons": [
+          "对象和意图足以直接选择知识",
+          "Top-1=0.280",
+          "差距=0.009"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 748.8,
+        "embedding": 1701.4,
+        "vector": 411.1,
+        "fusion": 0.1,
+        "rerank": 0.8,
+        "total": 2113.9
+      }
+    },
+    {
+      "id": "BROAD-06",
+      "question": "扩展异常",
+      "before": {
+        "responseStrategy": "clarify_only",
+        "selectedKnowledgeIds": []
+      },
+      "after": {
+        "questionMode": "broad_troubleshooting",
+        "evidenceConfidence": "low",
+        "responseStrategy": "answer_then_clarify",
+        "selectedKnowledgeIds": [
+          "ERR-ENVSTART-003",
+          "ERR-EXTADD-001",
+          "ERR-ENVSTART-006"
+        ],
+        "knowledgeGroups": [
+          {
+            "key": "permission",
+            "label": "文件或系统权限",
+            "knowledgeIds": [
+              "ERR-ENVSTART-003",
+              "ERR-EXTADD-001",
+              "ERR-EXTADD-002",
+              "ERR-ACCESSCTRL-001",
+              "ERR-ENVSTART-005",
+              "ROUTING-PROXYISSUE-001",
+              "ERR-KERNELISSUE-001",
+              "ERR-ACCESS-003"
+            ]
+          },
+          {
+            "key": "cache",
+            "label": "缓存或环境文件",
+            "knowledgeIds": [
+              "ERR-ENVSTART-003",
+              "ERR-ENVSTART-006",
+              "ERR-EXTADD-002",
+              "ERR-TOOLERR-007",
+              "ERR-TOOLERR-005",
+              "ERR-NETWORK-003",
+              "TS_SESSION_EXPIRED_001:start",
+              "ERR-ENVSTART-005",
+              "ROUTING-PROXYISSUE-001",
+              "ERR-ENVSTART-001",
+              "ERR-KERNELISSUE-001",
+              "ERR-TECH-001",
+              "ERR-ACCESS-003"
+            ]
+          },
+          {
+            "key": "kernel",
+            "label": "浏览器内核",
+            "knowledgeIds": [
+              "ERR-ENVSTART-003",
+              "ERR-KERNELISSUE-001"
+            ]
+          },
+          {
+            "key": "extension",
+            "label": "扩展",
+            "knowledgeIds": [
+              "ERR-ENVSTART-003",
+              "ERR-EXTADD-001",
+              "ERR-ENVSTART-006",
+              "ERR-EXTADD-002",
+              "ERR-ACCESSCTRL-001"
+            ]
+          },
+          {
+            "key": "session",
+            "label": "登录状态或会话",
+            "knowledgeIds": [
+              "ERR-EXTADD-001",
+              "ERR-TOOLERR-007",
+              "ROUTING-BILLISSUE-011",
+              "ERR-TOOLERR-005",
+              "ROUTING-BILLISSUE-010",
+              "TS_SESSION_EXPIRED_001:start",
+              "ROUTING-USAGE-010"
+            ]
+          },
+          {
+            "key": "network",
+            "label": "网络连接",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ERR-TOOLERR-007",
+              "ERR-NETWORK-003",
+              "ROUTING-PROXYISSUE-001",
+              "ERR-ACCESS-003"
+            ]
+          },
+          {
+            "key": "disk",
+            "label": "磁盘空间或路径",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006"
+            ]
+          }
+        ],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [
+          "错误提示",
+          "发生步骤",
+          "操作系统"
+        ],
+        "decisionReasons": [
+          "问题属于已知故障类别，但暂时不能确定唯一根因",
+          "Top-1=0.273",
+          "差距=0.095"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 388,
+        "embedding": 3492,
+        "vector": 362.7,
+        "fusion": 0.1,
+        "rerank": 0.2,
+        "total": 3856.5
+      }
+    },
+    {
+      "id": "BROAD-07",
+      "question": "扩展无法使用",
+      "before": {
+        "responseStrategy": "clarify_only",
+        "selectedKnowledgeIds": []
+      },
+      "after": {
+        "questionMode": "broad_troubleshooting",
+        "evidenceConfidence": "low",
+        "responseStrategy": "answer_then_clarify",
+        "selectedKnowledgeIds": [
+          "ROUTING-BILLISSUE-010",
+          "ERR-EXTADD-001",
+          "ERR-ENVSTART-006",
+          "ERR-ENVSTART-003"
+        ],
+        "knowledgeGroups": [
+          {
+            "key": "session",
+            "label": "登录状态或会话",
+            "knowledgeIds": [
+              "ROUTING-BILLISSUE-010",
+              "ERR-EXTADD-001",
+              "ROUTING-USAGE-006",
+              "ERR-TOOLERR-003",
+              "ERR-TOOLERR-008",
+              "ERR-TOOLERR-004",
+              "ROUTING-BILLISSUE-004",
+              "ROUTING-BILLISSUE-013"
+            ]
+          },
+          {
+            "key": "permission",
+            "label": "文件或系统权限",
+            "knowledgeIds": [
+              "ERR-EXTADD-001",
+              "ERR-EXTADD-002",
+              "ERR-ENVSTART-003",
+              "ERR-NETWORK-001",
+              "ERR-ACCESSCTRL-001",
+              "ERR-KERNELISSUE-001",
+              "ERR-ENVSTART-009",
+              "ERR-ENVSTART-002",
+              "ERR-TOOLERR-002"
+            ]
+          },
+          {
+            "key": "extension",
+            "label": "扩展",
+            "knowledgeIds": [
+              "ERR-EXTADD-001",
+              "ERR-ENVSTART-006",
+              "ERR-EXTADD-002",
+              "ERR-ENVSTART-003",
+              "ERR-TOOLERR-008",
+              "ERR-TOOLERR-004",
+              "ERR-ACCESSCTRL-001"
+            ]
+          },
+          {
+            "key": "network",
+            "label": "网络连接",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ROUTING-USAGE-006",
+              "ERR-NETWORK-001",
+              "ERR-ENVSTART-002",
+              "ERR-ENVSTART-007"
+            ]
+          },
+          {
+            "key": "disk",
+            "label": "磁盘空间或路径",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ERR-ENVSTART-002",
+              "ERR-TOOLERR-002",
+              "ERR-ENVSTART-007"
+            ]
+          },
+          {
+            "key": "cache",
+            "label": "缓存或环境文件",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ERR-EXTADD-002",
+              "ERR-ENVSTART-003",
+              "ERR-TOOLERR-003",
+              "ERR-NETWORK-001",
+              "ERR-TOOLERR-008",
+              "ERR-TOOLERR-004",
+              "ERR-KERNELISSUE-001",
+              "ERR-ENVSTART-009",
+              "ERR-ENVSTART-002",
+              "ERR-ENVSTART-007"
+            ]
+          },
+          {
+            "key": "kernel",
+            "label": "浏览器内核",
+            "knowledgeIds": [
+              "ERR-ENVSTART-003",
+              "ERR-TOOLERR-008",
+              "ERR-TOOLERR-004",
+              "ERR-KERNELISSUE-001",
+              "ERR-ENVSTART-009"
+            ]
+          }
+        ],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [
+          "错误提示",
+          "发生步骤",
+          "操作系统"
+        ],
+        "decisionReasons": [
+          "问题属于已知故障类别，但暂时不能确定唯一根因",
+          "Top-1=0.306",
+          "差距=0.001"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 424.1,
+        "embedding": 7095,
+        "vector": 768.4,
+        "fusion": 0.1,
+        "rerank": 0.3,
+        "total": 7865.6
+      }
+    },
+    {
+      "id": "BROAD-08",
+      "question": "内核下载失败",
+      "before": {
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-KERNELISSUE-004",
+          "ERR-KERNELISSUE-003",
+          "ERR-ENVSTART-006",
+          "ERR-KERNELISSUE-001",
+          "ERR-KERNELISSUE-005"
+        ]
+      },
+      "after": {
+        "questionMode": "precise",
+        "evidenceConfidence": "high",
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-KERNELISSUE-004",
+          "ERR-KERNELISSUE-003",
+          "ERR-ENVSTART-006",
+          "ERR-KERNELISSUE-001",
+          "ERR-KERNELISSUE-005"
+        ],
+        "knowledgeGroups": [],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [],
+        "decisionReasons": [
+          "对象和意图足以直接选择知识",
+          "Top-1=0.508",
+          "差距=0.224"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 259.6,
+        "embedding": 2609.7,
+        "vector": 529.9,
+        "fusion": 0.1,
+        "rerank": 0.2,
+        "total": 3140.1
+      }
+    },
+    {
+      "id": "BROAD-09",
+      "question": "打开环境提示本地网络错误",
+      "before": {
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-NETWORK-003",
+          "ERR-PROXYISSUE-001",
+          "ERR-PROXYISSUE-003",
+          "ERR-ENVSTART-006",
+          "ERR-ENVSTART-002"
+        ]
+      },
+      "after": {
+        "questionMode": "precise",
+        "evidenceConfidence": "medium",
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-NETWORK-003",
+          "ERR-PROXYISSUE-001",
+          "ERR-PROXYISSUE-003",
+          "ERR-ENVSTART-006",
+          "ERR-ENVSTART-002"
+        ],
+        "knowledgeGroups": [],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [],
+        "decisionReasons": [
+          "对象和意图足以直接选择知识",
+          "Top-1=0.415",
+          "差距=0.085"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 504.3,
+        "embedding": 897.3,
+        "vector": 294.1,
+        "fusion": 0,
+        "rerank": 0.2,
+        "total": 1192
+      }
+    },
+    {
+      "id": "BROAD-10",
+      "question": "环境文件损坏了怎么办",
+      "before": {
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-ENVSTART-007",
+          "ERR-ENVSTART-008",
+          "ERR-ENVSTART-006",
+          "ERR-ENVSTART-003",
+          "ERR-ENVSTART-002"
+        ]
+      },
+      "after": {
+        "questionMode": "precise",
+        "evidenceConfidence": "low",
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-ENVSTART-007",
+          "ERR-ENVSTART-008",
+          "ERR-ENVSTART-006",
+          "ERR-ENVSTART-003",
+          "ERR-ENVSTART-002"
+        ],
+        "knowledgeGroups": [],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [],
+        "decisionReasons": [
+          "对象和意图足以直接选择知识",
+          "Top-1=0.244",
+          "差距=0.023"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 498.7,
+        "embedding": 537.8,
+        "vector": 2036.8,
+        "fusion": 0,
+        "rerank": 0.2,
+        "total": 2575.2
+      }
+    },
+    {
+      "id": "BROAD-11",
+      "question": "缓存异常导致环境打不开",
+      "before": {
+        "responseStrategy": "clarify_only",
+        "selectedKnowledgeIds": []
+      },
+      "after": {
+        "questionMode": "broad_troubleshooting",
+        "evidenceConfidence": "low",
+        "responseStrategy": "answer_then_clarify",
+        "selectedKnowledgeIds": [
+          "ERR-NETWORK-003",
+          "ERR-ENVSTART-003",
+          "ERR-ENVSTART-002",
+          "ERR-ENVSTART-008"
+        ],
+        "knowledgeGroups": [
+          {
+            "key": "network",
+            "label": "网络连接",
+            "knowledgeIds": [
+              "ERR-NETWORK-003",
+              "ERR-ENVSTART-002",
+              "ERR-ENVSTART-006",
+              "ERR-ENVSTART-008",
+              "ERR-ENVSTART-007",
+              "ERR-PROXYISSUE-001",
+              "ERR-NETWORK-001",
+              "ERR-PROXYISSUE-003"
+            ]
+          },
+          {
+            "key": "cache",
+            "label": "缓存或环境文件",
+            "knowledgeIds": [
+              "ERR-NETWORK-003",
+              "ERR-ENVSTART-003",
+              "ERR-ENVSTART-002",
+              "ERR-ENVSTART-006",
+              "ERR-ENVSTART-004",
+              "ERR-KERNELISSUE-001",
+              "ERR-KERNELISSUE-002",
+              "ERR-ENVSTART-008",
+              "ERR-ENVSTART-007",
+              "ERR-ENVSTART-001",
+              "ERR-ENVSTART-009",
+              "ERR-DOWNLOAD-003",
+              "ERR-KERNELISSUE-005",
+              "ERR-PROXYISSUE-001",
+              "TS_SESSION_EXPIRED_001:start",
+              "ERR-NETWORK-001",
+              "ERR-ENVSTART-005",
+              "ERR-PROXYISSUE-003",
+              "ERR-PROXYISSUE-004"
+            ]
+          },
+          {
+            "key": "permission",
+            "label": "文件或系统权限",
+            "knowledgeIds": [
+              "ERR-ENVSTART-003",
+              "ERR-ENVSTART-002",
+              "ERR-ENVSTART-004",
+              "ERR-KERNELISSUE-001",
+              "ERR-ENVSTART-008",
+              "ERR-ENVSTART-009",
+              "ERR-KERNELISSUE-005",
+              "ERR-NETWORK-001",
+              "ERR-ENVSTART-005"
+            ]
+          },
+          {
+            "key": "kernel",
+            "label": "浏览器内核",
+            "knowledgeIds": [
+              "ERR-ENVSTART-003",
+              "ERR-ENVSTART-004",
+              "ERR-KERNELISSUE-001",
+              "ERR-KERNELISSUE-002",
+              "ERR-ENVSTART-009",
+              "ERR-KERNELISSUE-005"
+            ]
+          },
+          {
+            "key": "extension",
+            "label": "扩展",
+            "knowledgeIds": [
+              "ERR-ENVSTART-003",
+              "ERR-ENVSTART-006",
+              "ERR-ENVSTART-008"
+            ]
+          },
+          {
+            "key": "disk",
+            "label": "磁盘空间或路径",
+            "knowledgeIds": [
+              "ERR-ENVSTART-002",
+              "ERR-ENVSTART-006",
+              "ERR-ENVSTART-004",
+              "ERR-ENVSTART-007"
+            ]
+          },
+          {
+            "key": "proxy",
+            "label": "代理配置或连通性",
+            "knowledgeIds": [
+              "ERR-ENVSTART-008",
+              "ERR-PROXYISSUE-001",
+              "ERR-NETWORK-001",
+              "ERR-PROXYISSUE-003",
+              "ERR-PROXYISSUE-004"
+            ]
+          }
+        ],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [
+          "错误提示",
+          "发生步骤",
+          "操作系统"
+        ],
+        "decisionReasons": [
+          "问题属于已知故障类别，但暂时不能确定唯一根因",
+          "Top-1=0.292",
+          "差距=0.035"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 355.6,
+        "embedding": 663.4,
+        "vector": 241.7,
+        "fusion": 0.1,
+        "rerank": 0.3,
+        "total": 907.1
+      }
+    },
+    {
+      "id": "BROAD-12",
+      "question": "环境打开后网站访问不了",
+      "before": {
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-NETWORK-001",
+          "FUNC-USER-017",
+          "FUNC-ENV-008",
+          "FUNC-ENV-073",
+          "FUNC-ENV-054"
+        ]
+      },
+      "after": {
+        "questionMode": "precise",
+        "evidenceConfidence": "medium",
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-NETWORK-001",
+          "FUNC-USER-017",
+          "FUNC-ENV-008",
+          "FUNC-ENV-073",
+          "FUNC-ENV-054"
+        ],
+        "knowledgeGroups": [],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [],
+        "decisionReasons": [
+          "对象和意图足以直接选择知识",
+          "Top-1=0.392",
+          "差距=0.079"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 614.5,
+        "embedding": 3124.6,
+        "vector": 211.5,
+        "fusion": 0,
+        "rerank": 0.2,
+        "total": 3336.6
+      }
+    },
+    {
+      "id": "BROAD-13",
+      "question": "软件提示权限不足",
+      "before": {
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-TOOLERR-002",
+          "FUNC-ENV-095",
+          "TEAM-GEN-001",
+          "FUNC-GLOBAL-011",
+          "ERR-EXTADD-001"
+        ]
+      },
+      "after": {
+        "questionMode": "precise",
+        "evidenceConfidence": "low",
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-TOOLERR-002",
+          "FUNC-ENV-095",
+          "TEAM-GEN-001",
+          "FUNC-GLOBAL-011",
+          "ERR-EXTADD-001"
+        ],
+        "knowledgeGroups": [],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [],
+        "decisionReasons": [
+          "对象和意图足以直接选择知识",
+          "Top-1=0.261",
+          "差距=0.040"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 460.2,
+        "embedding": 995.2,
+        "vector": 420.2,
+        "fusion": 0.1,
+        "rerank": 0.4,
+        "total": 1416.1
+      }
+    },
+    {
+      "id": "BROAD-14",
+      "question": "磁盘空间不足会影响环境启动吗",
+      "before": {
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "FUNC-ENV-008",
+          "FUNC-ENV-123",
+          "FUNC-ENV-077",
+          "FUNC-ENV-069",
+          "FUNC-USER-009"
+        ]
+      },
+      "after": {
+        "questionMode": "precise",
+        "evidenceConfidence": "low",
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "FUNC-ENV-008",
+          "FUNC-ENV-123",
+          "FUNC-ENV-077",
+          "FUNC-ENV-069",
+          "FUNC-USER-009"
+        ],
+        "knowledgeGroups": [],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [],
+        "decisionReasons": [
+          "对象和意图足以直接选择知识",
+          "Top-1=0.216",
+          "差距=0.031"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 713.1,
+        "embedding": 2612.8,
+        "vector": 224.5,
+        "fusion": 0,
+        "rerank": 0.2,
+        "total": 2838.2
+      }
+    },
+    {
+      "id": "BROAD-15",
+      "question": "环境一直加载中",
+      "before": {
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "FUNC-ENV-077",
+          "FUNC-ENV-071",
+          "FUNC-ENV-001",
+          "FUNC-ENV-052",
+          "FUNC-GLOBAL-020"
+        ]
+      },
+      "after": {
+        "questionMode": "precise",
+        "evidenceConfidence": "low",
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "FUNC-ENV-077",
+          "FUNC-ENV-071",
+          "FUNC-ENV-001",
+          "FUNC-ENV-052",
+          "FUNC-GLOBAL-020"
+        ],
+        "knowledgeGroups": [],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [],
+        "decisionReasons": [
+          "对象和意图足以直接选择知识",
+          "Top-1=0.241",
+          "差距=0.009"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 561.9,
+        "embedding": 2382.2,
+        "vector": 189.3,
+        "fusion": 0.1,
+        "rerank": 0.3,
+        "total": 2572.1
+      }
+    },
+    {
+      "id": "BROAD-16",
+      "question": "账号不能用",
+      "before": {
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ROUTING-ACCESS-004",
+          "ERR-SHARESEC-001",
+          "ERR-TOOLERR-007",
+          "ROUTING-ACCESS-009",
+          "ERR-TOOLERR-006"
+        ]
+      },
+      "after": {
+        "questionMode": "ambiguous_with_safe_branches",
+        "evidenceConfidence": "medium",
+        "responseStrategy": "conditional",
+        "selectedKnowledgeIds": [
+          "ROUTING-ACCESS-004",
+          "ERR-SHARESEC-001",
+          "ERR-TOOLERR-007",
+          "ERR-TOOLERR-006"
+        ],
+        "knowledgeGroups": [],
+        "branches": [
+          {
+            "label": "DICloak 账号登录",
+            "knowledgeIds": [
+              "ROUTING-ACCESS-004",
+              "ERR-SHARESEC-001"
+            ]
+          },
+          {
+            "label": "第三方平台账号登录",
+            "knowledgeIds": [
+              "ERR-TOOLERR-007",
+              "ERR-TOOLERR-006"
+            ]
+          }
+        ],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [
+          "登录对象",
+          "错误提示"
+        ],
+        "decisionReasons": [
+          "可能是 DICloak 账号或环境内第三方平台账号，两个分支可安全并列",
+          "Top-1=0.302",
+          "差距=0.027"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 399.6,
+        "embedding": 1974.7,
+        "vector": 376.7,
+        "fusion": 0.1,
+        "rerank": 0.5,
+        "total": 2352.8
+      }
+    },
+    {
+      "id": "BROAD-17",
+      "question": "第三方平台登录失败",
+      "before": {
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-TOOLERR-006",
+          "ROUTING-ACCESS-014",
+          "ROUTING-ACCESS-013",
+          "ERR-SHARESEC-001",
+          "ROUTING-BILLISSUE-004"
+        ]
+      },
+      "after": {
+        "questionMode": "precise",
+        "evidenceConfidence": "low",
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-TOOLERR-006",
+          "ROUTING-ACCESS-014",
+          "ROUTING-ACCESS-013",
+          "ERR-SHARESEC-001",
+          "ROUTING-BILLISSUE-004"
+        ],
+        "knowledgeGroups": [],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [],
+        "decisionReasons": [
+          "对象和意图足以直接选择知识",
+          "Top-1=0.298",
+          "差距=0.048"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 434.6,
+        "embedding": 2808.5,
+        "vector": 545.4,
+        "fusion": 0.1,
+        "rerank": 0.7,
+        "total": 3355.1
+      }
+    },
+    {
+      "id": "BROAD-18",
+      "question": "DICloak 登录失败",
+      "before": {
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-NETWORK-004",
+          "ERR-TOOLERR-006",
+          "ERR-ENVSTART-002",
+          "ERR-SIGNUP-001",
+          "ERR-SUBERR-003"
+        ]
+      },
+      "after": {
+        "questionMode": "precise",
+        "evidenceConfidence": "medium",
+        "responseStrategy": "direct",
+        "selectedKnowledgeIds": [
+          "ERR-NETWORK-004",
+          "ERR-TOOLERR-006",
+          "ERR-ENVSTART-002",
+          "ERR-SIGNUP-001",
+          "ERR-SUBERR-003"
+        ],
+        "knowledgeGroups": [],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [],
+        "decisionReasons": [
+          "对象和意图足以直接选择知识",
+          "Top-1=0.393",
+          "差距=0.037"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 361.8,
+        "embedding": 514.2,
+        "vector": 313.7,
+        "fusion": 0.1,
+        "rerank": 0.4,
+        "total": 828.9
+      }
+    },
+    {
+      "id": "BROAD-19",
+      "question": "profile cannot open",
+      "before": {
+        "responseStrategy": "clarify_only",
+        "selectedKnowledgeIds": []
+      },
+      "after": {
+        "questionMode": "broad_troubleshooting",
+        "evidenceConfidence": "low",
+        "responseStrategy": "answer_then_clarify",
+        "selectedKnowledgeIds": [
+          "ERR-ENVSTART-006",
+          "ERR-PROXYISSUE-001",
+          "ERR-ENVSTART-009"
+        ],
+        "knowledgeGroups": [
+          {
+            "key": "network",
+            "label": "网络连接",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ERR-PROXYISSUE-001",
+              "ROUTING-PROXYISSUE-001",
+              "ERR-ENVSTART-002",
+              "ERR-PROXYISSUE-003",
+              "ERR-ENVSTART-008",
+              "ERR-ENVSTART-007",
+              "ERR-NETWORK-003",
+              "ERR-NETWORK-001"
+            ]
+          },
+          {
+            "key": "disk",
+            "label": "磁盘空间或路径",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ERR-ENVSTART-002",
+              "ERR-ENVSTART-004",
+              "ERR-ENVSTART-007",
+              "ERR-SHARESEC-001"
+            ]
+          },
+          {
+            "key": "cache",
+            "label": "缓存或环境文件",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ERR-PROXYISSUE-001",
+              "ERR-ENVSTART-009",
+              "ERR-ENVSTART-001",
+              "ROUTING-PROXYISSUE-001",
+              "ERR-ENVSTART-002",
+              "ERR-PROXYISSUE-003",
+              "ERR-ENVSTART-008",
+              "ERR-DOWNLOAD-003",
+              "ERR-ENVSTART-003",
+              "ERR-ENVSTART-004",
+              "ERR-ENVSTART-007",
+              "ERR-NETWORK-003",
+              "ERR-NETWORK-001",
+              "ERR-KERNELISSUE-005",
+              "ERR-ENVSTART-010",
+              "ERR-SHARESEC-001",
+              "ERR-KERNELISSUE-001",
+              "ERR-ENVSTART-005",
+              "ERR-TOOLERR-005"
+            ]
+          },
+          {
+            "key": "extension",
+            "label": "扩展",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ERR-ENVSTART-008",
+              "ERR-ENVSTART-003"
+            ]
+          },
+          {
+            "key": "proxy",
+            "label": "代理配置或连通性",
+            "knowledgeIds": [
+              "ERR-PROXYISSUE-001",
+              "ROUTING-PROXYISSUE-001",
+              "ERR-PROXYISSUE-003",
+              "ERR-ENVSTART-008",
+              "ERR-NETWORK-001",
+              "ERR-TOOLERR-005"
+            ]
+          },
+          {
+            "key": "permission",
+            "label": "文件或系统权限",
+            "knowledgeIds": [
+              "ERR-ENVSTART-009",
+              "ROUTING-PROXYISSUE-001",
+              "ERR-ENVSTART-002",
+              "ERR-ENVSTART-008",
+              "ERR-ENVSTART-003",
+              "ERR-ENVSTART-004",
+              "ERR-NETWORK-001",
+              "ERR-KERNELISSUE-005",
+              "ERR-KERNELISSUE-001",
+              "ERR-ENVSTART-005"
+            ]
+          },
+          {
+            "key": "kernel",
+            "label": "浏览器内核",
+            "knowledgeIds": [
+              "ERR-ENVSTART-009",
+              "ERR-ENVSTART-003",
+              "ERR-ENVSTART-004",
+              "ERR-KERNELISSUE-005",
+              "ERR-KERNELISSUE-001"
+            ]
+          }
+        ],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [
+          "错误提示",
+          "发生步骤",
+          "操作系统"
+        ],
+        "decisionReasons": [
+          "问题属于已知故障类别，但暂时不能确定唯一根因",
+          "Top-1=0.442",
+          "差距=0.031",
+          "缺失条件：symptomDetails",
+          "缺少唯一根因所需的故障细节，但不否定已有排障证据"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 377.3,
+        "embedding": 2162.6,
+        "vector": 342.9,
+        "fusion": 0.2,
+        "rerank": 0.8,
+        "total": 2510.1
+      }
+    },
+    {
+      "id": "BROAD-20",
+      "question": "extension not working",
+      "before": {
+        "responseStrategy": "clarify_only",
+        "selectedKnowledgeIds": []
+      },
+      "after": {
+        "questionMode": "broad_troubleshooting",
+        "evidenceConfidence": "low",
+        "responseStrategy": "answer_then_clarify",
+        "selectedKnowledgeIds": [
+          "ERR-EXTADD-002",
+          "ERR-EXTADD-001",
+          "ERR-ENVSTART-003",
+          "ERR-ENVSTART-006"
+        ],
+        "knowledgeGroups": [
+          {
+            "key": "permission",
+            "label": "文件或系统权限",
+            "knowledgeIds": [
+              "ERR-EXTADD-002",
+              "ERR-EXTADD-001",
+              "ERR-ENVSTART-003",
+              "ERR-KERNELISSUE-004",
+              "ERR-ACCESSCTRL-001",
+              "ERR-ACCESS-002",
+              "ROUTING-ACCESS-008",
+              "ERR-ENVSTART-005",
+              "ERR-ENVSTART-002"
+            ]
+          },
+          {
+            "key": "cache",
+            "label": "缓存或环境文件",
+            "knowledgeIds": [
+              "ERR-EXTADD-002",
+              "ERR-ENVSTART-003",
+              "ERR-ENVSTART-006",
+              "ERR-TOOLERR-008",
+              "ERR-TOOLERR-004",
+              "ERR-KERNELISSUE-004",
+              "ERR-PROXYISSUE-001",
+              "ERR-ACCESS-002",
+              "ERR-PROXYISSUE-003",
+              "ERR-ENVSTART-001",
+              "ERR-ENVSTART-005",
+              "ERR-ENVSTART-002",
+              "ROUTING-MISSING-001"
+            ]
+          },
+          {
+            "key": "extension",
+            "label": "扩展",
+            "knowledgeIds": [
+              "ERR-EXTADD-002",
+              "ERR-EXTADD-001",
+              "ERR-ENVSTART-003",
+              "ERR-ENVSTART-006",
+              "ERR-TOOLERR-008",
+              "ERR-TOOLERR-004",
+              "ERR-ACCESSCTRL-001"
+            ]
+          },
+          {
+            "key": "session",
+            "label": "登录状态或会话",
+            "knowledgeIds": [
+              "ERR-EXTADD-001",
+              "ERR-TOOLERR-008",
+              "ERR-TOOLERR-004",
+              "ROUTING-USAGE-006",
+              "ROUTING-BILLISSUE-001",
+              "ROUTING-ACCESS-008",
+              "ROUTING-MISSING-001"
+            ]
+          },
+          {
+            "key": "kernel",
+            "label": "浏览器内核",
+            "knowledgeIds": [
+              "ERR-ENVSTART-003",
+              "ERR-TOOLERR-008",
+              "ERR-TOOLERR-004",
+              "ERR-KERNELISSUE-004"
+            ]
+          },
+          {
+            "key": "network",
+            "label": "网络连接",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ERR-KERNELISSUE-004",
+              "ROUTING-USAGE-006",
+              "ERR-PROXYISSUE-001",
+              "ERR-PROXYISSUE-003",
+              "ERR-ENVSTART-002"
+            ]
+          },
+          {
+            "key": "disk",
+            "label": "磁盘空间或路径",
+            "knowledgeIds": [
+              "ERR-ENVSTART-006",
+              "ERR-KERNELISSUE-004",
+              "ERR-ENVSTART-002"
+            ]
+          }
+        ],
+        "branches": [],
+        "missingCriticalInformation": [],
+        "optionalFollowUpFields": [
+          "错误提示",
+          "发生步骤",
+          "操作系统"
+        ],
+        "decisionReasons": [
+          "问题属于已知故障类别，但暂时不能确定唯一根因",
+          "Top-1=0.472",
+          "差距=0.121",
+          "缺失条件：symptomDetails",
+          "缺少唯一根因所需的故障细节，但不否定已有排障证据"
+        ]
+      },
+      "degradedRoutes": [],
+      "timings": {
+        "fulltext": 938.3,
+        "embedding": 3370.7,
+        "vector": 425.3,
+        "fusion": 0.1,
+        "rerank": 0.5,
+        "total": 3799.3
+      }
+    }
+  ]
+}

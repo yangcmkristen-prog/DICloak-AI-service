@@ -74,7 +74,7 @@ test("pricing results are diversified by feature instead of repeated by plan", (
 });
 
 test("confidence returns none for weak knowledge and low for conflicts", () => {
-  assert.equal(calculateConfidence(intent(), [candidate("weak", { rerankScore: 0.19 })]).confidence, "none");
+  assert.equal(calculateConfidence(intent(), [candidate("weak", { rerankScore: 0.19, vectorScore: 0.05, textScore: 0.05 })]).confidence, "none");
   const conflict = [candidate("http", { rerankScore: 0.7, apiType: "http" }), candidate("local", { rerankScore: 0.69, apiType: "local" })];
   assert.equal(calculateConfidence(intent({ apiType: "http" }), conflict).confidence, "low");
 });

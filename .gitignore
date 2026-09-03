@@ -52,6 +52,8 @@ reports/v2-index/
 reports/evaluation/v2-retrieval-latest.html
 reports/evaluation/v2-retrieval-latest.json
 reports/evaluation/v2-retrieval-debug.png
+reports/evaluation/v2-decision-latest.html
+reports/evaluation/v2-decision-latest.json
 evaluation-source/*.local.xlsx
 
 # Cache

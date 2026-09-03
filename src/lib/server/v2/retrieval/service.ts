@@ -3,6 +3,7 @@ import { performance } from "node:perf_hooks";
 import { retrievalConfig } from "./config.ts";
 import { extractSearchTerms, parseQuery } from "./query-parser.ts";
 import { calculateConfidence, reciprocalRankFusion, rerankCandidates } from "./ranking.ts";
+import { decideRetrieval } from "./decision.ts";
 import type { QueryIntent, RetrievalCandidate, RetrievalTrace } from "./types.ts";
 
 let pool: Pool | null = null;
@@ -91,7 +92,9 @@ export async function retrieveV2(question: string, product: "dicloak" | "paratur
   const fusionStarted = performance.now(); const fused = reciprocalRankFusion([fulltext, vector]); timings.fusion = elapsed(fusionStarted);
   const rerankStarted = performance.now(); const reranked = rerankCandidates(question, intent, fused); timings.rerank = elapsed(rerankStarted);
   const uniqueKnowledge = dedupeKnowledgeCandidates(reranked);
-  const confidenceResult = calculateConfidence(intent, uniqueKnowledge); const top = confidenceResult.confidence === "none" ? [] : uniqueKnowledge.slice(0, retrievalConfig.outputTopK);
+  const confidenceResult = calculateConfidence(intent, uniqueKnowledge);
+  const decision = decideRetrieval(question, intent, uniqueKnowledge, confidenceResult.confidence, confidenceResult.reasons);
+  const top = decision.selectedKnowledge;
   timings.total = elapsed(totalStarted);
-  return { question, intent, filters: scoped.debug, fulltext, vector, fused, reranked: uniqueKnowledge, top, filteredReasons: Object.entries(scoped.debug).filter(([, value]) => value !== null && (!Array.isArray(value) || value.length)).map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(",") : value}`), confidence: confidenceResult.confidence, confidenceReasons: confidenceResult.reasons, degradedRoutes, timings };
+  return { question, intent, filters: scoped.debug, fulltext, vector, fused, reranked: uniqueKnowledge, ...decision, top, filteredReasons: Object.entries(scoped.debug).filter(([, value]) => value !== null && (!Array.isArray(value) || value.length)).map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(",") : value}`), confidence: confidenceResult.confidence, confidenceReasons: confidenceResult.reasons, degradedRoutes, timings };
 }
