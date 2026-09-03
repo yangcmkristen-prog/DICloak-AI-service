@@ -47,10 +47,10 @@ export async function POST(request: NextRequest): Promise<Response> {
       const terminologyKnowledge: TerminologyKnowledge[] = trace.selectedKnowledge.map((item) => ({ id: item.knowledgeId, type: item.knowledgeType === "function" ? "function" : item.knowledgeType, sourceLanguage: item.sourceLanguage || String(item.metadata.sourceLanguage ?? "en"), body: item.text, termIds: item.termIds ?? [], metadata: item.metadata, protectedFields: item.protectedFields ?? [] }));
       const prepared = prepareTerminologyPipeline({ knowledge: terminologyKnowledge, terms, targetLanguage, branches: trace.branches });
       if (!prepared.ok) throw new Error(`V2 术语准备失败：${prepared.errors.map((item) => item.code).join(",")}`);
-      const baseMeta = { engine: "v2", knowledgeIds: trace.selectedKnowledge.map((item) => item.knowledgeId), evidenceConfidence: trace.evidenceConfidence, responseStrategy: trace.responseStrategy, language: targetLanguage, terminologyWarnings: prepared.warnings.map((item) => item.code) };
+      const baseMeta = { engine: "v2", knowledgeIds: trace.selectedKnowledge.map((item) => item.knowledgeId), evidenceConfidence: trace.evidenceConfidence, responseStrategy: trace.responseStrategy, language: targetLanguage, terminologyWarnings: prepared.warnings.map((item) => item.code), retrievalMs: trace.timings.total };
       controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, retry: false } }));
       sendStatus("正在生成回复", "已准备选中知识，等待模型首个响应片段");
-      let usage: V2ModelUsage = {}; let modelCalls = 0; let firstTokenMs: number | null = null;
+      let usage: V2ModelUsage = {}; let modelCalls = 0; let firstTokenMs: number | null = null; const generationStartedAt = performance.now();
       const run = async (retryErrors?: string[], streamCustomer = false) => {
         modelCalls += 1;
         const filter = new V2VisibleStreamFilter(new Map(prepared.markers.map((marker) => [marker.marker, marker.value])));
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       if (!generated.validation.ok) { retried = true; sendStatus("正在受控修正", "事实或格式验证未通过，仅使用同一批选中知识重试一次"); generated = await run(generated.validation.errors, false); }
       if (!generated.validation.ok || !generated.validation.reply) throw new Error(`V2 回复验证失败：${generated.validation.errors.join(",")}`);
       const totalMs = Math.round(performance.now() - startedAt);
-      controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, usage, modelCalls, retry: retried, firstTokenMs, totalMs, claims: generated.claims } }));
+      controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, usage, modelCalls, retry: retried, firstTokenMs, generationMs: Math.round(performance.now() - generationStartedAt), totalMs, claims: generated.claims } }));
       sendStatus("正在完成回复", "事实、术语和技术字段验证通过");
       controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: generated.validation.reply })); controller.close();
     } catch (error) { if (!request.signal.aborted) controller.enqueue(encodeStreamEvent({ type: "error", requestId, message: error instanceof Error ? error.message : "V2 生成失败" })); controller.close(); }
