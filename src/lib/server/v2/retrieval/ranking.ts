@@ -67,15 +67,16 @@ export function calculateConfidence(intent: QueryIntent, candidates: RetrievalCa
   if (genericApiResolved) reasons.push("候选一致指向同一 API 类型");
   if (effectiveMissing.length) reasons.push(`缺失条件：${effectiveMissing.join(",")}`);
   if (conflict) reasons.push("Top 候选存在 API 类型冲突");
-  if (effectiveMissing.includes("symptomDetails")) return { confidence: "none", reasons: [...reasons, "问题缺少可定位的故障信息"] };
+  if (effectiveMissing.includes("symptomDetails")) reasons.push("缺少唯一根因所需的故障细节，但不否定已有排障证据");
   const deterministicOutOfScope = intent.knowledgeTypes.length === 1 && intent.knowledgeTypes[0] === "out_of_scope" && candidates.slice(0, 4).every((candidate) => candidate.knowledgeType === "out_of_scope");
   if (deterministicOutOfScope) return { confidence: "medium", reasons: [...reasons, "确定性识别为非产品支持范围"] };
   if (effectiveMissing.length >= 2 && first.rerankScore < retrievalConfig.confidence.medium) return { confidence: "none", reasons: [...reasons, "结构化条件不足且候选不够强"] };
   if (first.rerankScore < retrievalConfig.confidence.minimum) {
     const typoTolerantFunction = !["zh", "en"].includes(intent.language) && first.knowledgeType === "function" && candidates.slice(0, 3).every((candidate) => candidate.knowledgeType === "function") && first.vectorScore >= 0.18 && gap >= retrievalConfig.confidence.weakGap;
-    return typoTolerantFunction ? { confidence: "medium", reasons: [...reasons, "多语言功能意图一致，容忍明显拼写偏差"] } : { confidence: "none", reasons: [...reasons, "低于最低返回阈值"] };
+    if (typoTolerantFunction) return { confidence: "medium", reasons: [...reasons, "多语言功能意图一致，容忍明显拼写偏差"] };
+    return first.vectorScore >= 0.2 || first.textScore >= 0.2 ? { confidence: "low", reasons: [...reasons, "单路证据超过最低安全阈值"] } : { confidence: "none", reasons: [...reasons, "低于最低返回阈值"] };
   }
-  if (conflict || effectiveMissing.length > 1 || gap < retrievalConfig.confidence.weakGap) return { confidence: "low", reasons };
+  if (conflict || effectiveMissing.length > 0 || gap < retrievalConfig.confidence.weakGap) return { confidence: "low", reasons };
   if (first.rerankScore >= retrievalConfig.confidence.high && gap >= retrievalConfig.confidence.strongGap) return { confidence: "high", reasons };
   if (first.rerankScore >= retrievalConfig.confidence.medium) return { confidence: "medium", reasons };
   return { confidence: "low", reasons };
