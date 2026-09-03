@@ -26,6 +26,8 @@ function detectLanguage(question: string): string {
   if (/\p{Script=Han}/u.test(question)) return "zh";
   if (/\p{Script=Cyrillic}/u.test(question)) return "ru";
   if (/\b(como|perfil|navegador|plano|preço|api local)\b/i.test(question)) return "pt";
+  if (/\b(cómo|perfil|navegador|precio|cuenta|iniciar sesión)\b/i.test(question)) return "es";
+  if (/\b(làm sao|hồ sơ|trình duyệt|giá|tài khoản|đăng nhập)\b/i.test(question)) return "vi";
   return "en";
 }
 

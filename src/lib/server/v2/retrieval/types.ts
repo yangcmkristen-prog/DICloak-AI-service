@@ -23,6 +23,9 @@ export interface RetrievalCandidate {
   title: string;
   text: string;
   metadata: Record<string, unknown>;
+  termIds?: string[];
+  protectedFields?: Array<{ kind: string; value: string; sourceColumn?: string }>;
+  sourceLanguage?: string;
   knowledgeType: string;
   apiType: ApiFamily | null;
   apiVersion: string | null;

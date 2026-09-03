@@ -20,6 +20,19 @@ export interface Message {
   usedFaqIds?: string[];          // 使用的 FAQ ID
   usedApiIds?: string[];          // 使用的 API ID
   generationDurationMs?: number;  // AI 生成总耗时
+  v2Debug?: {
+    knowledgeIds?: string[];
+    evidenceConfidence?: string;
+    responseStrategy?: string;
+    language?: string;
+    terminologyWarnings?: string[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+    modelCalls?: number;
+    retry?: boolean;
+    firstTokenMs?: number | null;
+    totalMs?: number;
+    claims?: Array<{ text: string; knowledgeIds: string[] }>;
+  };
 }
 
 export interface GenerationStatus {
@@ -40,7 +53,7 @@ export type AiEngine = 'v1' | 'v2';
 
 export const AI_ENGINE_VERSIONS: Record<AiEngine, string> = {
   v1: '1.0',
-  v2: '2.0-phase-1',
+  v2: '2.0-phase-6',
 };
 
 export interface ConversationContext {
