@@ -37,3 +37,9 @@ test("只追问不传知识，不支持场景可携带边界知识", () => {
   assert.equal(selectGenerationKnowledge(trace("clarify_only"), "帮我删除它").length, 0);
   assert.equal(selectGenerationKnowledge(trace("unsupported"), "天气如何").length, 2);
 });
+
+test("套餐比较不受五个原子知识限制", () => {
+  const pricing = Array.from({ length: 8 }, (_, index) => ({ ...candidate(`PRICING:feature:${index}`), knowledgeType: "pricing", apiType: null, metadata: { feature: "feature", planKey: String(index) } }));
+  const result = selectGenerationKnowledge({ ...trace("direct"), selectedKnowledge: pricing }, "哪个套餐合适？");
+  assert.equal(result.length, 8);
+});

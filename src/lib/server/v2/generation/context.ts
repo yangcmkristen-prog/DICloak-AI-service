@@ -60,7 +60,15 @@ function compactApi(candidate: RetrievalCandidate, question: string): string {
 
 export function selectGenerationKnowledge(trace: RetrievalTrace, question: string): RetrievalCandidate[] {
   const limit = STRATEGY_LIMITS[trace.responseStrategy];
-  return trace.selectedKnowledge.slice(0, limit).map((candidate) => {
+  const candidates = trace.selectedKnowledge.some((candidate) => candidate.knowledgeType === "pricing") ? trace.selectedKnowledge : trace.selectedKnowledge.slice(0, limit);
+  return candidates.map((candidate) => {
+    if (candidate.knowledgeType === "pricing") {
+      const plan = stringValue(candidate.metadata.planName) || stringValue(candidate.metadata.planKey);
+      const feature = stringValue(candidate.metadata.feature);
+      const rawValue = candidate.metadata.value;
+      const value = typeof rawValue === "string" || typeof rawValue === "number" || typeof rawValue === "boolean" ? String(rawValue) : "";
+      return { ...candidate, text: `${plan} · ${feature}：${value}`, protectedFields: (candidate.protectedFields ?? []).filter((field) => value.includes(field.value)) };
+    }
     const isApi = candidate.knowledgeType.includes("api") || candidate.apiType !== null;
     if (!isApi) return candidate;
     const compactText = compactApi(candidate, question);

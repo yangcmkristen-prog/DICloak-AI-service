@@ -18,6 +18,15 @@ test("V2 prompt is independent, compact, strategy-aware and contains no V1 promp
   assert.equal(messages.length, 2); assert.match(messages[1].content, /answer_then_clarify/); assert.doesNotMatch(V2_SYSTEM_PROMPT, /V1|三条推荐回复/); assert.doesNotMatch(messages[1].content, /"content":"0"/);
 });
 
+test("pricing entries are grouped by feature across plans", () => {
+  const pricingKnowledge = ["base", "plus", "share-plus"].map((plan) => ({ ...trace().selectedKnowledge[0], chunkId: `PRICING:Open API:${plan}#1`, knowledgeId: `PRICING:Open API:${plan}`, knowledgeType: "pricing", metadata: { feature: "Open API", planName: plan } }));
+  const pricingPrepared = { ...prepared, knowledge: pricingKnowledge.map((item) => ({ knowledgeId: item.knowledgeId, body: item.knowledgeId, naturalLanguageFields: {}, technicalFields: {}, markers: [] })) };
+  const messages = buildV2Messages({ question: "Which plan supports API?", history: [], product: "dicloak", language: "en", trace: trace({ selectedKnowledge: pricingKnowledge }), prepared: pricingPrepared });
+  const payload = JSON.parse(messages[1].content);
+  assert.equal(payload.selectedKnowledge.length, 0);
+  assert.equal(payload.pricingBundles[0].plans.length, 3);
+});
+
 test("protocol exposes one natural reply and claims remain internal", () => {
   const raw = '<<<V2_REPLY>>>请检查网络。<<<END_V2_REPLY>>><<<V2_CLAIMS>>>{"claims":[{"text":"检查网络","knowledgeIds":["A"]}]}<<<END_V2_CLAIMS>>>';
   assert.deepEqual(parseV2Envelope(raw), { reply: "请检查网络。", claims: [{ text: "检查网络", knowledgeIds: ["A"] }] });

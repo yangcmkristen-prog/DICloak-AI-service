@@ -9,8 +9,10 @@ const parsed = await parseEvaluationWorkbook(source);
 if (parsed.errors.length) throw new Error(parsed.errors.map((item) => `${item.file}/${item.sheet}/${item.row}/${item.column}: ${item.message}`).join('\n'));
 const cases = parsed.cases.filter((item) => item.enabled);
 
-function includesAll(answer, expected) { const value = answer.toLocaleLowerCase(); return expected.every((item) => value.includes(item.toLocaleLowerCase())); }
+function includesAll(answer, expected) { const value = answer.toLocaleLowerCase(); return expected.every((item) => item.split('|').some((alternative) => value.includes(alternative.trim().toLocaleLowerCase()))); }
 function excludesAll(answer, forbidden) { const value = answer.toLocaleLowerCase(); return forbidden.every((item) => !value.includes(item.toLocaleLowerCase())); }
+function includesAny(answer, expected) { const value = answer.toLocaleLowerCase(); return !expected.length || expected.some((item) => value.includes(item.toLocaleLowerCase())); }
+function knowledgeIdMatches(actual, expected) { return actual === expected || actual.startsWith(`${expected}:`); }
 function parseEvents(text) { return text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line)); }
 
 async function execute(item) {
@@ -24,12 +26,14 @@ async function execute(item) {
   const meta = events.filter((event) => event.type === 'meta').at(-1)?.data ?? {};
   if (!final || typeof final.content !== 'string') throw new Error('没有 final 事件');
   const answer = final.content;
-  const knowledgeMatch = item.knowledgeType === '无知识' ? (meta.knowledgeIds?.length ?? 0) === 0 : item.knowledgeIds.some((id) => meta.knowledgeIds?.includes(id));
+  const actualKnowledgeIds = meta.knowledgeIds ?? [];
+  const knowledgeMatch = item.knowledgeType === '无知识' ? actualKnowledgeIds.length === 0 : item.knowledgeIds.length === 0 ? true : item.knowledgeIds.some((expected) => actualKnowledgeIds.some((actual) => knowledgeIdMatches(actual, expected)));
   const mustIncludePass = includesAll(answer, item.mustInclude);
   const mustNotIncludePass = excludesAll(answer, item.mustNotInclude);
   const preserveExactPass = includesAll(answer, item.preserveExact);
+  const anyExpressionPass = includesAny(answer, item.anyExpression ?? []);
   const askPass = item.shouldAsk ? /[?？]/.test(answer) : true;
-  return { caseId: item.caseId, product: item.product, language: item.language, knowledgeType: item.knowledgeType, answer, knowledgeIds: meta.knowledgeIds ?? [], evidenceConfidence: meta.evidenceConfidence, responseStrategy: meta.responseStrategy, knowledgeMatch, mustIncludePass, mustNotIncludePass, preserveExactPass, askPass, passed: knowledgeMatch && mustIncludePass && mustNotIncludePass && preserveExactPass && askPass, firstTokenMs: meta.firstTokenMs, totalMs: meta.totalMs ?? Math.round(performance.now() - startedAt), token: meta.usage?.total_tokens ?? 0, modelCalls: meta.modelCalls ?? 0, retry: Boolean(meta.retry), error: null };
+  return { caseId: item.caseId, product: item.product, language: item.language, knowledgeType: item.knowledgeType, answer, knowledgeIds: actualKnowledgeIds, evidenceConfidence: meta.evidenceConfidence, responseStrategy: meta.responseStrategy, knowledgeMatch, mustIncludePass, anyExpressionPass, mustNotIncludePass, preserveExactPass, askPass, passed: knowledgeMatch && mustIncludePass && anyExpressionPass && mustNotIncludePass && preserveExactPass && askPass, firstTokenMs: meta.firstTokenMs, totalMs: meta.totalMs ?? Math.round(performance.now() - startedAt), token: meta.usage?.total_tokens ?? 0, modelCalls: meta.modelCalls ?? 0, retry: Boolean(meta.retry), error: null };
 }
 
 const results = new Array(cases.length); let cursor = 0;

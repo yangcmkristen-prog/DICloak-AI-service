@@ -32,14 +32,24 @@ one natural reply only
 
 export function buildV2Messages(input: { question: string; history: V2PromptHistory[]; product: string; language: string; trace: RetrievalTrace; prepared: PreparedTerminologyPipeline; retryErrors?: string[] }): Array<{ role: "system" | "user"; content: string }> {
   const preparedById = new Map(input.prepared.knowledge.map((item) => [item.knowledgeId, item]));
-  const selected = input.trace.selectedKnowledge.flatMap((candidate, index) => {
+  const selected = input.trace.selectedKnowledge.filter((candidate) => candidate.knowledgeType !== "pricing").flatMap((candidate, index) => {
     const item = preparedById.get(candidate.knowledgeId);
     return item ? [{ relevanceRank: index + 1, knowledgeId: item.knowledgeId, title: candidate.title, content: item.body, technicalFields: item.technicalFields }] : [];
   });
+  const pricingBundles = [...input.trace.selectedKnowledge.filter((candidate) => candidate.knowledgeType === "pricing").reduce((groups, candidate) => {
+    const feature = String(candidate.metadata.feature ?? candidate.knowledgeId.replace(/^PRICING:|:[^:]+$/g, ""));
+    const current = groups.get(feature) ?? [];
+    const item = preparedById.get(candidate.knowledgeId);
+    if (item) current.push({ knowledgeId: candidate.knowledgeId, plan: candidate.metadata.planName, content: item.body });
+    groups.set(feature, current);
+    return groups;
+  }, new Map<string, Array<{ knowledgeId: string; plan: unknown; content: string }>>())].map(([feature, plans]) => ({ feature, plans }));
   const userPayload = {
     currentQuestion: input.question, necessaryHistory: input.history.slice(-4), product: input.product, targetLanguage: input.language,
     evidenceConfidence: input.trace.evidenceConfidence, responseStrategy: input.trace.responseStrategy,
     strategyInstruction: STRATEGY_RULES[input.trace.responseStrategy], selectedKnowledge: selected,
+    pricingInstruction: pricingBundles.length ? "Each pricing bundle contains the same feature for every plan. Compare all supplied plans and base every recommendation on the relevant bundles; never infer a missing price, quota, or capability." : undefined,
+    pricingBundles: pricingBundles.length ? pricingBundles : undefined,
     knowledgeGroups: input.trace.knowledgeGroups, branches: input.trace.branches,
     missingCriticalInformation: input.trace.missingCriticalInformation, optionalFollowUpFields: input.trace.optionalFollowUpFields.slice(0, 1),
     retryCorrection: input.retryErrors?.length ? { instruction: "Correct only these validation failures without adding knowledge.", errors: input.retryErrors } : undefined,

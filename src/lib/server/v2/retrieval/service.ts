@@ -60,6 +60,33 @@ function candidate(row: QueryResultRow, source: "fulltext" | "vector", rank: num
   return { chunkId: row.chunk_id, knowledgeId: row.knowledge_id, title: row.title, text: row.full_text, metadata, termIds: Array.isArray(metadata.termIds) ? metadata.termIds.filter((value: unknown): value is string => typeof value === "string") : [], protectedFields: Array.isArray(row.protected_fields) ? row.protected_fields : [], sourceLanguage: row.source_language ?? "", knowledgeType: row.knowledge_type, apiType: row.api_type, apiVersion: row.api_version, products: row.products, source, sourceRank: rank, textScore: Number(row.text_score ?? 0), vectorScore: Number(row.vector_score ?? 0), rrfScore: 0, rerankScore: 0, matchedBy: [source] };
 }
 
+const pricingFamily = (knowledgeId: string): string => knowledgeId.replace(/:[^:]+$/, "");
+
+const PRICING_DIMENSIONS = {
+  api: ["PRICING:Open API"],
+  members: ["PRICING:included members", "PRICING:additional members", "PRICING:actual users/devices supported by each member seat", "PRICING:multi-device login"],
+  profiles: ["PRICING:included profiles", "PRICING:additional profiles", "PRICING:Number of profiles that can be created per day"],
+} as const;
+
+export function pricingFamiliesForQuestion(question: string): string[] {
+  const families: string[] = [];
+  if (/\b(?:open\s*)?api\b|接口/i.test(question)) families.push(...PRICING_DIMENSIONS.api);
+  if (/成员|席位|用户|账号|设备|member|seat|user|account|device/i.test(question)) families.push(...PRICING_DIMENSIONS.members);
+  if (/环境|配置文件|profile|environment/i.test(question)) families.push(...PRICING_DIMENSIONS.profiles);
+  return [...new Set(families)];
+}
+
+export async function expandPricingKnowledge(candidates: RetrievalCandidate[], question = ""): Promise<RetrievalCandidate[]> {
+  const pricing = candidates.filter((item) => item.knowledgeType === "pricing");
+  if (!pricing.length) return candidates;
+  const families = [...new Set([...pricingFamiliesForQuestion(question), ...pricing.map((item) => pricingFamily(item.knowledgeId))])].slice(0, 8);
+  const result = await getPool().query(`select distinct on (regexp_replace(c.knowledge_id, ':[^:]+$', ''),c.metadata->>'planKey') c.chunk_id,c.knowledge_id,c.title,c.full_text,c.metadata,c.protected_fields,c.source_language,c.knowledge_type,c.api_type,c.api_version,c.products from v2_search.chunks c where c.index_version_id=(select id from v2_search.index_versions where status='published' order by published_at desc nulls last,created_at desc limit 1) and c.enabled and c.knowledge_type='pricing' and regexp_replace(c.knowledge_id, ':[^:]+$', '')=any($1::text[]) order by regexp_replace(c.knowledge_id, ':[^:]+$', ''),c.metadata->>'planKey',c.ordinal`, [families]);
+  const expanded = result.rows.map((row, index) => ({ ...candidate(row, "fulltext", index + 1), source: "fused" as const, rerankScore: pricing.find((item) => pricingFamily(item.knowledgeId) === pricingFamily(row.knowledge_id))?.rerankScore ?? 0 }));
+  const nonPricing = candidates.filter((item) => item.knowledgeType !== "pricing");
+  expanded.sort((left, right) => families.indexOf(pricingFamily(left.knowledgeId)) - families.indexOf(pricingFamily(right.knowledgeId)) || ["free", "base", "plus", "share-plus"].indexOf(String(left.metadata.planKey)) - ["free", "base", "plus", "share-plus"].indexOf(String(right.metadata.planKey)));
+  return [...nonPricing, ...expanded];
+}
+
 async function embedQuery(question: string, signal: AbortSignal): Promise<{ vector: string; tokens: number }> {
   const baseUrl = process.env.V2_EMBEDDING_BASE_URL?.replace(/\/$/, ""); const apiKey = process.env.V2_EMBEDDING_API_KEY; const model = process.env.V2_EMBEDDING_MODEL;
   if (!baseUrl || !apiKey || !model) throw new Error("Embedding 配置不完整");

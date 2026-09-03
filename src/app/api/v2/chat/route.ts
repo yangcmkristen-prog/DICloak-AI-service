@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { encodeStreamEvent } from "@/lib/stream-events";
-import { retrieveV2, loadV2Terms } from "@/lib/server/v2/retrieval/service";
+import { retrieveV2, loadV2Terms, expandPricingKnowledge } from "@/lib/server/v2/retrieval/service";
 import { prepareTerminologyPipeline } from "@/lib/server/v2/terminology/pipeline";
 import type { SupportedTermLanguage, TerminologyKnowledge } from "@/lib/server/v2/terminology/types";
 import { buildV2Messages, type V2PromptHistory } from "@/lib/server/v2/prompt";
@@ -35,7 +35,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       sendStatus("正在检索相关知识", "并行执行全文和向量召回");
       const [retrievalTrace, modelConfig] = await Promise.all([retrieveV2(question, product, request.signal), resolveV2ModelConfig()]);
       if (!modelConfig) throw new Error("V2 主模型配置不完整，请配置独立 V2 模型");
-      const selectedKnowledge = selectGenerationKnowledge(retrievalTrace, question);
+      const expandedKnowledge = await expandPricingKnowledge(retrievalTrace.selectedKnowledge, question);
+      const selectedKnowledge = selectGenerationKnowledge({ ...retrievalTrace, selectedKnowledge: expandedKnowledge }, question);
       const selectedIds = new Set(selectedKnowledge.map((item) => item.knowledgeId));
       const trace = { ...retrievalTrace, selectedKnowledge, top: selectedKnowledge,
         knowledgeGroups: retrievalTrace.knowledgeGroups.map((group) => ({ ...group, knowledgeIds: group.knowledgeIds.filter((id) => selectedIds.has(id)) })).filter((group) => group.knowledgeIds.length),
