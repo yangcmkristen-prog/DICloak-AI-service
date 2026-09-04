@@ -25,6 +25,12 @@ test("role-specific answer variants are passed explicitly for conditional genera
   assert.deepEqual(payload.selectedKnowledge[0].roleVariants, ["client", "end_user"]);
 });
 
+test("function input carries required navigation facts without another model call", () => {
+  const functionTrace = trace({ selectedKnowledge: [{ ...trace().selectedKnowledge[0], knowledgeType: "function", metadata: { module: "全局设置", page: "全局设置", functionName: "开发者工具", entryPath: "浏览器设置", steps: "启用并保存" } }] });
+  const payload = JSON.parse(buildV2Messages({ question: "如何设置", history: [], product: "dicloak", language: "zh", trace: functionTrace, prepared })[1].content);
+  assert.deepEqual(payload.selectedKnowledge[0].requiredFacts, { module: "全局设置", functionName: "开发者工具", entry: "浏览器设置", steps: "启用并保存" });
+});
+
 test("pricing entries are grouped by feature across plans", () => {
   const pricingKnowledge = ["base", "plus", "share-plus"].map((plan) => ({ ...trace().selectedKnowledge[0], chunkId: `PRICING:Open API:${plan}#1`, knowledgeId: `PRICING:Open API:${plan}`, knowledgeType: "pricing", metadata: { feature: "Open API", planName: plan } }));
   const pricingPrepared = { ...prepared, knowledge: pricingKnowledge.map((item) => ({ knowledgeId: item.knowledgeId, body: item.knowledgeId, naturalLanguageFields: {}, technicalFields: {}, markers: [] })) };
@@ -37,6 +43,11 @@ test("pricing entries are grouped by feature across plans", () => {
 test("protocol exposes one natural reply and claims remain internal", () => {
   const raw = '<<<V2_REPLY>>>请检查网络。<<<END_V2_REPLY>>><<<V2_CLAIMS>>>{"claims":[{"text":"检查网络","knowledgeIds":["A"]}]}<<<END_V2_CLAIMS>>>';
   assert.deepEqual(parseV2Envelope(raw), { reply: "请检查网络。", claims: [{ text: "检查网络", knowledgeIds: ["A"] }] });
+});
+
+test("protocol accepts one valid claims object followed by harmless extra text", () => {
+  const raw = '<<<V2_REPLY>>>完成。<<<END_V2_REPLY>>><<<V2_CLAIMS>>>{"claims":[{"text":"完成","knowledgeIds":["A"]}]} done<<<END_V2_CLAIMS>>>';
+  assert.deepEqual(parseV2Envelope(raw), { reply: "完成。", claims: [{ text: "完成", knowledgeIds: ["A"] }] });
 });
 
 test("true stream filter hides protocol, claims and partial internal markers", () => {

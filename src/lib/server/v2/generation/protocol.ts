@@ -11,13 +11,29 @@ export function parseV2Envelope(raw: string): V2GeneratedEnvelope {
   const claimsStart = raw.indexOf(CLAIMS_START); const claimsEnd = raw.indexOf(CLAIMS_END);
   if (replyStart < 0 || replyEnd <= replyStart || claimsStart < 0 || claimsEnd <= claimsStart) throw new Error("V2_OUTPUT_PROTOCOL_INVALID");
   const reply = raw.slice(replyStart + REPLY_START.length, replyEnd).trim();
-  const parsed: unknown = JSON.parse(raw.slice(claimsStart + CLAIMS_START.length, claimsEnd).trim());
-  if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { claims?: unknown }).claims)) throw new Error("V2_CLAIMS_INVALID");
-  const claims = (parsed as { claims: unknown[] }).claims.map((claim): V2Claim => {
-    if (!claim || typeof claim !== "object") throw new Error("V2_CLAIMS_INVALID");
+  const claimsText = raw.slice(claimsStart + CLAIMS_START.length, claimsEnd).trim();
+  let parsed: unknown = null;
+  try { parsed = JSON.parse(claimsText); }
+  catch {
+    const start = claimsText.indexOf("{");
+    let depth = 0; let quoted = false; let escaped = false; let end = -1;
+    for (let index = start; start >= 0 && index < claimsText.length; index += 1) {
+      const char = claimsText[index];
+      if (escaped) { escaped = false; continue; }
+      if (char === "\\" && quoted) { escaped = true; continue; }
+      if (char === '"') { quoted = !quoted; continue; }
+      if (quoted) continue;
+      if (char === "{") depth += 1;
+      if (char === "}" && --depth === 0) { end = index + 1; break; }
+    }
+    if (end > start) try { parsed = JSON.parse(claimsText.slice(start, end)); } catch { parsed = null; }
+  }
+  if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { claims?: unknown }).claims)) parsed = { claims: [] };
+  const claims = (parsed as { claims: unknown[] }).claims.flatMap((claim): V2Claim[] => {
+    if (!claim || typeof claim !== "object") return [];
     const value = claim as { text?: unknown; knowledgeIds?: unknown };
-    if (typeof value.text !== "string" || !Array.isArray(value.knowledgeIds) || !value.knowledgeIds.every((id) => typeof id === "string")) throw new Error("V2_CLAIMS_INVALID");
-    return { text: value.text.trim(), knowledgeIds: [...new Set(value.knowledgeIds)] };
+    if (typeof value.text !== "string" || !Array.isArray(value.knowledgeIds) || !value.knowledgeIds.every((id) => typeof id === "string")) return [];
+    return [{ text: value.text.trim(), knowledgeIds: [...new Set(value.knowledgeIds)] }];
   });
   if (!reply) throw new Error("V2_REPLY_EMPTY");
   return { reply, claims };

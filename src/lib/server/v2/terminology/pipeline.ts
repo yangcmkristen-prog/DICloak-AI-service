@@ -90,7 +90,10 @@ function protectTechnicalValues(input: string, knowledge: TerminologyKnowledge, 
       const start = lowerInput.indexOf(lowerValue, cursor);
       if (start < 0) break;
       const end = start + field.value.length;
-      if (!occupied.slice(start, end).some(Boolean)) matches.push({ start, end });
+      const linePrefix = input.slice(0, start);
+      const isListOrdinal = field.kind === "number" && /^\d{1,2}$/.test(field.value)
+        && (start === 0 || /\r?\n\s*$/.test(linePrefix)) && /^[.)、．]\s*/.test(input.slice(end));
+      if (!isListOrdinal && !occupied.slice(start, end).some(Boolean)) matches.push({ start, end });
       cursor = end;
     }
     if (!matches.length) continue;

@@ -101,3 +101,13 @@ test("missing, modified, duplicated and unknown markers return structured errors
   assert.ok(restoreProtectedResponse(`${prepared.knowledge[0].body}${marker}`, prepared).errors.some((item) => item.code === "MARKER_DUPLICATED"));
   assert.ok(restoreProtectedResponse(`${prepared.knowledge[0].body}⟦V2:bad:term:0:bad⟧`, prepared).errors.some((item) => item.code === "MARKER_UNKNOWN"));
 });
+
+test("list ordinals remain natural prose while semantic numbers stay protected", () => {
+  const item = knowledge({ body: "1. First step\n2. Keep version 138", protectedFields: [
+    { kind: "number", value: "1" }, { kind: "number", value: "2" }, { kind: "version", value: "138" },
+  ] });
+  const prepared = prepareTerminologyPipeline({ knowledge: [item], terms, targetLanguage: "en" });
+  assert.match(prepared.knowledge[0].body, /^1\. First step\n2\. Keep version ⟦V2:/);
+  assert.equal(prepared.markers.length, 1);
+  assert.equal(prepared.markers[0].value, "138");
+});
