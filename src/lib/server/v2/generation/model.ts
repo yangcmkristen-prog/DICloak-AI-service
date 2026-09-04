@@ -27,10 +27,13 @@ function completionsUrl(config: V2ModelConfig): string {
 }
 
 export async function streamV2Model(input: { config: V2ModelConfig; messages: Array<{ role: "system" | "user"; content: string }>; signal: AbortSignal; onDelta: (delta: string) => void; onUsage: (usage: V2ModelUsage) => void }): Promise<string> {
+  const reasoningEffort = process.env.V2_CHAT_REASONING_EFFORT;
+  const configuredLimit = Number(process.env.V2_CHAT_MAX_COMPLETION_TOKENS ?? "2048");
+  const maxCompletionTokens = Number.isInteger(configuredLimit) && configuredLimit >= 256 ? configuredLimit : 2048;
   const response = await fetch(completionsUrl(input.config), {
     method: "POST", signal: input.signal,
     headers: { authorization: `Bearer ${input.config.apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({ model: input.config.model, messages: input.messages, temperature: 0.2, stream: true, stream_options: { include_usage: true } }),
+    body: JSON.stringify({ model: input.config.model, messages: input.messages, temperature: 0.1, max_completion_tokens: maxCompletionTokens, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}), stream: true, stream_options: { include_usage: true } }),
   });
   if (!response.ok) throw new Error(`V2 主模型调用失败：HTTP ${response.status}`);
   if (!response.body) throw new Error("V2 主模型没有返回响应流");

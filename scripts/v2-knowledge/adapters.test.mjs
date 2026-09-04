@@ -105,6 +105,15 @@ test('分块保持各自产品范围，不合并不同产品知识', () => {
   assert.deepEqual(validateChunks(records, chunks), []);
 });
 
+test('FAQ 保留管理员与成员答案变体供单次条件式生成', () => {
+  const records = adaptFaqWorkbook({ workbook: workbook({
+    feature_faq: [],
+    troubleshooting: [{ FAQ_ID: 'ROLE-1', '标准答案（client）': 'Admin steps', '标准答案（end_user）': 'Member steps' }],
+    user_routing: [], out_of_scope: [], troubleshooting_flow: [],
+  }), file: 'FAQ.xlsx', version: '1', warnings: [] });
+  assert.deepEqual(records[0].metadata.answerVariants, { client: 'Admin steps', end_user: 'Member steps' });
+});
+
 test('自然语言中的技术字段被结构化识别，永久 API Path 完整保留', () => {
   const body = 'Use PATCH /openapi/v1/env/{env_id}/open with {"env_id":123} in DICloak v1.2.3; price $19.99.';
   const fields = extractTextProtectedFields(body, 'answer');

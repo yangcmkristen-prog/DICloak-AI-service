@@ -63,6 +63,7 @@ function candidate(row: QueryResultRow, source: "fulltext" | "vector", rank: num
 const pricingFamily = (knowledgeId: string): string => knowledgeId.replace(/:[^:]+$/, "");
 
 const PRICING_DIMENSIONS = {
+  price: ["PRICING:base plan price"],
   api: ["PRICING:Open API"],
   members: ["PRICING:included members", "PRICING:additional members", "PRICING:actual users/devices supported by each member seat", "PRICING:multi-device login"],
   profiles: ["PRICING:included profiles", "PRICING:additional profiles", "PRICING:Number of profiles that can be created per day"],
@@ -70,6 +71,7 @@ const PRICING_DIMENSIONS = {
 
 export function pricingFamiliesForQuestion(question: string): string[] {
   const families: string[] = [];
+  if (/最划算|价格|费用|成本|price|cost|cheapest|affordable/i.test(question)) families.push(...PRICING_DIMENSIONS.price);
   if (/\b(?:open\s*)?api\b|接口/i.test(question)) families.push(...PRICING_DIMENSIONS.api);
   if (/成员|席位|用户|账号|设备|member|seat|user|account|device/i.test(question)) families.push(...PRICING_DIMENSIONS.members);
   if (/环境|配置文件|profile|environment/i.test(question)) families.push(...PRICING_DIMENSIONS.profiles);

@@ -12,6 +12,8 @@ test("deterministic parser extracts product, language and strict API fields", ()
   assert.deepEqual(parseQuery("DICloak HTTP API v1 POST object:env action:create", "paraturbo"), { product: "dicloak", language: "en", knowledgeTypes: ["http_api"], apiType: "http", apiVersion: "v1", method: "POST", object: "env", action: "create", missingConditions: [] });
   assert.equal(parseQuery("Как создать профиль браузера?").language, "ru");
   assert.equal(parseQuery("Como criar um perfil de navegador?").language, "pt");
+  assert.equal(parseQuery("visualização grátis").language, "pt");
+  assert.ok(extractSearchTerms("visualização grátis").includes("free views"));
   assert.deepEqual(parseQuery("API 怎么创建环境？").missingConditions.sort(), ["apiType", "method"]);
 });
 

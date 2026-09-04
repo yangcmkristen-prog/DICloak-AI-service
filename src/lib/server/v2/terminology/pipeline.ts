@@ -195,13 +195,13 @@ export function prepareTerminologyPipeline(input: { knowledge: TerminologyKnowle
   };
 }
 
-export function restoreProtectedResponse(response: string, prepared: PreparedTerminologyPipeline, options: { requireAll?: boolean } = {}): RestoreResult {
+export function restoreProtectedResponse(response: string, prepared: PreparedTerminologyPipeline, options: { requireAll?: boolean; allowKnownDuplicates?: boolean } = {}): RestoreResult {
   const errors: TerminologyIssue[] = [];
   let output = response;
   for (const marker of prepared.markers) {
     const count = output.split(marker.marker).length - 1;
     if (options.requireAll !== false && count < marker.occurrences) errors.push(issue("error", "MARKER_MISSING_OR_MODIFIED", `内部标记丢失或被修改：${marker.marker}`, { knowledgeId: marker.knowledgeId, termId: marker.termId }));
-    if (count > marker.occurrences) errors.push(issue("error", "MARKER_DUPLICATED", `内部标记被额外复制：${marker.marker}`, { knowledgeId: marker.knowledgeId, termId: marker.termId }));
+    if (!options.allowKnownDuplicates && count > marker.occurrences) errors.push(issue("error", "MARKER_DUPLICATED", `内部标记被额外复制：${marker.marker}`, { knowledgeId: marker.knowledgeId, termId: marker.termId }));
   }
   const known = new Set(prepared.markers.map((marker) => marker.marker));
   for (const marker of response.match(INTERNAL_MARKER_PATTERN) ?? []) if (!known.has(marker)) errors.push(issue("error", "MARKER_UNKNOWN", `回复包含未知内部标记：${marker}`));

@@ -60,8 +60,7 @@ export async function POST(request: NextRequest): Promise<Response> {
         });
         const envelope = parseV2Envelope(raw); return { validation: validateV2Generation(envelope, trace, prepared), claims: envelope.claims };
       };
-      let generated = await run(undefined, true); let retried = false;
-      if (!generated.validation.ok) { retried = true; sendStatus("正在受控修正", "事实或格式验证未通过，仅使用同一批选中知识重试一次"); generated = await run(generated.validation.errors, false); }
+      const generated = await run(undefined, true); const retried = false;
       if (!generated.validation.ok || !generated.validation.reply) throw new Error(`V2 回复验证失败：${generated.validation.errors.join(",")}`);
       const totalMs = Math.round(performance.now() - startedAt);
       controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, usage, modelCalls, retry: retried, firstTokenMs, generationMs: Math.round(performance.now() - generationStartedAt), totalMs, claims: generated.claims } }));
