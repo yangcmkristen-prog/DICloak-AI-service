@@ -19,6 +19,7 @@ export function extractSearchTerms(question: string): string[] {
     [/(?:环境|浏览器配置)|\bprofiles?\b/i, ["profile", "environment"]],
     [/(?:用户|成员|席位)|\b(?:users?|members?|seats?)\b/i, ["member", "seat", "actual users", "devices"]],
     [/visualiza(?:ção|cao)\s+gr[aá]tis/i, ["free views", "free likes", "free followers", "maintenance"]],
+    [/(?:como\s+)?cri(?:a|ar).{0,12}(?:navegador|novegador)|(?:create|add).{0,12}(?:browser|profile)/i, ["create browser profile", "new profile", "创建环境"]],
   ].flatMap(([pattern, aliases]) => (pattern as RegExp).test(question) ? aliases as string[] : []);
   return [...new Set([...latin, ...han, ...conceptAliases])].slice(0, 40);
 }
@@ -48,7 +49,8 @@ export function parseQuery(question: string, requestedProduct: "dicloak" | "para
   const outOfScope = /(?:生成|购买|提供).{0,12}(?:AI|Sora|视频|工具账号)|免费.{0,8}(?:浏览|播放|点赞|粉丝)|(?:账号|account).{0,10}(?:封禁|禁用|disabled|unblock)|(?:赚钱|挣钱|earn\s+money|make\s+money)|visualiza(?:ção|cao)\s+gr[aá]tis/i.test(normalized);
   const operationAudit = /(?:谁|何人).{0,8}(?:改|修改|操作)|(?:操作|修改|变更).{0,8}(?:日志|记录)|who.{0,12}(?:changed|modified)|operation\s+log/i.test(normalized);
   const accountSharing = /(?:分享|共享).{0,15}(?:订阅|账号|账户)|(?:团队|成员).{0,15}(?:分享|共享)|share.{0,15}(?:subscription|account)/i.test(normalized);
-  const knowledgeTypes = apiType ? [apiType === "http" ? "http_api" : "local_api"] : renewal ? ["faq", "function"] : pricing ? ["pricing"] : apiMention ? ["http_api", "local_api"] : outOfScope ? ["out_of_scope"] : operationAudit ? ["function"] : accountSharing ? ["faq"] : troubleshooting ? ["troubleshooting", "troubleshooting_flow", "user_routing"] : [];
+  const functionOperation = /(?:como\s+)?cri(?:a|ar).{0,12}(?:navegador|novegador)|(?:create|add).{0,12}(?:browser|profile)|(?:创建|新建).{0,8}(?:环境|浏览器配置)/i.test(normalized);
+  const knowledgeTypes = apiType ? [apiType === "http" ? "http_api" : "local_api"] : renewal ? ["faq", "function"] : pricing ? ["pricing"] : apiMention ? ["http_api", "local_api"] : outOfScope ? ["out_of_scope"] : operationAudit || functionOperation ? ["function"] : accountSharing ? ["faq"] : troubleshooting ? ["troubleshooting", "troubleshooting_flow", "user_routing"] : [];
   const objectMatch = normalized.match(/(?:对象|object)\s*[:：]?\s*([\w-]+)/i);
   const actionMatch = normalized.match(/(?:动作|action)\s*[:：]?\s*([\w-]+)/i);
   const missingConditions = [];

@@ -14,6 +14,8 @@ test("deterministic parser extracts product, language and strict API fields", ()
   assert.equal(parseQuery("Como criar um perfil de navegador?").language, "pt");
   assert.equal(parseQuery("visualização grátis").language, "pt");
   assert.ok(extractSearchTerms("visualização grátis").includes("free views"));
+  assert.deepEqual(parseQuery("como cria o novegador").knowledgeTypes, ["function"]);
+  assert.ok(extractSearchTerms("como cria o novegador").includes("create browser profile"));
   assert.deepEqual(parseQuery("API 怎么创建环境？").missingConditions.sort(), ["apiType", "method"]);
 });
 
