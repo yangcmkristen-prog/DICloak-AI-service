@@ -26,6 +26,8 @@ function detectLanguage(question: string): string {
   if (/\p{Script=Han}/u.test(question)) return "zh";
   if (/\p{Script=Cyrillic}/u.test(question)) return "ru";
   if (/\b(como|perfil|navegador|plano|preço|api local)\b/i.test(question)) return "pt";
+  if (/\b(cómo|perfil|navegador|precio|cuenta|iniciar sesión)\b/i.test(question)) return "es";
+  if (/\b(làm sao|hồ sơ|trình duyệt|giá|tài khoản|đăng nhập)\b/i.test(question)) return "vi";
   return "en";
 }
 
@@ -41,7 +43,7 @@ export function parseQuery(question: string, requestedProduct: "dicloak" | "para
   const method = METHODS.find((value) => new RegExp(`\\b${value}\\b`, "i").test(upper)) ?? null;
   const renewal = /续费|续期|renew(?:al|ing)?/i.test(normalized);
   const pricing = /套餐|价格|费用|配额|成员数|席位|\bplan\b|pricing|price|quota|upgrade\s+(?:my\s+)?plan|preço/i.test(normalized);
-  const troubleshooting = /失败|报错|错误|异常|无法|不能|打不开|不让.{0,6}打开|无效|内容为空|一直提示|怎么办|not\s+working|(?:can't|cannot|won't)\s+open|fail(?:ed|ure)?|error|unable|cannot|invalid|empty\s+folder/i.test(normalized);
+  const troubleshooting = /失败|报错|错误|异常|无法|不能|打不开|不让.{0,6}打开|无效|内容为空|余额不足|一直提示|怎么办|not\s+working|(?:can't|cannot|won't)\s+(?:open|use)|fail(?:ed|ure)?|error|unable|cannot|invalid|insufficient\s+(?:balance|credit)|empty\s+folder/i.test(normalized);
   const outOfScope = /(?:生成|购买|提供).{0,12}(?:AI|Sora|视频|工具账号)|免费.{0,8}(?:浏览|播放|点赞|粉丝)|(?:账号|account).{0,10}(?:封禁|禁用|disabled|unblock)|(?:赚钱|挣钱|earn\s+money|make\s+money)|visualiza(?:ção|cao)\s+gr[aá]tis/i.test(normalized);
   const operationAudit = /(?:谁|何人).{0,8}(?:改|修改|操作)|(?:操作|修改|变更).{0,8}(?:日志|记录)|who.{0,12}(?:changed|modified)|operation\s+log/i.test(normalized);
   const accountSharing = /(?:分享|共享).{0,15}(?:订阅|账号|账户)|(?:团队|成员).{0,15}(?:分享|共享)|share.{0,15}(?:subscription|account)/i.test(normalized);

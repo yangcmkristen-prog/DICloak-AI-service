@@ -59,7 +59,12 @@ function directions(candidate: RetrievalCandidate): Array<{ key: string; label: 
   return [{ key: fallback.toLocaleLowerCase(), label: fallback }];
 }
 
-function groupDiverse(candidates: RetrievalCandidate[], limit = 7): { selected: RetrievalCandidate[]; groups: KnowledgeGroup[] } {
+function priority(candidate: RetrievalCandidate): number {
+  const value = Number(candidate.metadata.priority);
+  return Number.isFinite(value) && value > 0 ? value : Number.MAX_SAFE_INTEGER;
+}
+
+function groupDiverse(candidates: RetrievalCandidate[], limit = 5): { selected: RetrievalCandidate[]; groups: KnowledgeGroup[] } {
   const groups = new Map<string, { label: string; candidates: RetrievalCandidate[] }>();
   for (const candidate of candidates) {
     for (const item of directions(candidate)) {
@@ -67,8 +72,9 @@ function groupDiverse(candidates: RetrievalCandidate[], limit = 7): { selected: 
       current.candidates.push(candidate); groups.set(item.key, current);
     }
   }
-  const chosen = [...groups.entries()].slice(0, limit);
-  const selected = [...new Map(chosen.map(([, value]) => [value.candidates[0].chunkId, value.candidates[0]])).values()].slice(0, limit);
+  for (const value of groups.values()) value.candidates.sort((a, b) => priority(a) - priority(b) || b.rerankScore - a.rerankScore);
+  const chosen = [...groups.entries()].sort(([, a], [, b]) => priority(a.candidates[0]) - priority(b.candidates[0]) || b.candidates[0].rerankScore - a.candidates[0].rerankScore).slice(0, limit);
+  const selected = [...new Map(chosen.map(([, value]) => [value.candidates[0].chunkId, value.candidates[0]])).values()];
   return {
     selected,
     groups: chosen.map(([key, value]) => ({ key, label: value.label, knowledgeIds: value.candidates.map((candidate) => candidate.knowledgeId) })),
@@ -106,7 +112,7 @@ export function decideRetrieval(question: string, intent: QueryIntent, candidate
     const result = loginBranches(safe); selectedKnowledge = result.selected; branches = result.branches;
     responseStrategy = branches.length >= 2 ? "conditional" : selectedKnowledge.length ? "answer_then_clarify" : "clarify_only";
   } else if (classification.mode === "broad_troubleshooting") {
-    const result = groupDiverse(safe, 7); selectedKnowledge = result.selected.slice(0, 7); knowledgeGroups = result.groups;
+    const result = groupDiverse(safe, 5); selectedKnowledge = result.selected; knowledgeGroups = result.groups;
     responseStrategy = selectedKnowledge.length >= 2 ? (classification.optionalFollowUpFields.length ? "answer_then_clarify" : "aggregated") : selectedKnowledge.length ? "answer_then_clarify" : "clarify_only";
   } else {
     selectedKnowledge = safe.slice(0, retrievalConfig.outputTopK); responseStrategy = selectedKnowledge.length ? "direct" : "clarify_only";

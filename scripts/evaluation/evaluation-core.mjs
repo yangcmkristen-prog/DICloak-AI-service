@@ -8,7 +8,8 @@ function occurrences(text, token) {
 export function evaluateAnswer(testCase, answer) {
   const checks = [];
   const add = (name, pass, detail = '') => checks.push({ name, pass, detail });
-  for (const expected of testCase.mustInclude) add(`必须包含：${expected}`, answer.includes(expected), expected);
+  for (const expected of testCase.mustInclude) add(`必须包含：${expected}`, expected.split('|').some((alternative) => answer.toLocaleLowerCase().includes(alternative.trim().toLocaleLowerCase())), expected);
+  if (testCase.anyExpression?.length) add(`任一表达满足：${testCase.anyExpression.join(' / ')}`, testCase.anyExpression.some((expected) => answer.toLocaleLowerCase().includes(expected.toLocaleLowerCase())), testCase.anyExpression.join(' / '));
   for (const forbidden of testCase.mustNotInclude) add(`禁止包含：${forbidden}`, !answer.includes(forbidden), forbidden);
   for (const exact of testCase.preserveExact) add(`保持原样：${exact}`, occurrences(answer, exact) >= 1, exact);
   const asks = askPatterns.some((pattern) => pattern.test(answer));

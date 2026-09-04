@@ -54,6 +54,10 @@ reports/evaluation/v2-retrieval-latest.json
 reports/evaluation/v2-retrieval-debug.png
 reports/evaluation/v2-decision-latest.html
 reports/evaluation/v2-decision-latest.json
+reports/evaluation/v2-generation-latest.html
+reports/evaluation/v2-generation-latest.json
+reports/evaluation/v2-generation-timeout-diagnostic.html
+reports/evaluation/v2-generation-timeout-diagnostic.json
 reports/v2-terminology/
 evaluation-source/*.local.xlsx
 

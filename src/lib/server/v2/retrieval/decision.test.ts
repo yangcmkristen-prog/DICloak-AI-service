@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { decideRetrieval, classifyQuestionMode } from "./decision.ts";
 import { parseQuery } from "./query-parser.ts";
+import { pricingFamiliesForQuestion } from "./service.ts";
 import type { QueryIntent, RetrievalCandidate } from "./types.ts";
 
 const intent = (overrides: Partial<QueryIntent> = {}): QueryIntent => ({ product: "dicloak", language: "zh", knowledgeTypes: [], apiType: null, apiVersion: null, method: null, object: null, action: null, missingConditions: [], ...overrides });
@@ -32,6 +33,24 @@ test("broad troubleshooting aggregates distinct evidence and may ask only after 
   assert.ok(result.selectedKnowledge.length >= 3);
   assert.equal(new Set(result.knowledgeGroups.map((group) => group.key)).size, result.knowledgeGroups.length);
   assert.equal(result.selectedKnowledge.filter((item) => item.knowledgeId.startsWith("PROXY")).length, 1);
+});
+
+test("broad troubleshooting keeps at most five directions and prefers explicit knowledge priority", () => {
+  const question = "环境打不开";
+  const rows = [
+    candidate("LOW-NET", { text: "网络 network", metadata: { priority: "4" }, rerankScore: 0.9 }),
+    candidate("HIGH-NET", { text: "网络 network", metadata: { priority: "1" }, rerankScore: 0.4 }),
+    candidate("PROXY", { text: "代理 proxy", metadata: { priority: "2" } }),
+    candidate("DISK", { text: "磁盘 disk", metadata: { priority: "1" } }),
+    candidate("CACHE", { text: "缓存 cache", metadata: { priority: "2" } }),
+    candidate("KERNEL", { text: "内核 kernel", metadata: { priority: "3" } }),
+    candidate("EXT", { text: "扩展 extension", metadata: { priority: "4" } }),
+  ];
+  const result = decideRetrieval(question, parseQuery(question), rows, "medium", []);
+  assert.equal(result.selectedKnowledge.length, 5);
+  assert.ok(result.selectedKnowledge.some((item) => item.knowledgeId === "HIGH-NET"));
+  assert.ok(!result.selectedKnowledge.some((item) => item.knowledgeId === "LOW-NET"));
+  assert.ok(!result.selectedKnowledge.some((item) => item.knowledgeId === "EXT"));
 });
 
 test("ambiguous login produces two evidence-backed safe branches", () => {
@@ -76,4 +95,17 @@ test("unrelated weak candidates are debug-only and never selected", () => {
 test("question modes distinguish broad and critical ambiguity", () => {
   assert.equal(classifyQuestionMode("环境打不开", parseQuery("环境打不开")).mode, "broad_troubleshooting");
   assert.equal(classifyQuestionMode("帮我删除它", parseQuery("帮我删除它")).mode, "missing_critical_information");
+});
+
+test("pricing questions select related structured field families", () => {
+  assert.deepEqual(pricingFamiliesForQuestion("Does my plan support API?"), ["PRICING:Open API"]);
+  assert.deepEqual(pricingFamiliesForQuestion("300 个用户需要 20 个环境，哪个套餐合适"), [
+    "PRICING:included members",
+    "PRICING:additional members",
+    "PRICING:actual users/devices supported by each member seat",
+    "PRICING:multi-device login",
+    "PRICING:included profiles",
+    "PRICING:additional profiles",
+    "PRICING:Number of profiles that can be created per day",
+  ]);
 });

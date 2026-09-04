@@ -24,6 +24,11 @@ test("deterministic parser separates troubleshooting and pricing intents", () =>
   assert.deepEqual(parseQuery("我想分享 Claude 订阅").knowledgeTypes, ["faq"]);
 });
 
+test("deterministic parser recognizes broad tool failures and insufficient balance", () => {
+  assert.ok(parseQuery("Can't use ChatGPT").knowledgeTypes.includes("troubleshooting"));
+  assert.ok(parseQuery("Gamma 显示余额不足").knowledgeTypes.includes("user_routing"));
+});
+
 test("deterministic parser recognizes out-of-scope, audit and sharing intents", () => {
   assert.deepEqual(parseQuery("我想用 AI Sora 生成视频").knowledgeTypes, ["out_of_scope"]);
   assert.deepEqual(parseQuery("visualização grátis", "paraturbo").knowledgeTypes, ["out_of_scope"]);

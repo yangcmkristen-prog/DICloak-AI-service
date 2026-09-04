@@ -918,7 +918,7 @@ export default function Home() {
 
       let response: Response;
       if (currentConversation?.aiEngine === "v2") {
-        updateGenerationStatus("V2 正在生成测试回复", "验证独立回答链路");
+        updateGenerationStatus("V2 正在生成自然回复", "检索、生成并验证事实与技术字段");
         response = await fetch("/api/v2/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1091,7 +1091,7 @@ export default function Home() {
                 : c.context;
             return {
               ...c,
-              messages: c.messages.map((message) => message.id === assistantMessageId ? { ...message, content: fullContent, generationDurationMs: totalGenerationMs } : message),
+              messages: c.messages.map((message) => message.id === assistantMessageId ? { ...message, content: fullContent, generationDurationMs: totalGenerationMs, ...(c.aiEngine === "v2" && streamMeta ? { v2Debug: streamMeta } : {}) } : message),
               context: nextContext,
             };
           }
@@ -2132,7 +2132,7 @@ export default function Home() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="v1">V1（默认，当前正式链路）</SelectItem>
-                <SelectItem value="v2">V2（第一阶段测试链路）</SelectItem>
+                <SelectItem value="v2">V2（正式单回复）</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">版本将绑定到该对话；产生消息后不可切换。如需更换，请新建对话。</p>
@@ -2275,6 +2275,7 @@ export default function Home() {
                 isGenerating={isGenerating}
                 generationStatus={generationStatus}
                 onCancel={() => generationAbortRef.current?.abort()}
+                v2Mode={currentConversation?.aiEngine === "v2"}
               />
             </section>
           </div>

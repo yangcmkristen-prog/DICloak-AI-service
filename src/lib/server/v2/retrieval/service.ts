@@ -5,10 +5,18 @@ import { extractSearchTerms, parseQuery } from "./query-parser.ts";
 import { calculateConfidence, reciprocalRankFusion, rerankCandidates } from "./ranking.ts";
 import { decideRetrieval } from "./decision.ts";
 import type { QueryIntent, RetrievalCandidate, RetrievalTrace } from "./types.ts";
+import type { V2TermDefinition } from "../terminology/types.ts";
 
 let pool: Pool | null = null;
 const getPool = () => pool ??= new Pool({ connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: process.env.SUPABASE_DB_SSL_REJECT_UNAUTHORIZED !== "false" }, max: 5 });
 const elapsed = (started: number) => Math.round((performance.now() - started) * 10) / 10;
+
+export async function loadV2Terms(termIds: string[]): Promise<V2TermDefinition[]> {
+  const ids = [...new Set(termIds)].filter(Boolean).sort();
+  if (!ids.length) return [];
+  const result = await getPool().query(`select distinct on (c.knowledge_id) c.knowledge_id,c.metadata from v2_search.chunks c join v2_search.index_versions v on v.id=c.index_version_id where v.status='published' and c.knowledge_type='terminology' and c.knowledge_id=any($1::text[]) order by c.knowledge_id,c.ordinal`, [ids]);
+  return result.rows.map((row) => ({ termId: row.knowledge_id, translations: row.metadata?.translations ?? {}, isUiVisible: row.metadata?.isUiVisible !== false }));
+}
 
 export async function runTimedOperation<T>(name: string, operation: (signal: AbortSignal) => Promise<T>, parentSignal?: AbortSignal, timeoutMs: number = retrievalConfig.timeoutMs): Promise<{ name: string; value?: T; error?: string; ms: number }> {
   const started = performance.now(); const controller = new AbortController();
@@ -48,7 +56,35 @@ function filters(intent: QueryIntent, alias = "c"): { sql: string; params: unkno
 }
 
 function candidate(row: QueryResultRow, source: "fulltext" | "vector", rank: number): RetrievalCandidate {
-  return { chunkId: row.chunk_id, knowledgeId: row.knowledge_id, title: row.title, text: row.full_text, metadata: row.metadata ?? {}, knowledgeType: row.knowledge_type, apiType: row.api_type, apiVersion: row.api_version, products: row.products, source, sourceRank: rank, textScore: Number(row.text_score ?? 0), vectorScore: Number(row.vector_score ?? 0), rrfScore: 0, rerankScore: 0, matchedBy: [source] };
+  const metadata = row.metadata ?? {};
+  return { chunkId: row.chunk_id, knowledgeId: row.knowledge_id, title: row.title, text: row.full_text, metadata, termIds: Array.isArray(metadata.termIds) ? metadata.termIds.filter((value: unknown): value is string => typeof value === "string") : [], protectedFields: Array.isArray(row.protected_fields) ? row.protected_fields : [], sourceLanguage: row.source_language ?? "", knowledgeType: row.knowledge_type, apiType: row.api_type, apiVersion: row.api_version, products: row.products, source, sourceRank: rank, textScore: Number(row.text_score ?? 0), vectorScore: Number(row.vector_score ?? 0), rrfScore: 0, rerankScore: 0, matchedBy: [source] };
+}
+
+const pricingFamily = (knowledgeId: string): string => knowledgeId.replace(/:[^:]+$/, "");
+
+const PRICING_DIMENSIONS = {
+  api: ["PRICING:Open API"],
+  members: ["PRICING:included members", "PRICING:additional members", "PRICING:actual users/devices supported by each member seat", "PRICING:multi-device login"],
+  profiles: ["PRICING:included profiles", "PRICING:additional profiles", "PRICING:Number of profiles that can be created per day"],
+} as const;
+
+export function pricingFamiliesForQuestion(question: string): string[] {
+  const families: string[] = [];
+  if (/\b(?:open\s*)?api\b|接口/i.test(question)) families.push(...PRICING_DIMENSIONS.api);
+  if (/成员|席位|用户|账号|设备|member|seat|user|account|device/i.test(question)) families.push(...PRICING_DIMENSIONS.members);
+  if (/环境|配置文件|profile|environment/i.test(question)) families.push(...PRICING_DIMENSIONS.profiles);
+  return [...new Set(families)];
+}
+
+export async function expandPricingKnowledge(candidates: RetrievalCandidate[], question = ""): Promise<RetrievalCandidate[]> {
+  const pricing = candidates.filter((item) => item.knowledgeType === "pricing");
+  if (!pricing.length) return candidates;
+  const families = [...new Set([...pricingFamiliesForQuestion(question), ...pricing.map((item) => pricingFamily(item.knowledgeId))])].slice(0, 8);
+  const result = await getPool().query(`select distinct on (regexp_replace(c.knowledge_id, ':[^:]+$', ''),c.metadata->>'planKey') c.chunk_id,c.knowledge_id,c.title,c.full_text,c.metadata,c.protected_fields,c.source_language,c.knowledge_type,c.api_type,c.api_version,c.products from v2_search.chunks c where c.index_version_id=(select id from v2_search.index_versions where status='published' order by published_at desc nulls last,created_at desc limit 1) and c.enabled and c.knowledge_type='pricing' and regexp_replace(c.knowledge_id, ':[^:]+$', '')=any($1::text[]) order by regexp_replace(c.knowledge_id, ':[^:]+$', ''),c.metadata->>'planKey',c.ordinal`, [families]);
+  const expanded = result.rows.map((row, index) => ({ ...candidate(row, "fulltext", index + 1), source: "fused" as const, rerankScore: pricing.find((item) => pricingFamily(item.knowledgeId) === pricingFamily(row.knowledge_id))?.rerankScore ?? 0 }));
+  const nonPricing = candidates.filter((item) => item.knowledgeType !== "pricing");
+  expanded.sort((left, right) => families.indexOf(pricingFamily(left.knowledgeId)) - families.indexOf(pricingFamily(right.knowledgeId)) || ["free", "base", "plus", "share-plus"].indexOf(String(left.metadata.planKey)) - ["free", "base", "plus", "share-plus"].indexOf(String(right.metadata.planKey)));
+  return [...nonPricing, ...expanded];
 }
 
 async function embedQuery(question: string, signal: AbortSignal): Promise<{ vector: string; tokens: number }> {
@@ -66,13 +102,13 @@ async function fulltextRecall(question: string, intent: QueryIntent): Promise<Re
   const scoped = filters(intent); const queryParam = scoped.params.length + 1; const termsParam = queryParam + 1; const deterministicFallbackParam = termsParam + 1;
   const searchTerms = extractSearchTerms(question);
   const deterministicFallback = intent.knowledgeTypes.length === 1 && intent.knowledgeTypes[0] === "out_of_scope";
-  const result = await getPool().query(`select c.chunk_id,c.knowledge_id,c.title,c.full_text,c.metadata,c.knowledge_type,c.api_type,c.api_version,c.products, greatest(ts_rank_cd(c.search_document,websearch_to_tsquery('simple',$${queryParam})),similarity(c.title,$${queryParam}),similarity(c.full_text,$${queryParam}),case when $${queryParam}=any(c.exact_terms) then 1 else 0 end,lexical.score) text_score from v2_search.chunks c join v2_search.index_versions v on v.id=c.index_version_id cross join lateral (select coalesce(count(*) filter (where lower(c.full_text) like '%' || lower(term) || '%'),0)::float / greatest(cardinality($${termsParam}::text[]),1) score from unnest($${termsParam}::text[]) term) lexical where ${scoped.sql} and ($${deterministicFallbackParam} or c.search_document @@ websearch_to_tsquery('simple',$${queryParam}) or similarity(c.title,$${queryParam})>0.08 or similarity(c.full_text,$${queryParam})>0.08 or $${queryParam}=any(c.exact_terms) or lexical.score>0) order by text_score desc limit ${retrievalConfig.fulltextTopK}`, [...scoped.params, question, searchTerms, deterministicFallback]);
+  const result = await getPool().query(`select c.chunk_id,c.knowledge_id,c.title,c.full_text,c.metadata,c.protected_fields,c.source_language,c.knowledge_type,c.api_type,c.api_version,c.products, greatest(ts_rank_cd(c.search_document,websearch_to_tsquery('simple',$${queryParam})),similarity(c.title,$${queryParam}),similarity(c.full_text,$${queryParam}),case when $${queryParam}=any(c.exact_terms) then 1 else 0 end,lexical.score) text_score from v2_search.chunks c join v2_search.index_versions v on v.id=c.index_version_id cross join lateral (select coalesce(count(*) filter (where lower(c.full_text) like '%' || lower(term) || '%'),0)::float / greatest(cardinality($${termsParam}::text[]),1) score from unnest($${termsParam}::text[]) term) lexical where ${scoped.sql} and ($${deterministicFallbackParam} or c.search_document @@ websearch_to_tsquery('simple',$${queryParam}) or similarity(c.title,$${queryParam})>0.08 or similarity(c.full_text,$${queryParam})>0.08 or $${queryParam}=any(c.exact_terms) or lexical.score>0) order by text_score desc limit ${retrievalConfig.fulltextTopK}`, [...scoped.params, question, searchTerms, deterministicFallback]);
   return result.rows.map((row, index) => candidate(row, "fulltext", index + 1));
 }
 
 async function vectorRecall(vector: string, intent: QueryIntent): Promise<RetrievalCandidate[]> {
   const scoped = filters(intent); const vectorParam = scoped.params.length + 1;
-  const result = await getPool().query(`select c.chunk_id,c.knowledge_id,c.title,c.full_text,c.metadata,c.knowledge_type,c.api_type,c.api_version,c.products,1-(c.embedding <=> $${vectorParam}::vector) vector_score from v2_search.chunks c join v2_search.index_versions v on v.id=c.index_version_id where ${scoped.sql} order by c.embedding <=> $${vectorParam}::vector limit ${retrievalConfig.vectorTopK}`, [...scoped.params, vector]);
+  const result = await getPool().query(`select c.chunk_id,c.knowledge_id,c.title,c.full_text,c.metadata,c.protected_fields,c.source_language,c.knowledge_type,c.api_type,c.api_version,c.products,1-(c.embedding <=> $${vectorParam}::vector) vector_score from v2_search.chunks c join v2_search.index_versions v on v.id=c.index_version_id where ${scoped.sql} order by c.embedding <=> $${vectorParam}::vector limit ${retrievalConfig.vectorTopK}`, [...scoped.params, vector]);
   return result.rows.map((row, index) => candidate(row, "vector", index + 1));
 }
 
