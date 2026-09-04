@@ -27,6 +27,7 @@ function faqRecord({ values, row, file, sheet, version, type, answerColumns, que
     metadata: {
       category: text(values['一级分类']), subcategory: text(values['二级分类']), priority: text(values['优先级']),
       roleScope: text(values.role_scope), functionIds, originalPlaceholdersPreserved: true,
+      ...(answers.length > 1 ? { answerVariants: Object.fromEntries(answers.map(([column, value]) => [column.includes('client') ? 'client' : column.includes('end_user') ? 'end_user' : 'general', text(value)])) } : {}),
       ...(text(values.sub_type) ? { subType: text(values.sub_type) } : {}),
       ...(text(values['匹配规则']) ? { matchRule: text(values['匹配规则']) } : {}),
       ...(text(values['场景标签']) ? { scene: text(values['场景标签']) } : {}),

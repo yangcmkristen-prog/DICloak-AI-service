@@ -25,7 +25,9 @@ export function validateV2Generation(envelope: V2GeneratedEnvelope, trace: Retri
   const allowedTechnical = new Set(trace.selectedKnowledge.flatMap((item) => item.protectedFields ?? []).map((field) => field.value));
   const rawTechnical = [...(envelope.reply.match(/https?:\/\/[^\s<>"')\]，。；：）】]+/g) ?? []), ...(envelope.reply.match(/\/(?:openapi\/)?v\d+(?:\/[A-Za-z0-9_.{}:-]+)+/g) ?? [])];
   for (const value of rawTechnical) if (!allowedTechnical.has(value)) errors.push(`UNSELECTED_OR_MODIFIED_TECHNICAL_FIELD:${value}`);
-  const restored = restoreProtectedResponse(envelope.reply, prepared, { requireAll: false });
+  // Repeating a known immutable marker is safe: every occurrence restores to the
+  // same catalog value. Unknown or modified markers remain hard failures.
+  const restored = restoreProtectedResponse(envelope.reply, prepared, { requireAll: false, allowKnownDuplicates: true });
   if (!restored.ok) errors.push(...restored.errors.map((error) => error.code));
   return errors.length ? { ok: false, errors: [...new Set(errors)] } : { ok: true, reply: restored.text, errors: [] };
 }

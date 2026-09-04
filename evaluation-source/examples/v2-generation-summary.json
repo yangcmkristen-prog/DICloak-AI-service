@@ -1,19 +1,19 @@
 {
-  "generatedAt": "2026-09-03T10:01:45.836Z",
+  "generatedAt": "2026-09-04T03:54:31.853Z",
   "privacy": "报告包含评测问题和真实模型回复，默认由 .gitignore 排除，不提交 Git。",
   "limitations": "自动通过率只检查知识 ID、必须/禁止/原样字段和追问形态；事实正确率仍需人工审核，不能把它直接称为最终准确率。",
   "summary": {
     "mode": "真实 V2 主模型评测（不是 Mock）",
     "cases": 31,
-    "passed": 11,
-    "failed": 20,
-    "automatedPassRate": "35.5%",
-    "firstTokenP50Ms": 12192,
-    "firstTokenP95Ms": 24183,
-    "totalP50Ms": 17021,
-    "totalP95Ms": 28000,
-    "totalToken": 64151,
-    "normalSingleCallRate": "87.1%",
+    "passed": 13,
+    "failed": 18,
+    "automatedPassRate": "41.9%",
+    "firstTokenP50Ms": 9735,
+    "firstTokenP95Ms": 51336,
+    "totalP50Ms": 14003,
+    "totalP95Ms": 65206,
+    "totalToken": 83248,
+    "normalSingleCallRate": "90.3%",
     "retries": 0
   }
 }

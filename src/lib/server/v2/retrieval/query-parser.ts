@@ -18,6 +18,7 @@ export function extractSearchTerms(question: string): string[] {
     [/(?:账号不存在|凭据无效)|account\s+does\s+not\s+exist|credentials?\s+(?:is|are)\s+invalid/i, ["account does not exist", "credentials invalid", "账号不存在"]],
     [/(?:环境|浏览器配置)|\bprofiles?\b/i, ["profile", "environment"]],
     [/(?:用户|成员|席位)|\b(?:users?|members?|seats?)\b/i, ["member", "seat", "actual users", "devices"]],
+    [/visualiza(?:ção|cao)\s+gr[aá]tis/i, ["free views", "free likes", "free followers", "maintenance"]],
   ].flatMap(([pattern, aliases]) => (pattern as RegExp).test(question) ? aliases as string[] : []);
   return [...new Set([...latin, ...han, ...conceptAliases])].slice(0, 40);
 }
@@ -25,7 +26,7 @@ export function extractSearchTerms(question: string): string[] {
 function detectLanguage(question: string): string {
   if (/\p{Script=Han}/u.test(question)) return "zh";
   if (/\p{Script=Cyrillic}/u.test(question)) return "ru";
-  if (/\b(como|perfil|navegador|plano|preço|api local)\b/i.test(question)) return "pt";
+  if (/\b(como|perfil|navegador|plano|preço|api local|visualiza(?:ção|cao)|gr[aá]tis|não|usuário)\b/i.test(question)) return "pt";
   if (/\b(cómo|perfil|navegador|precio|cuenta|iniciar sesión)\b/i.test(question)) return "es";
   if (/\b(làm sao|hồ sơ|trình duyệt|giá|tài khoản|đăng nhập)\b/i.test(question)) return "vi";
   return "en";

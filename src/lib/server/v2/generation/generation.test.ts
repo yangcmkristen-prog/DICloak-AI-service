@@ -16,6 +16,13 @@ const prepared: PreparedTerminologyPipeline = { ok: true, targetLanguage: "zh", 
 test("V2 prompt is independent, compact, strategy-aware and contains no V1 prompt", () => {
   const messages = buildV2Messages({ question: "环境打不开", history: Array.from({ length: 8 }, (_, index) => ({ role: index % 2 ? "assistant" as const : "user" as const, content: String(index) })), product: "dicloak", language: "zh", trace: trace(), prepared });
   assert.equal(messages.length, 2); assert.match(messages[1].content, /answer_then_clarify/); assert.doesNotMatch(V2_SYSTEM_PROMPT, /V1|三条推荐回复/); assert.doesNotMatch(messages[1].content, /"content":"0"/);
+  assert.equal(JSON.parse(messages[1].content).targetLanguageName, "Chinese (中文)");
+});
+
+test("role-specific answer variants are passed explicitly for conditional generation", () => {
+  const roleTrace = trace({ selectedKnowledge: [{ ...trace().selectedKnowledge[0], metadata: { answerVariants: { client: "管理员步骤", end_user: "成员步骤" } } }] });
+  const payload = JSON.parse(buildV2Messages({ question: "代理失败", history: [], product: "dicloak", language: "zh", trace: roleTrace, prepared })[1].content);
+  assert.deepEqual(payload.selectedKnowledge[0].roleVariants, ["client", "end_user"]);
 });
 
 test("pricing entries are grouped by feature across plans", () => {
@@ -43,6 +50,15 @@ test("grounding accepts selected claims and restores protected URL", () => {
   const envelope = { reply: "请检查网络 ⟦V2:a:technical:0:x⟧，然后告诉我错误提示？", claims: [{ text: "检查网络", knowledgeIds: ["A"] }] };
   const result = validateV2Generation(envelope, trace(), prepared);
   assert.equal(result.ok, true); assert.match(result.reply ?? "", /https:\/\/help\.test\/a/);
+});
+
+test("generation safely permits repeated known markers but still rejects unknown markers", () => {
+  const marker = prepared.markers[0].marker;
+  const repeated = validateV2Generation({ reply: `${marker} ${marker}`, claims: [{ text: "重复链接", knowledgeIds: ["A"] }] }, trace({ responseStrategy: "direct" }), prepared);
+  assert.equal(repeated.ok, true);
+  const unknown = validateV2Generation({ reply: "⟦V2:unknown:technical:0:x⟧", claims: [{ text: "未知", knowledgeIds: ["A"] }] }, trace({ responseStrategy: "direct" }), prepared);
+  assert.equal(unknown.ok, false);
+  assert.ok(unknown.errors.includes("MARKER_UNKNOWN"));
 });
 
 test("grounding rejects unselected claims, invented links, IDs and excessive clarification", () => {
