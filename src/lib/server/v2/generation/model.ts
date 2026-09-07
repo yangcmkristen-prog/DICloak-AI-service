@@ -8,7 +8,7 @@ interface StoredConfig { apiKey?: unknown; baseUrl?: unknown; v2Model?: unknown;
 
 export async function resolveV2ModelConfig(): Promise<V2ModelConfig | null> {
   let stored: StoredConfig | null = null;
-  if (!process.env.V2_CHAT_API_KEY || !process.env.V2_CHAT_BASE_URL) {
+  if (!process.env.V2_CHAT_API_KEY || !process.env.V2_CHAT_BASE_URL || !process.env.V2_CHAT_MODEL) {
     try {
       const { data } = await getSupabaseClient().from("system_configs").select("config_value").eq("config_key", "default").maybeSingle();
       const value = data?.config_value as { apiConfig?: StoredConfig } | undefined;
