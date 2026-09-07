@@ -9,6 +9,8 @@ export function getSearchConfig(environment = process.env) {
   return {
     environment: environment.V2_SEARCH_ENVIRONMENT ?? '',
     allowMigration: environment.V2_SEARCH_ALLOW_MIGRATION === 'true',
+    allowProductionWrite: environment.V2_SEARCH_ALLOW_PRODUCTION_WRITE === 'true',
+    productionConfirmation: environment.V2_SEARCH_PRODUCTION_CONFIRM ?? '',
     schema,
     provider: environment.V2_EMBEDDING_PROVIDER ?? '',
     model: environment.V2_EMBEDDING_MODEL ?? '',
@@ -23,4 +25,16 @@ export function getSearchConfig(environment = process.env) {
 
 export function mayRunMigration(config) {
   return config.hasSupabase && config.hasDatabaseUrl && config.environment === 'test' && config.allowMigration;
+}
+
+export function mayRunProductionWrite(config) {
+  return config.hasSupabase
+    && config.hasDatabaseUrl
+    && config.environment === 'production'
+    && config.allowProductionWrite
+    && config.productionConfirmation === 'DICLOAK_PRODUCTION_V2';
+}
+
+export function mayRunIndexWrite(config) {
+  return mayRunMigration(config) || mayRunProductionWrite(config);
 }

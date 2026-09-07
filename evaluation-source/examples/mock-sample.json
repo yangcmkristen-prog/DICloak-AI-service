@@ -1,6 +1,7 @@
 {
-  "generatedAt": "2026-08-28T09:57:50.344Z",
-  "disclaimer": "固定 Mock 规则结果，不代表真实 AI 准确率。",
+  "generatedAt": "2026-09-04T08:41:07.180Z",
+  "input": "V2评测集模板.xlsx",
+  "disclaimer": "固定 Mock 规则结果，不代表真实 AI 准确率。未配置单独 Mock 答案时使用评测集参考回复，仅用于审核断言是否自洽。",
   "summary": {
     "total": 7,
     "passed": 7,
@@ -10,6 +11,7 @@
     {
       "caseId": "EVAL-HTTP-001",
       "target": "mock",
+      "answerSource": "mock-answers.json",
       "answer": "请使用 POST /api/v1/environments，并保留参数 env_id。详情：https://docs.example.test/api/v1/environments",
       "pass": true,
       "checks": [
@@ -83,6 +85,7 @@
     {
       "caseId": "EVAL-LOCAL-001",
       "target": "mock",
+      "answerSource": "mock-answers.json",
       "answer": "Local API 使用 GET /local/v2/profiles，参数为 profile_id。",
       "pass": true,
       "checks": [
@@ -156,6 +159,7 @@
     {
       "caseId": "EVAL-URL-001",
       "target": "mock",
+      "answerSource": "mock-answers.json",
       "answer": "请访问 https://help.example.test/start?lang=en#install，并调用 /api/v1/status。",
       "pass": true,
       "checks": [
@@ -204,6 +208,7 @@
     {
       "caseId": "EVAL-TERM-001",
       "target": "mock",
+      "answerSource": "mock-answers.json",
       "answer": "请在 Profile settings 中检查 Browser fingerprint。",
       "pass": true,
       "checks": [
@@ -252,6 +257,7 @@
     {
       "caseId": "EVAL-I18N-001",
       "target": "mock",
+      "answerSource": "mock-answers.json",
       "answer": "Utilice POST /api/v1/environments y mantenga env_id sin cambios.",
       "pass": true,
       "checks": [
@@ -320,6 +326,7 @@
     {
       "caseId": "EVAL-ASK-001",
       "target": "mock",
+      "answerSource": "mock-answers.json",
       "answer": "请提供具体报错文本、复现步骤和截图，以便继续判断。",
       "pass": true,
       "checks": [
@@ -363,6 +370,7 @@
     {
       "caseId": "EVAL-NONE-001",
       "target": "mock",
+      "answerSource": "mock-answers.json",
       "answer": "该问题需进一步确认，目前不能给出未经验证的操作步骤。",
       "pass": true,
       "checks": [

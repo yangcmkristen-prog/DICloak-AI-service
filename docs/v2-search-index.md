@@ -14,3 +14,26 @@
 版本发布是原子的：构建失败会标记 `failed`，当前 `published` 版本保持有效。新版本不复制已删除或停用的块，因此发布后不可检索；旧版本可在验收期保留用于回滚。对 Schema、表、函数均撤销匿名和登录用户权限，只允许受控服务端角色访问。
 
 本地执行 `pnpm v2:index:check-env` 只输出状态，不输出配置值。`pnpm v2:index:mock` 使用确定性 Mock 向量生成本地报告，不能称为真实 AI 或跨语言准确率。
+
+## 生产库首次发布
+
+生产迁移和索引同步必须在受控的本地终端运行，不能放进 Vercel Build Command，也不要把生产写入开关配置到 Vercel。准备只供本次操作使用的 `.env.production.local`，确认其中的 Supabase URL、数据库连接和 embedding 配置都属于生产环境，然后临时设置：
+
+```env
+V2_SEARCH_ENVIRONMENT=production
+V2_SEARCH_ALLOW_PRODUCTION_WRITE=true
+V2_SEARCH_PRODUCTION_CONFIRM=DICLOAK_PRODUCTION_V2
+V2_SEARCH_SCHEMA=v2_search
+```
+
+先备份生产数据库，再按顺序执行：
+
+```powershell
+node --env-file=.env.production.local scripts/v2-search/check-database.mjs
+node --env-file=.env.production.local scripts/v2-search/migrate-production-database.mjs
+pnpm v2:knowledge:build
+node --env-file=.env.production.local scripts/v2-search/sync-postgres-index.mjs
+node --env-file=.env.production.local scripts/v2-search/verify-live-index.mjs
+```
+
+最后删除 `.env.production.local` 中两个生产写入开关，或将它们恢复为 `false`。后续只在知识内容确实更新时重新运行知识构建、索引同步和在线验证，不需要重复迁移。

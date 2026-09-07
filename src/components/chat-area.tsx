@@ -15,6 +15,7 @@ interface ChatAreaProps {
   isGenerating: boolean;
   generationStatus: GenerationStatus | null;
   onCancel: () => void;
+  v2Mode?: boolean;
 }
 
 
@@ -593,7 +594,31 @@ function AIReplies({
   );
 }
 
-export function ChatArea({ messages, onSendMessage, isGenerating, generationStatus, onCancel }: ChatAreaProps) {
+function V2SingleReply({ message, onCopy, copiedId, isIncomplete }: { message: Message; onCopy: (content: string, id: string) => void; copiedId: string | null; isIncomplete: boolean }) {
+  const copyId = `${message.id}-v2`;
+  return <div className="space-y-2">
+    <Card className="p-3">
+      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+      <div className="mt-3 flex justify-end border-t pt-2">
+        <Button size="sm" variant="ghost" disabled={isIncomplete} onClick={() => onCopy(message.content, copyId)}>
+          {copiedId === copyId ? <><Check className="mr-1 size-3" />已复制</> : <><Copy className="mr-1 size-3" />复制</>}
+        </Button>
+      </div>
+    </Card>
+    {message.v2Debug && !isIncomplete ? <details className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+      <summary className="cursor-pointer select-none font-medium">V2 内部调试</summary>
+      <div className="mt-2 space-y-1 break-words">
+        <p>知识 ID：{message.v2Debug.knowledgeIds?.join(", ") || "无"}</p>
+        <p>置信度：{message.v2Debug.evidenceConfidence || "-"}；策略：{message.v2Debug.responseStrategy || "-"}；语言：{message.v2Debug.language || "-"}</p>
+        <p>术语告警：{message.v2Debug.terminologyWarnings?.join(", ") || "无"}</p>
+        <p>Token：{message.v2Debug.usage?.total_tokens ?? "-"}；首字：{message.v2Debug.firstTokenMs ?? "-"} ms；完整：{message.v2Debug.totalMs ?? "-"} ms</p>
+        <p>模型调用：{message.v2Debug.modelCalls ?? 1}；受控重试：{message.v2Debug.retry ? "是" : "否"}</p>
+      </div>
+    </details> : null}
+  </div>;
+}
+
+export function ChatArea({ messages, onSendMessage, isGenerating, generationStatus, onCancel, v2Mode = false }: ChatAreaProps) {
   const [input, setInput] = useState("");
   const [statusNow, setStatusNow] = useState(() => Date.now());
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -794,7 +819,12 @@ export function ChatArea({ messages, onSendMessage, isGenerating, generationStat
                     </div>
                   ) : (
                     <>
-                      <AIReplies
+                      {v2Mode ? <V2SingleReply
+                        message={message}
+                        onCopy={handleCopy}
+                        copiedId={copiedId}
+                        isIncomplete={isGenerating && messageIndex === messages.length - 1}
+                      /> : <AIReplies
                         content={message.content}
                         messageId={message.id}
                         onCopy={handleCopy}
@@ -804,7 +834,7 @@ export function ChatArea({ messages, onSendMessage, isGenerating, generationStat
                         translations={translations}
                         translatingIds={translatingIds}
                         isIncomplete={isGenerating && messageIndex === messages.length - 1}
-                      />
+                      />}
                       {message.generationDurationMs !== undefined && (
                         <div className="mt-3 border-t pt-2 text-xs text-muted-foreground">
                           已思考 {formatDuration(message.generationDurationMs)}

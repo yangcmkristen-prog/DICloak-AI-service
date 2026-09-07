@@ -60,6 +60,14 @@ export function extractTextProtectedFields(value, sourceColumn) {
   const fields = [];
   for (const match of input.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)) fields.push(protectedField('placeholder', match[0], sourceColumn));
   for (const match of input.matchAll(/https?:\/\/[^\s<>"')\]，。；：）】]+/g)) fields.push(protectedField('url', match[0].replace(/[.,;:]$/, ''), sourceColumn));
+  for (const match of input.matchAll(/```[\s\S]*?```|`[^`\r\n]+`/g)) fields.push(protectedField('code', match[0], sourceColumn));
+  for (const match of input.matchAll(/\b(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/g)) fields.push(protectedField('method', match[0], sourceColumn));
+  for (const match of input.matchAll(/\/(?:openapi\/)?v\d+(?:\/[A-Za-z0-9_.{}:-]+)+/g)) fields.push(protectedField('endpoint', match[0], sourceColumn));
+  for (const match of input.matchAll(/\b[vV]\d+(?:\.\d+){0,3}\b/g)) fields.push(protectedField('version', match[0], sourceColumn));
+  for (const match of input.matchAll(/(?:[$€£¥￥]\s?\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s?(?:USD|EUR|CNY|RMB))\b/gi)) fields.push(protectedField('price', match[0], sourceColumn));
+  for (const match of input.matchAll(/\b(?:DICloak|ParaTurbo)\b/gi)) fields.push(protectedField('product', match[0], sourceColumn));
+  for (const match of input.matchAll(/"([A-Za-z_][A-Za-z0-9_.-]*)"\s*:/g)) fields.push(protectedField('json_key', match[1], sourceColumn));
+  for (const match of input.matchAll(/\b\d+(?:\.\d+)?\b/g)) fields.push(protectedField('number', match[0], sourceColumn));
   return uniqueProtectedFields(fields);
 }
 

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { adaptApi, adaptFaqWorkbook, adaptFunctions, adaptPricing } from './adapters.mjs';
 import { chunkKnowledge, validateChunks } from './chunker.mjs';
+import { extractTextProtectedFields } from './utils.mjs';
 
 function workbook(sheets) {
   return {
@@ -25,6 +26,11 @@ test('FAQ 保留双语问题、用户问法、原始占位符、termIds、Functi
   assert.ok(records[0].canonicalQuestions.some((item) => item.language === 'zh'));
   assert.ok(records[0].protectedFields.some((item) => item.kind === 'placeholder' && item.value === '{{Profiles}}'));
   assert.equal(records[0].source.row, 2);
+});
+
+test('Out of Scope 默认同时支持 DICloak 和 ParaTurbo', () => {
+  const records = adaptFaqWorkbook({ workbook: workbook({ feature_faq: [], troubleshooting: [], user_routing: [], out_of_scope: [{ FAQ_ID: 'OOS-X', '标准答案（英文）': 'Unsupported' }], troubleshooting_flow: [] }), file: 'FAQ.xlsx', version: '1', warnings: [] });
+  assert.deepEqual(records[0].productScope, ['dicloak', 'paraturbo']);
 });
 
 test('排障流程把同一节点的多条匹配分支聚合为一个稳定知识 ID', () => {
@@ -99,6 +105,26 @@ test('分块保持各自产品范围，不合并不同产品知识', () => {
   assert.deepEqual(validateChunks(records, chunks), []);
 });
 
+test('FAQ 保留管理员与成员答案变体供单次条件式生成', () => {
+  const records = adaptFaqWorkbook({ workbook: workbook({
+    feature_faq: [],
+    troubleshooting: [{ FAQ_ID: 'ROLE-1', '标准答案（client）': 'Admin steps', '标准答案（end_user）': 'Member steps' }],
+    user_routing: [], out_of_scope: [], troubleshooting_flow: [],
+  }), file: 'FAQ.xlsx', version: '1', warnings: [] });
+  assert.deepEqual(records[0].metadata.answerVariants, { client: 'Admin steps', end_user: 'Member steps' });
+});
+
+test('自然语言中的技术字段被结构化识别，永久 API Path 完整保留', () => {
+  const body = 'Use PATCH /openapi/v1/env/{env_id}/open with {"env_id":123} in DICloak v1.2.3; price $19.99.';
+  const fields = extractTextProtectedFields(body, 'answer');
+  assert.ok(fields.some((field) => field.kind === 'method' && field.value === 'PATCH'));
+  assert.ok(fields.some((field) => field.kind === 'endpoint' && field.value === '/openapi/v1/env/{env_id}/open'));
+  assert.ok(fields.some((field) => field.kind === 'json_key' && field.value === 'env_id'));
+  assert.ok(fields.some((field) => field.kind === 'product' && field.value === 'DICloak'));
+  assert.ok(fields.some((field) => field.kind === 'version' && field.value === 'v1.2.3'));
+  assert.ok(fields.some((field) => field.kind === 'price' && field.value === '$19.99'));
+});
+
 test('套餐按套餐和功能项生成结构化记录，不复制整张横向表', () => {
   const warnings = [];
   const records = adaptPricing({
@@ -108,6 +134,7 @@ test('套餐按套餐和功能项生成结构化记录，不复制整张横向�
   assert.equal(records.length, 4);
   assert.equal(records[0].metadata.feature, 'included profiles');
   assert.equal(records[0].metadata.value, 5);
+  assert.ok(records.every((record) => record.productScope.join(',') === 'dicloak,paraturbo'));
   assert.ok(records.every((record) => record.body.includes('功能项：included profiles')));
 });
 

@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { getSearchConfig, mayRunMigration } from './config.mjs';
+import { getSearchConfig, mayRunIndexWrite, mayRunMigration, mayRunProductionWrite } from './config.mjs';
 
 test('database writes require complete configuration, explicit test environment and approval', () => {
   const base = { SUPABASE_URL: 'configured', SUPABASE_SERVICE_ROLE_KEY: 'configured', SUPABASE_DB_URL: 'configured', V2_SEARCH_ENVIRONMENT: 'test', V2_SEARCH_ALLOW_MIGRATION: 'true' };
   assert.equal(mayRunMigration(getSearchConfig(base)), true);
   assert.equal(mayRunMigration(getSearchConfig({ ...base, V2_SEARCH_ENVIRONMENT: 'production' })), false);
   assert.equal(mayRunMigration(getSearchConfig({ ...base, V2_SEARCH_ALLOW_MIGRATION: 'false' })), false);
+  const production = { ...base, V2_SEARCH_ENVIRONMENT: 'production', V2_SEARCH_ALLOW_MIGRATION: 'false', V2_SEARCH_ALLOW_PRODUCTION_WRITE: 'true', V2_SEARCH_PRODUCTION_CONFIRM: 'DICLOAK_PRODUCTION_V2' };
+  assert.equal(mayRunProductionWrite(getSearchConfig(production)), true);
+  assert.equal(mayRunIndexWrite(getSearchConfig(production)), true);
+  assert.equal(mayRunProductionWrite(getSearchConfig({ ...production, V2_SEARCH_PRODUCTION_CONFIRM: 'wrong' })), false);
+  assert.equal(mayRunProductionWrite(getSearchConfig({ ...production, V2_SEARCH_ALLOW_PRODUCTION_WRITE: 'false' })), false);
   assert.throws(() => getSearchConfig({ V2_SEARCH_SCHEMA: 'v2_search;drop table' }), /只能包含/);
 });
 

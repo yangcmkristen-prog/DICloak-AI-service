@@ -89,7 +89,7 @@ export async function parseEvaluationWorkbook(filePath) {
     cases.push({
       caseId, enabled, question: String(raw['客户问题']).trim(), history: String(raw['对话历史']).trim(),
       product, language, knowledgeIds, knowledgeType, shouldAsk,
-      mustInclude: splitSemicolon(raw['必须包含']), mustNotInclude: splitSemicolon(raw['禁止包含']),
+      mustInclude: splitSemicolon(raw['必须包含']), anyExpression: splitSemicolon(raw['任一表达满足']), mustNotInclude: splitSemicolon(raw['禁止包含']),
       preserveExact: splitSemicolon(raw['必须保持原样']), referenceAnswer: String(raw['参考回复']).trim(),
       errorTypes: splitSemicolon(raw['错误类型']), notes: String(raw['备注']).trim(), row: excelRow,
     });

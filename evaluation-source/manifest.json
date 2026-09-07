@@ -1,6 +1,6 @@
 {
-  "version": "2026-08-28.1",
-  "updatedAt": "2026-08-28",
+  "version": "2026-09-03.1",
+  "updatedAt": "2026-09-03",
   "workbook": "V2评测集模板.xlsx",
   "sheetName": "评测案例",
   "requiredColumns": [
@@ -14,13 +14,14 @@
     "知识类型",
     "是否应该追问",
     "必须包含",
+    "任一表达满足",
     "禁止包含",
     "必须保持原样",
     "参考回复",
     "错误类型",
     "备注"
   ],
-  "arrayColumns": ["正确知识ID", "必须包含", "禁止包含", "必须保持原样", "错误类型"],
+  "arrayColumns": ["正确知识ID", "必须包含", "任一表达满足", "禁止包含", "必须保持原样", "错误类型"],
   "booleanColumns": ["是否启用", "是否应该追问"],
   "allowedProducts": ["dicloak", "paraturbo"],
   "allowedLanguages": ["zh", "en", "es", "pt", "ru", "vi", "id", "th", "ar", "ja", "ko", "mixed"],

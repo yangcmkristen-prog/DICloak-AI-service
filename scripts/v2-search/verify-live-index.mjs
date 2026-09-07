@@ -1,11 +1,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import pg from 'pg';
-import { getSearchConfig, mayRunMigration } from './config.mjs';
+import { getSearchConfig, mayRunIndexWrite } from './config.mjs';
 import { OpenAICompatibleEmbeddingProvider } from './providers.mjs';
 
 const config = getSearchConfig();
-if (!mayRunMigration(config)) throw new Error('拒绝真实检索：仅允许配置完整且显式授权的测试环境');
+if (!mayRunIndexWrite(config)) throw new Error('拒绝真实检索：测试环境需允许 migration；生产环境需显式生产写入开关和精确确认口令');
 const provider = new OpenAICompatibleEmbeddingProvider({ baseUrl: process.env.V2_EMBEDDING_BASE_URL, apiKey: process.env.V2_EMBEDDING_API_KEY, model: config.model, dimensions: config.dimensions });
 const client = new pg.Client({ connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: config.rejectUnauthorized } });
 const started = performance.now(); let tokenCount = 0;
@@ -33,7 +33,7 @@ try {
     const matches = await client.query(`select * from ${config.schema}.search_exact_chunks($1,$2,$3,$4)`, [item.value, 5, null, null]);
     exact.push({ kind: item.kind, value: item.value, matches: matches.rows.map((row) => ({ chunkId: row.chunk_id, knowledgeId: row.knowledge_id, title: row.title })) });
   }
-  const report = { generatedAt: new Date().toISOString(), mode: 'live-test', realIndexExecuted: true, index: published.rows[0], stats: { queries: queries.length, embeddingCalls: provider.calls, embeddingTokens: tokenCount, milliseconds: Math.round(performance.now() - started) }, semantic, exact };
+  const report = { generatedAt: new Date().toISOString(), mode: config.environment === 'production' ? 'live-production' : 'live-test', realIndexExecuted: true, index: published.rows[0], stats: { queries: queries.length, embeddingCalls: provider.calls, embeddingTokens: tokenCount, milliseconds: Math.round(performance.now() - started) }, semantic, exact };
   const output = path.join(process.cwd(), 'reports', 'v2-index'); await fs.mkdir(output, { recursive: true });
   await fs.writeFile(path.join(output, 'live-latest.json'), `${JSON.stringify(report, null, 2)}\n`);
   const escape = (value) => String(value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
