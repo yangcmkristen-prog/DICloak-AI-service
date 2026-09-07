@@ -2,6 +2,7 @@ export type ChatStreamEvent =
   | { type: "meta"; requestId: string; data: Record<string, unknown> }
   | { type: "status"; requestId: string; label: string; detail?: string; elapsedMs: number }
   | { type: "delta"; requestId: string; content: string }
+  | { type: "replace"; requestId: string; content: string }
   | { type: "final"; requestId: string; content: string }
   | { type: "error"; requestId: string; message: string };
 

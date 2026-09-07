@@ -33,7 +33,7 @@ export async function streamV2Model(input: { config: V2ModelConfig; messages: Ar
   const response = await fetch(completionsUrl(input.config), {
     method: "POST", signal: input.signal,
     headers: { authorization: `Bearer ${input.config.apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({ model: input.config.model, messages: input.messages, temperature: 0.1, max_completion_tokens: maxCompletionTokens, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}), stream: true, stream_options: { include_usage: true } }),
+    body: JSON.stringify({ model: input.config.model, messages: input.messages, response_format: { type: "json_object" }, temperature: 0.1, max_completion_tokens: maxCompletionTokens, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}), stream: true, stream_options: { include_usage: true } }),
   });
   if (!response.ok) throw new Error(`V2 主模型调用失败：HTTP ${response.status}`);
   if (!response.body) throw new Error("V2 主模型没有返回响应流");

@@ -826,6 +826,7 @@ export default function Home() {
       timestamp: Date.now(),
       ...(messageAttachments.length > 0 ? { attachments: messageAttachments } : {}),
     };
+    const assistantMessageId = generateId();
 
     setConversations((prev) => {
       const updated = prev.map((c) => {
@@ -1033,7 +1034,6 @@ export default function Home() {
       }
 
       if (!response.body) throw new Error("生成接口未返回响应流");
-      const assistantMessageId = generateId();
       let fullContent = "";
       let streamMeta: Record<string, unknown> | null = null;
       const updateAssistant = (nextContent: string): void => {
@@ -1049,6 +1049,9 @@ export default function Home() {
           setGenerationStatus({ label: event.label, detail: event.detail, startedAt: generationStartedAt, elapsedMs: event.elapsedMs });
         } else if (event.type === "delta") {
           fullContent += event.content;
+          updateAssistant(fullContent);
+        } else if (event.type === "replace") {
+          fullContent = event.content;
           updateAssistant(fullContent);
         } else if (event.type === "final") {
           fullContent = event.content;
@@ -1105,11 +1108,11 @@ export default function Home() {
       console.error("生成回复失败:", error);
       toast.error("生成回复失败，请稍后重试");
 
-      // 移除失败的用户消息
+      // 保留用户问题，只移除未通过验证的临时 AI 输出。
       setConversations((prev) => {
         const updated = prev.map((c) => {
-          if (c.id === currentConversationId) {
-            return { ...c, messages: c.messages.filter((m) => m.id !== userMessage.id) };
+          if (c.id === requestConversationId) {
+            return { ...c, messages: c.messages.filter((m) => m.id !== assistantMessageId) };
           }
           return c;
         });

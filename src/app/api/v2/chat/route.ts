@@ -60,7 +60,18 @@ export async function POST(request: NextRequest): Promise<Response> {
         });
         const envelope = parseV2Envelope(raw); return { validation: validateV2Generation(envelope, trace, prepared), claims: envelope.claims };
       };
-      const generated = await run(undefined, true); const retried = false;
+      let generated: Awaited<ReturnType<typeof run>>; let retried = false;
+      try {
+        generated = await run(undefined, true);
+        if (!generated.validation.ok || !generated.validation.reply) throw new Error(`V2 回复验证失败：${generated.validation.errors.join(",")}`);
+      } catch (firstError) {
+        if (request.signal.aborted) throw firstError;
+        retried = true;
+        controller.enqueue(encodeStreamEvent({ type: "replace", requestId, content: "" }));
+        sendStatus("正在重新生成回复", "首次输出未通过格式或事实验证，正在自动重试");
+        const correction = firstError instanceof Error ? [firstError.message] : ["V2_OUTPUT_INVALID"];
+        generated = await run(correction, true);
+      }
       if (!generated.validation.ok || !generated.validation.reply) throw new Error(`V2 回复验证失败：${generated.validation.errors.join(",")}`);
       const totalMs = Math.round(performance.now() - startedAt);
       controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, usage, modelCalls, retry: retried, firstTokenMs, generationMs: Math.round(performance.now() - generationStartedAt), totalMs, claims: generated.claims } }));
