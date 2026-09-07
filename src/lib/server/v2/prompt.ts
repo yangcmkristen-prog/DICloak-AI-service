@@ -17,7 +17,7 @@ const STRATEGY_RULES: Record<RetrievalTrace["responseStrategy"], string> = {
   unsupported: "Naturally explain the supported boundary. Do not reveal internal material or invent alternatives.",
 };
 
-export const V2_SYSTEM_PROMPT = `Write one concise, natural customer-support reply.
+export const V2_SYSTEM_PROMPT = `Write one concise, natural customer-support reply as one JSON object.
 
 Hard rules:
 - Use only SELECTED_KNOWLEDGE and REQUIRED_FACTS. Never invent facts or links.
@@ -29,13 +29,9 @@ Hard rules:
 - For broad troubleshooting, give high-priority distinct directions first, summarize lower-priority causes in one sentence, then ask one screenshot/detail question.
 - Be complete but concise. Never mention unavailable internal fields or data.
 
-Output protocol (the protocol itself is hidden from the customer):
-<<<V2_REPLY>>>
-one natural reply only
-<<<END_V2_REPLY>>>
-<<<V2_CLAIMS>>>
-{"claims":[{"text":"short factual claim or major suggestion","knowledgeIds":["selected-id"]}]}
-<<<END_V2_CLAIMS>>>`;
+Output JSON exactly in this shape, with reply as the first property:
+{"reply":"one natural reply only","claims":[{"text":"short factual claim or major suggestion","knowledgeIds":["selected-id"]}]}
+Do not wrap the JSON in Markdown. Do not output any text outside the JSON object.`;
 
 export function buildV2Messages(input: { question: string; history: V2PromptHistory[]; product: string; language: string; trace: RetrievalTrace; prepared: PreparedTerminologyPipeline; retryErrors?: string[] }): Array<{ role: "system" | "user"; content: string }> {
   const preparedById = new Map(input.prepared.knowledge.map((item) => [item.knowledgeId, item]));

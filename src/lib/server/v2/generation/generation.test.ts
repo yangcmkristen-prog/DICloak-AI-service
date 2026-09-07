@@ -41,20 +41,21 @@ test("pricing entries are grouped by feature across plans", () => {
 });
 
 test("protocol exposes one natural reply and claims remain internal", () => {
-  const raw = '<<<V2_REPLY>>>请检查网络。<<<END_V2_REPLY>>><<<V2_CLAIMS>>>{"claims":[{"text":"检查网络","knowledgeIds":["A"]}]}<<<END_V2_CLAIMS>>>';
+  const raw = '{"reply":"请检查网络。","claims":[{"text":"检查网络","knowledgeIds":["A"]}]}' ;
   assert.deepEqual(parseV2Envelope(raw), { reply: "请检查网络。", claims: [{ text: "检查网络", knowledgeIds: ["A"] }] });
 });
 
-test("protocol accepts one valid claims object followed by harmless extra text", () => {
-  const raw = '<<<V2_REPLY>>>完成。<<<END_V2_REPLY>>><<<V2_CLAIMS>>>{"claims":[{"text":"完成","knowledgeIds":["A"]}]} done<<<END_V2_CLAIMS>>>';
+test("protocol tolerates a fenced JSON object but rejects malformed JSON", () => {
+  const raw = '```json\n{"reply":"完成。","claims":[{"text":"完成","knowledgeIds":["A"]}]}\n```';
   assert.deepEqual(parseV2Envelope(raw), { reply: "完成。", claims: [{ text: "完成", knowledgeIds: ["A"] }] });
+  assert.throws(() => parseV2Envelope('{"reply":"未完成"'), /V2_OUTPUT_PROTOCOL_INVALID/);
 });
 
-test("true stream filter hides protocol, claims and partial internal markers", () => {
+test("JSON stream filter exposes only reply and decodes split escapes", () => {
   const filter = new V2VisibleStreamFilter(new Map([["⟦V2:a:technical:0:x⟧", "https://help.test/a"]]));
-  const chunks = ["<<<V2_RE", "PLY>>>\n请打开 ⟦", "V", "2:a:", "technical:0:x⟧。<<<END_V2_REPLY>>><<<V2_CLAIMS>>>{}"];
+  const chunks = ['{"re', 'ply":"请打开 ⟦V2:a:technical:0:x⟧。\\', 'n已完成","claims":[{"text":"内部', '","knowledgeIds":["A"]}]}'];
   const visible = chunks.map((chunk) => filter.push(chunk)).join("");
-  assert.equal(visible, "请打开 https://help.test/a。"); assert.doesNotMatch(visible, /V2_|⟦/);
+  assert.equal(visible, "请打开 https://help.test/a。\n已完成"); assert.doesNotMatch(visible, /内部|knowledgeIds|⟦/);
 });
 
 test("grounding accepts selected claims and restores protected URL", () => {
