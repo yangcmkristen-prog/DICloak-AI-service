@@ -2,11 +2,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import pg from 'pg';
 import { buildEmbeddingText, buildFullText, buildSearchMetadata } from './embedding-text.mjs';
-import { getSearchConfig, mayRunMigration } from './config.mjs';
+import { getSearchConfig, mayRunIndexWrite } from './config.mjs';
 import { OpenAICompatibleEmbeddingProvider } from './providers.mjs';
 
 const config = getSearchConfig();
-if (!mayRunMigration(config)) throw new Error('拒绝写入：必须同时配置测试环境、数据库连接，并显式允许 V2 测试 migration/索引写入');
+if (!mayRunIndexWrite(config)) throw new Error('拒绝写入：测试环境需允许 migration；生产环境需显式生产写入开关和精确确认口令');
 if (!config.provider || !config.model || !config.hasEmbeddingKey) throw new Error('真实 embedding 配置不完整');
 if (config.dimensions !== 1536) throw new Error('当前 migration 固定为 1536 维，配置与表结构不一致');
 

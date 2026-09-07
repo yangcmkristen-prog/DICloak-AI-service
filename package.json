@@ -30,6 +30,7 @@
     "v2:index:check-env": "node scripts/v2-search/check-environment.mjs",
     "v2:index:check-db": "node scripts/v2-search/check-database.mjs",
     "v2:index:migrate-test": "node scripts/v2-search/migrate-test-database.mjs",
+    "v2:index:migrate-production": "node scripts/v2-search/migrate-production-database.mjs",
     "v2:index:mock": "node scripts/v2-search/build-mock-index.mjs",
     "v2:index:sync": "node scripts/v2-search/sync-postgres-index.mjs",
     "v2:index:verify-live": "node scripts/v2-search/verify-live-index.mjs",
