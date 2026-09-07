@@ -893,6 +893,9 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                       {PROVIDER_INFO[apiConfig.provider]?.name || apiConfig.provider} - {apiConfig.model}
                       {!apiConfig.apiKey && ' (使用默认 API)'}
                     </p>
+                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                      V2 回复 - {apiConfig.v2Model || 'gpt-5.6（默认）'}
+                    </p>
                   </div>
                   <Button
                     variant="outline"
@@ -1013,6 +1016,26 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                       )}
                     </>
                   )}
+
+                  {/* V2 回复模型单独配置，共用上方的 API 地址和 Key */}
+                  <div className="space-y-2 border-t pt-4">
+                    <Label htmlFor="v2Model">V2 回复模型</Label>
+                    <select
+                      id="v2Model"
+                      value={apiConfig.v2Model || 'gpt-5.6'}
+                      onChange={(e) => setApiConfig(prev => prev ? { ...prev, v2Model: e.target.value } : prev)}
+                      className="w-full p-2 rounded-md border border-input bg-background text-sm"
+                    >
+                      {getModelOptionsForProvider('gpt')
+                        .filter((option) => !option.value.startsWith('qwen-mt-'))
+                        .map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">
+                      仅用于 V2 向量检索后的客服回复，与上方普通回复模型独立，共用 API 地址和 Key。
+                    </p>
+                  </div>
 
                   <Button onClick={handleSaveApiConfig} className="w-full bg-blue-600 hover:bg-blue-700">
                     保存配置

@@ -333,6 +333,8 @@ export interface ApiConfig {
   provider: 'gpt' | 'deepseek' | 'aliyun' | 'custom';
   apiKey: string;
   model: string;
+  /** V2 知识检索回复使用的独立模型；未配置时由服务端使用默认值。 */
+  v2Model?: string;
   baseUrl: string;
   customConfig?: {
     endpoint?: string;
