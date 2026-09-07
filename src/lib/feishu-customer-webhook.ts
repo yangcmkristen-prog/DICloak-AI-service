@@ -6,9 +6,11 @@ export type FeishuCustomerUpdate = {
   createdAt?: string;
   dueDate?: string;
   currentPlan?: string;
+  /** The time supplied by Feishu, rather than the time this webhook was processed. */
+  automaticUpdatedAt?: string;
 };
 
-const feishuBusinessFields: Array<Exclude<keyof FeishuCustomerUpdate, "teamId">> = [
+const feishuBusinessFields: Array<Exclude<keyof FeishuCustomerUpdate, "teamId" | "automaticUpdatedAt">> = [
   "contactName", "contactDetail", "contactMethod", "createdAt", "dueDate", "currentPlan",
 ];
 
@@ -19,6 +21,14 @@ export function changedFeishuCustomerFields(existing: Record<string, unknown>, i
     const existingValue = existing[key];
     return (typeof existingValue === "string" ? existingValue.trim() : "") !== incomingValue.trim();
   });
+}
+
+/**
+ * Prefer Feishu's explicit event time when available. The webhook receive time is
+ * a safe fallback for automations that cannot be changed to send that field.
+ */
+export function feishuAutomaticUpdatedAt(incoming: FeishuCustomerUpdate, receivedAt: string): string {
+  return incoming.automaticUpdatedAt || receivedAt;
 }
 
 type UnknownRecord = Record<string, unknown>;
@@ -131,6 +141,7 @@ export function parseFeishuCustomerUpdates(payload: unknown): { updates: FeishuC
       createdAt: optionalDate(["创建时间", "createdAt"]),
       dueDate: optionalDate(["到期时间", "dueDate"]),
       currentPlan: optionalText(["当前套餐", "套餐", "currentPlan"]),
+      automaticUpdatedAt: optionalDate(["自动更新时间", "飞书发送时间", "发送时间", "更新时间", "automaticUpdatedAt"]),
     });
   }
   return { updates, skippedDuplicates, skippedMissingContact, detectedFields: [...detectedFields] };

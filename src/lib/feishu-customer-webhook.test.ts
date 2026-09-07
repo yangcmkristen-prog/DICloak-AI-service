@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { changedFeishuCustomerFields, parseFeishuCustomerUpdates } from "./feishu-customer-webhook.ts";
+import { changedFeishuCustomerFields, feishuAutomaticUpdatedAt, parseFeishuCustomerUpdates } from "./feishu-customer-webhook.ts";
 
 test("parses Feishu fields and keeps only the first duplicate team", () => {
   const result = parseFeishuCustomerUpdates({ records: [
@@ -12,6 +12,7 @@ test("parses Feishu fields and keeps only the first duplicate team", () => {
   assert.deepEqual(result.updates, [{
     teamId: "Team-1", contactName: "张三", contactDetail: "13800000000", contactMethod: "微信",
     createdAt: "2023-11-14T22:13:20.000Z", dueDate: undefined, currentPlan: "高阶版",
+    automaticUpdatedAt: undefined,
   }]);
 });
 
@@ -33,7 +34,29 @@ test("parses the record.fields envelope used by Feishu automation", () => {
   assert.deepEqual(parseFeishuCustomerUpdates({ record: { fields: { 团队ID: "42", 联系人: "李四", 渠道: "微信", 到期时间: "2027-01-02" } } }).updates[0], {
     teamId: "42", contactName: "李四", contactDetail: undefined, contactMethod: "微信",
     createdAt: undefined, dueDate: "2027-01-02T00:00:00.000Z", currentPlan: undefined,
+    automaticUpdatedAt: undefined,
   });
+});
+
+test("uses the timestamp sent by Feishu as the automatic update time", () => {
+  const result = parseFeishuCustomerUpdates({ record: { fields: {
+    团队ID: "42", 渠道: "微信", 飞书发送时间: 1_788_192_000,
+  } } });
+
+  assert.equal(result.updates[0]?.automaticUpdatedAt, "2026-08-31T16:00:00.000Z");
+  assert.deepEqual(changedFeishuCustomerFields(
+    { contactMethod: "微信" },
+    result.updates[0]!,
+  ), []);
+});
+
+test("falls back to webhook receive time when Feishu cannot send a timestamp", () => {
+  const receivedAt = "2026-09-07T08:00:00.000Z";
+  assert.equal(feishuAutomaticUpdatedAt({ teamId: "42" }, receivedAt), receivedAt);
+  assert.equal(feishuAutomaticUpdatedAt(
+    { teamId: "42", automaticUpdatedAt: "2026-09-07T07:59:58.000Z" },
+    receivedAt,
+  ), "2026-09-07T07:59:58.000Z");
 });
 
 test("ignores records when both contact detail and channel are empty", () => {
