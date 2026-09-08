@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { callTextModel, messagesAfterSummary, normalizeMessageTimestamp, snapshotToTranscript, validateSnapshot, type SummaryCursor } from "../shared";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { hasOnlySupportedCustomerChannels, normalizeCustomerChannels } from "@/lib/customer-channels";
-import { mergeManualCustomerUpdate } from "@/lib/customer-summary-updates";
+import { manualCustomerDatabaseUpdate } from "@/lib/customer-summary-updates";
 
 const CORS_HEADERS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
 
@@ -304,15 +304,10 @@ export async function PATCH(request: NextRequest) {
         updates[key] = value as never;
       }
     }
-    const savedAt = new Date().toISOString();
-    const summary = mergeManualCustomerUpdate(record.summary_data as Record<string, unknown>, updates);
-    const { error: updateError } = await client.from("customer_summaries").update({
-      summary_data: summary,
-      contact_name: typeof summary.contactName === "string" ? summary.contactName : "",
-      updated_at: savedAt,
-    }).eq("external_chat_id", body.externalChatId);
+    const databaseUpdate = manualCustomerDatabaseUpdate(record.summary_data as Record<string, unknown>, updates);
+    const { error: updateError } = await client.from("customer_summaries").update(databaseUpdate).eq("external_chat_id", body.externalChatId);
     if (updateError) throw updateError;
-    return NextResponse.json({ summary }, { headers: CORS_HEADERS });
+    return NextResponse.json({ summary: databaseUpdate.summary_data }, { headers: CORS_HEADERS });
   } catch (error) {
     console.error("[Customer Summary] 修改失败:", error);
     return NextResponse.json({ error: "客户数据保存失败" }, { status: 500, headers: CORS_HEADERS });
@@ -367,12 +362,8 @@ export async function POST(request: NextRequest) {
         const existing = existingByTeamId.get(normalizedTeamId(row.teamId));
         const updates = Object.fromEntries(Object.entries(row).filter(([key]) => key !== "teamId"));
         if (existing) {
-          const summary = mergeManualCustomerUpdate(existing.summary_data, { ...updates, teamId: row.teamId });
-          const { error } = await client.from("customer_summaries").update({
-            summary_data: summary,
-            contact_name: typeof summary["contactName"] === "string" ? summary["contactName"] : "",
-            updated_at: savedAt,
-          })
+          const databaseUpdate = manualCustomerDatabaseUpdate(existing.summary_data, { ...updates, teamId: row.teamId });
+          const { error } = await client.from("customer_summaries").update(databaseUpdate)
             .eq("external_chat_id", existing.external_chat_id);
           if (error) throw error;
           continue;
