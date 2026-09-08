@@ -224,6 +224,12 @@ function parseFunctionKnowledgeSheet(sheet: XLSX.WorkSheet): FunctionKnowledge[]
       faqIds: getCellValue(row['常见问题FAQ_ID']),
       keywordsCN: getCellValue(row['关键词（中文）']),
       keywordsEN: getCellValue(row['关键词（英文）']),
+      moduleTermIds: getCellValue(row['一级模块术语ID']),
+      pageTermIds: getCellValue(row['页面名称术语ID']),
+      functionTermIds: getCellValue(row['功能点术语ID']),
+      termMatchWords: getCellValue(row['术语匹配词']),
+      isHighFrequency: getCellValue(row['是否高频']),
+      notes: getCellValue(row['备注']),
       // 旧知识库没有该列时按共通功能处理，保持向后兼容。
       supportedProduct: parseSupportedProduct(row['已支持产品'] ?? row['supported_products']),
     }));

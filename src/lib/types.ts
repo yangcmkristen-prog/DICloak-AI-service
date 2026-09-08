@@ -174,6 +174,12 @@ export interface FunctionKnowledge {
   faqIds: string;          // 常见问题FAQ_ID
   keywordsCN: string;       // 关键词（中文）
   keywordsEN: string;       // 关键词（英文）
+  moduleTermIds?: string;
+  pageTermIds?: string;
+  functionTermIds?: string;
+  termMatchWords?: string;
+  isHighFrequency?: string;
+  notes?: string;
   supportedProduct: SupportedProduct; // 已支持产品：all/dicloak/paraturbo
 }
 

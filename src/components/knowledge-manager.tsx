@@ -27,6 +27,13 @@ interface KnowledgeManagerProps {
   onPromptChange?: (prompt: string) => void;
 }
 
+interface V2IndexPreview {
+  total: number; added: number; changed: number; removed: number; unchanged: number;
+  warnings: Array<{ code?: string; message?: string }>;
+  publishedVersion: string | null; buildingVersion: string | null; buildingIndexed: number; buildingExpected: number;
+  failedVersion: string | null; failedError: string | null;
+}
+
 type KnowledgeFileNames = NonNullable<KnowledgeBase["fileNames"]>;
 type ModelOption = (typeof MODEL_OPTIONS)[number];
 
@@ -158,6 +165,9 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   // Prompt 版本信息
   const [promptVersion, setPromptVersion] = useState<number | null>(null);
   const [promptUpdatedAt, setPromptUpdatedAt] = useState<string | null>(null);
+  const [v2IndexPreview, setV2IndexPreview] = useState<V2IndexPreview | null>(null);
+  const [isCheckingV2Index, setIsCheckingV2Index] = useState(false);
+  const [isPublishingV2Index, setIsPublishingV2Index] = useState(false);
 
   // 加载数据 - 从数据库和 localStorage 同步
   useEffect(() => {
@@ -301,6 +311,39 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
       setSyncStatus('error');
       return false;
     }
+  };
+
+  const refreshV2Index = async (): Promise<V2IndexPreview | null> => {
+    setIsCheckingV2Index(true);
+    try {
+      const response = await fetch('/api/v2/index', { cache: 'no-store' });
+      const data = await response.json() as { preview?: V2IndexPreview; error?: string };
+      if (!response.ok || !data.preview) throw new Error(data.error || '检测失败');
+      setV2IndexPreview(data.preview);
+      return data.preview;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'V2 索引检测失败');
+      return null;
+    } finally { setIsCheckingV2Index(false); }
+  };
+
+  const handlePublishV2Index = async (): Promise<void> => {
+    setIsPublishingV2Index(true);
+    try {
+      const response = await fetch('/api/v2/index', { method: 'POST' });
+      const data = await response.json() as { started?: boolean; unchanged?: boolean; version?: string; preview?: V2IndexPreview; error?: string };
+      if (!response.ok) throw new Error(data.error || 'V2 发布失败');
+      if (data.unchanged) { if (data.preview) setV2IndexPreview(data.preview); toast.success('V2 知识库已是最新'); return; }
+      toast.success('已开始在后台生成 V2 向量');
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 3000));
+        const preview = await refreshV2Index();
+        if (preview && preview.publishedVersion === data.version) { toast.success('V2 知识库发布成功'); return; }
+        if (preview && preview.failedVersion === data.version) throw new Error(preview.failedError || 'V2 后台发布失败');
+      }
+      toast.info('后台仍在处理，可稍后点击刷新状态');
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'V2 发布失败'); }
+    finally { setIsPublishingV2Index(false); }
   };
 
   // 同步系统配置到数据库
@@ -456,6 +499,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
         updateStats(combinedData.fileNames);
         if (syncSuccess) {
           toast.success(`成功导入 ${successResults.length} 个文件，已同步到云端`);
+          await refreshV2Index();
         } else {
           toast.error('导入成功但同步失败，请刷新重试');
         }
@@ -780,6 +824,52 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
               <p>暂无导入数据，请上传 Excel 文件</p>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Cloud className="w-5 h-5" />V2 向量知识库</CardTitle>
+          <CardDescription>上传 Excel 后会自动检测变化；只有新增和修改的分块会重新生成向量。</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {v2IndexPreview ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+                <StatCard label="新增" count={v2IndexPreview.added} color="green" />
+                <StatCard label="修改" count={v2IndexPreview.changed} color="orange" />
+                <StatCard label="删除" count={v2IndexPreview.removed} color="gray" />
+                <StatCard label="未变" count={v2IndexPreview.unchanged} color="blue" />
+                <StatCard label="总分块" count={v2IndexPreview.total} color="purple" />
+              </div>
+              <p className="text-xs text-muted-foreground">当前正式版本：{v2IndexPreview.publishedVersion || '无'}</p>
+              {v2IndexPreview.buildingVersion && (
+                <div className="space-y-1">
+                  <p className="text-sm text-blue-600">正在后台发布：{v2IndexPreview.buildingVersion}</p>
+                  <Progress value={v2IndexPreview.buildingExpected ? v2IndexPreview.buildingIndexed / v2IndexPreview.buildingExpected * 100 : 0} />
+                  <p className="text-xs text-muted-foreground">{v2IndexPreview.buildingIndexed} / {v2IndexPreview.buildingExpected} 个分块</p>
+                </div>
+              )}
+              {v2IndexPreview.failedError && <p className="text-sm text-red-600">最近一次发布失败：{v2IndexPreview.failedError}</p>}
+              {v2IndexPreview.warnings.length > 0 && <p className="text-sm text-red-600">检测到 {v2IndexPreview.warnings.length} 个知识格式问题，修复前不能发布。</p>}
+            </div>
+          ) : <p className="text-sm text-muted-foreground">点击“检测变化”对比网站知识库与当前正式 V2 索引。</p>}
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button variant="outline" className="flex-1" disabled={isCheckingV2Index || isPublishingV2Index} onClick={() => void refreshV2Index()}>
+              {isCheckingV2Index && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}检测变化
+            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button className="flex-1" disabled={!v2IndexPreview || isPublishingV2Index || Boolean(v2IndexPreview.buildingVersion) || Boolean(v2IndexPreview.warnings.length) || (!v2IndexPreview.added && !v2IndexPreview.changed && !v2IndexPreview.removed)}>
+                  {isPublishingV2Index && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}发布到 V2
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader><AlertDialogTitle>确认发布 V2 知识库？</AlertDialogTitle><AlertDialogDescription>将向 TokenLab 发送 {v2IndexPreview?.added ?? 0} 个新增和 {v2IndexPreview?.changed ?? 0} 个修改分块以生成向量。全部成功后才会切换正式版本。</AlertDialogDescription></AlertDialogHeader>
+                <AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction onClick={() => void handlePublishV2Index()}>确认发布</AlertDialogAction></AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         </CardContent>
       </Card>
 
