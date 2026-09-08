@@ -368,7 +368,7 @@ export function CustomerOverview() {
             <ResizableHead label="到期时间" width={columnWidths.dueDate} onResize={(startX) => startColumnResize("dueDate", startX)} onSort={() => toggleSort("dueDate")} direction={sort?.key === "dueDate" ? sort.direction : undefined} />
             <ResizableHead label="创建时间" width={columnWidths.createdAt} onResize={(startX) => startColumnResize("createdAt", startX)} onSort={() => toggleSort("createdAt")} direction={sort?.key === "createdAt" ? sort.direction : undefined} />
             <ResizableHead label="AI最后总结时间" width={columnWidths.updatedAt} onResize={(startX) => startColumnResize("updatedAt", startX)} onSort={() => toggleSort("updatedAt")} direction={sort?.key === "updatedAt" ? sort.direction : undefined} />
-            <ResizableHead label="自动更新时间" width={columnWidths.automaticUpdatedAt} onResize={(startX) => startColumnResize("automaticUpdatedAt", startX)} onSort={() => toggleSort("automaticUpdatedAt")} direction={sort?.key === "automaticUpdatedAt" ? sort.direction : undefined} />
+            <ResizableHead label="飞书最后同步时间" width={columnWidths.automaticUpdatedAt} onResize={(startX) => startColumnResize("automaticUpdatedAt", startX)} onSort={() => toggleSort("automaticUpdatedAt")} direction={sort?.key === "automaticUpdatedAt" ? sort.direction : undefined} />
             <ResizableHead label="操作" width={columnWidths.action} onResize={(startX) => startColumnResize("action", startX)} className="!sticky right-0 z-20 border-l bg-muted shadow-[-6px_0_8px_-8px_rgba(15,23,42,0.45)]" />
           </TableRow></TableHeader>
           <TableBody>{pagedCustomers.map((customer) => <TableRow key={customer.id} className="group h-[74px] cursor-pointer" onClick={() => setSelectedId(customer.id)}>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { callTextModel, messagesAfterSummary, normalizeMessageTimestamp, snapshotToTranscript, validateSnapshot, type SummaryCursor } from "../shared";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { hasOnlySupportedCustomerChannels, normalizeCustomerChannels } from "@/lib/customer-channels";
+import { mergeManualCustomerUpdate } from "@/lib/customer-summary-updates";
 
 const CORS_HEADERS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
 
@@ -304,7 +305,7 @@ export async function PATCH(request: NextRequest) {
       }
     }
     const savedAt = new Date().toISOString();
-    const summary = { ...(record.summary_data as Record<string, unknown>), ...updates };
+    const summary = mergeManualCustomerUpdate(record.summary_data as Record<string, unknown>, updates);
     const { error: updateError } = await client.from("customer_summaries").update({
       summary_data: summary,
       contact_name: typeof summary.contactName === "string" ? summary.contactName : "",
@@ -366,7 +367,7 @@ export async function POST(request: NextRequest) {
         const existing = existingByTeamId.get(normalizedTeamId(row.teamId));
         const updates = Object.fromEntries(Object.entries(row).filter(([key]) => key !== "teamId"));
         if (existing) {
-          const summary: SummaryRecord = { ...existing.summary_data, ...updates, teamId: row.teamId };
+          const summary = mergeManualCustomerUpdate(existing.summary_data, { ...updates, teamId: row.teamId });
           const { error } = await client.from("customer_summaries").update({
             summary_data: summary,
             contact_name: typeof summary["contactName"] === "string" ? summary["contactName"] : "",
