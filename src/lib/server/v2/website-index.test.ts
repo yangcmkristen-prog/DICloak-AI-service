@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { KnowledgeBase } from "../../types.ts";
-import { buildWebsiteKnowledge, selectActiveBuildingVersion } from "./website-index.ts";
+import { buildWebsiteKnowledge, canReuseEmbedding, selectActiveBuildingVersion } from "./website-index.ts";
 
 const emptyKnowledge = (): KnowledgeBase => ({ faqItems: [], troubleshootingItems: [], troubleshootingFlowItems: [], outOfScopeItems: [], mappingItems: [], functionKnowledge: [], termItems: [], apiEndpoints: [], apiParameters: [], pricingPlans: [], lastUpdated: 1 });
 
@@ -36,4 +36,11 @@ test("building versions older than the published version are ignored", () => {
 
   const active = { version: "active", status: "building", created_at: "2026-09-04T00:00:00.000Z" };
   assert.equal(selectActiveBuildingVersion([active, ...versions], published)?.version, "active");
+});
+
+test("embeddings are reused when only metadata changed", () => {
+  const previous = { chunk_id: "FUNC-1#0", content_hash: "old", embedding_text: "same semantic text" };
+  assert.equal(canReuseEmbedding(previous, "same semantic text"), true);
+  assert.equal(canReuseEmbedding(previous, "changed semantic text"), false);
+  assert.equal(canReuseEmbedding(undefined, "same semantic text"), false);
 });

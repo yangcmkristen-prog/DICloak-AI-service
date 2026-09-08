@@ -28,7 +28,7 @@ interface KnowledgeManagerProps {
 }
 
 interface V2IndexPreview {
-  total: number; added: number; changed: number; removed: number; unchanged: number;
+  total: number; added: number; changed: number; vectorChanged: number; metadataOnly: number; removed: number; unchanged: number;
   warnings: Array<{ code?: string; message?: string }>;
   publishedVersion: string | null; buildingVersion: string | null; buildingIndexed: number; buildingExpected: number;
   failedVersion: string | null; failedError: string | null;
@@ -841,9 +841,10 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
         <CardContent className="space-y-4">
           {v2IndexPreview ? (
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
                 <StatCard label="新增" count={v2IndexPreview.added} color="green" />
-                <StatCard label="修改" count={v2IndexPreview.changed} color="orange" />
+                <StatCard label="需重生成" count={v2IndexPreview.vectorChanged} color="orange" />
+                <StatCard label="仅元数据" count={v2IndexPreview.metadataOnly} color="blue" />
                 <StatCard label="删除" count={v2IndexPreview.removed} color="gray" />
                 <StatCard label="未变" count={v2IndexPreview.unchanged} color="blue" />
                 <StatCard label="总分块" count={v2IndexPreview.total} color="purple" />
@@ -871,7 +872,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
-                <AlertDialogHeader><AlertDialogTitle>确认发布 V2 知识库？</AlertDialogTitle><AlertDialogDescription>将向 TokenLab 发送 {v2IndexPreview?.added ?? 0} 个新增和 {v2IndexPreview?.changed ?? 0} 个修改分块以生成向量。全部成功后才会切换正式版本。</AlertDialogDescription></AlertDialogHeader>
+                <AlertDialogHeader><AlertDialogTitle>确认发布 V2 知识库？</AlertDialogTitle><AlertDialogDescription>将向 TokenLab 发送 {v2IndexPreview?.added ?? 0} 个新增和 {v2IndexPreview?.vectorChanged ?? 0} 个文本变化分块；{v2IndexPreview?.metadataOnly ?? 0} 个仅元数据变化的分块会复用旧向量。全部成功后才会切换正式版本。</AlertDialogDescription></AlertDialogHeader>
                 <AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction onClick={() => void handlePublishV2Index()}>确认发布</AlertDialogAction></AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
