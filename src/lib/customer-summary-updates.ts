@@ -13,3 +13,14 @@ export function mergeManualCustomerUpdate(
   );
   return { ...existing, ...safeUpdates };
 }
+
+export function manualCustomerDatabaseUpdate(
+  existing: Record<string, unknown>,
+  updates: Record<string, unknown>,
+): { summary_data: Record<string, unknown>; contact_name: string } {
+  const summary = mergeManualCustomerUpdate(existing, updates);
+  return {
+    summary_data: summary,
+    contact_name: typeof summary.contactName === "string" ? summary.contactName : "",
+  };
+}
