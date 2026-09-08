@@ -32,10 +32,13 @@ test("building versions older than the published version are ignored", () => {
     published,
     { version: "stale", status: "building", created_at: "2026-09-02T00:00:00.000Z" },
   ];
-  assert.equal(selectActiveBuildingVersion(versions, published), undefined);
+  const now = new Date("2026-09-04T00:01:00.000Z").getTime();
+  assert.equal(selectActiveBuildingVersion(versions, published, now), undefined);
 
   const active = { version: "active", status: "building", created_at: "2026-09-04T00:00:00.000Z" };
-  assert.equal(selectActiveBuildingVersion([active, ...versions], published)?.version, "active");
+  assert.equal(selectActiveBuildingVersion([active, ...versions], published, now)?.version, "active");
+  const timedOut = { version: "timed-out", status: "building", created_at: "2026-09-03T23:50:00.000Z" };
+  assert.equal(selectActiveBuildingVersion([timedOut, published], published, now), undefined);
 });
 
 test("embeddings are reused when only metadata changed", () => {

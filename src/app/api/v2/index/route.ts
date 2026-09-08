@@ -2,7 +2,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import pg from "pg";
 import type { KnowledgeBase } from "@/lib/types";
 import { isValidSettingsSession, SETTINGS_SESSION_COOKIE } from "@/lib/server/settings-session";
-import { previewWebsiteIndex, publishWebsiteIndex } from "@/lib/server/v2/website-index";
+import { expireStaleWebsiteBuilds, previewWebsiteIndex, publishWebsiteIndex } from "@/lib/server/v2/website-index";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -31,6 +31,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!authorized(request)) return NextResponse.json({ error: "请先通过设置密码验证" }, { status: 401 });
   try {
+    await expireStaleWebsiteBuilds();
     const source = await loadKnowledge(); const preview = await previewWebsiteIndex(source.knowledge, source.updatedAt);
     if (preview.buildingVersion) return NextResponse.json({ error: "已有 V2 索引正在发布", preview }, { status: 409 });
     if (!preview.added && !preview.changed && !preview.removed) return NextResponse.json({ success: true, unchanged: true, preview });
