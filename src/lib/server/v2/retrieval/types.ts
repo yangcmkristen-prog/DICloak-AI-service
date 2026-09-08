@@ -1,7 +1,7 @@
 export type EvidenceConfidence = "high" | "medium" | "low" | "none";
 /** @deprecated Use EvidenceConfidence. */
 export type RetrievalConfidence = EvidenceConfidence;
-export type ResponseStrategy = "direct" | "aggregated" | "conditional" | "answer_then_clarify" | "clarify_only" | "unsupported";
+export type ResponseStrategy = "direct" | "aggregated" | "conditional" | "answer_then_clarify" | "clarify_only" | "unsupported" | "partial_support";
 export type QuestionMode = "precise" | "broad_troubleshooting" | "ambiguous_with_safe_branches" | "missing_critical_information" | "unsupported";
 export type ApiFamily = "http" | "local";
 

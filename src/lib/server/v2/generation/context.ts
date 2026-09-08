@@ -7,6 +7,7 @@ const STRATEGY_LIMITS: Record<RetrievalTrace["responseStrategy"], number> = {
   answer_then_clarify: 4,
   clarify_only: 0,
   unsupported: 2,
+  partial_support: 1,
 };
 
 const stringValue = (value: unknown): string => typeof value === "string" ? value.trim() : "";

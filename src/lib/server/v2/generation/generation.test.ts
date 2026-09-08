@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildV2Messages, V2_SYSTEM_PROMPT } from "../prompt.ts";
+import { buildV2Messages, unsupportedFeatureReply, V2_SYSTEM_PROMPT } from "../prompt.ts";
 import { parseV2Envelope, V2VisibleStreamFilter } from "./protocol.ts";
 import { validateV2Generation } from "./validation.ts";
 import type { RetrievalTrace } from "../retrieval/types.ts";
@@ -41,6 +41,20 @@ test("unsupported function requests prohibit adjacent feature suggestions", () =
   const payload = JSON.parse(messages[1].content) as { unsupportedFeatureInstruction?: string };
   assert.match(payload.unsupportedFeatureInstruction ?? "", /currently unsupported/);
   assert.match(payload.unsupportedFeatureInstruction ?? "", /Do not mention, recommend, or explain any other feature/);
+});
+
+test("unsupported feature replies are stable and localized", () => {
+  assert.match(unsupportedFeatureReply("zh"), /目前我们不支持这个功能/);
+  assert.match(unsupportedFeatureReply("zh"), /反馈给产品同事/);
+  assert.doesNotMatch(unsupportedFeatureReply("zh"), /批量打开|网站源码|本地网络访问/);
+  assert.match(unsupportedFeatureReply("unknown"), /do not currently support this feature/);
+});
+
+test("partial support prompt distinguishes the requested and supported limit directions", () => {
+  const partial = trace({ responseStrategy: "partial_support" });
+  const payload = JSON.parse(buildV2Messages({ question: "限制一个环境的成员数", history: [], product: "dicloak", language: "zh", trace: partial, prepared })[1].content) as { strategyInstruction: string };
+  assert.match(payload.strategyInstruction, /direction of the limitation/);
+  assert.match(payload.strategyInstruction, /product and technical teams/);
 });
 
 test("pricing entries are grouped by feature across plans", () => {

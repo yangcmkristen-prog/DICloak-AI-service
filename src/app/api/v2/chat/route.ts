@@ -3,7 +3,7 @@ import { encodeStreamEvent } from "@/lib/stream-events";
 import { retrieveV2, loadV2Terms, expandPricingKnowledge } from "@/lib/server/v2/retrieval/service";
 import { prepareTerminologyPipeline } from "@/lib/server/v2/terminology/pipeline";
 import type { SupportedTermLanguage, TerminologyKnowledge } from "@/lib/server/v2/terminology/types";
-import { buildV2Messages, type V2PromptHistory } from "@/lib/server/v2/prompt";
+import { buildV2Messages, unsupportedFeatureReply, type V2PromptHistory } from "@/lib/server/v2/prompt";
 import { parseV2Envelope, V2VisibleStreamFilter } from "@/lib/server/v2/generation/protocol";
 import { validateV2Generation } from "@/lib/server/v2/generation/validation";
 import { resolveV2ModelConfig, streamV2Model, type V2ModelUsage } from "@/lib/server/v2/generation/model";
@@ -34,7 +34,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     try {
       sendStatus("正在检索相关知识", "并行执行全文和向量召回");
       const [retrievalTrace, modelConfig] = await Promise.all([retrieveV2(question, product, request.signal), resolveV2ModelConfig()]);
-      if (!modelConfig) throw new Error("V2 主模型配置不完整，请配置独立 V2 模型");
       const expandedKnowledge = await expandPricingKnowledge(retrievalTrace.selectedKnowledge, question);
       const selectedKnowledge = selectGenerationKnowledge({ ...retrievalTrace, selectedKnowledge: expandedKnowledge }, question);
       const selectedIds = new Set(selectedKnowledge.map((item) => item.knowledgeId));
@@ -49,6 +48,15 @@ export async function POST(request: NextRequest): Promise<Response> {
       if (!prepared.ok) throw new Error(`V2 术语准备失败：${prepared.errors.map((item) => item.code).join(",")}`);
       const baseMeta = { engine: "v2", knowledgeIds: trace.selectedKnowledge.map((item) => item.knowledgeId), evidenceConfidence: trace.evidenceConfidence, responseStrategy: trace.responseStrategy, language: targetLanguage, terminologyWarnings: prepared.warnings.map((item) => item.code), retrievalMs: trace.timings.total };
       controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, retry: false } }));
+      const isUnsupportedFeature = trace.responseStrategy === "unsupported" && trace.intent.knowledgeTypes.length === 1 && trace.intent.knowledgeTypes[0] === "function";
+      if (isUnsupportedFeature) {
+        const reply = unsupportedFeatureReply(targetLanguage);
+        sendStatus("正在完成回复", "已确认当前功能支持范围");
+        controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: reply }));
+        controller.close();
+        return;
+      }
+      if (!modelConfig) throw new Error("V2 主模型配置不完整，请配置独立 V2 模型");
       sendStatus("正在生成回复", "已准备选中知识，等待模型首个响应片段");
       let usage: V2ModelUsage = {}; let modelCalls = 0; let firstTokenMs: number | null = null; const generationStartedAt = performance.now();
       const run = async (retryErrors?: string[], streamCustomer = false) => {
@@ -62,15 +70,14 @@ export async function POST(request: NextRequest): Promise<Response> {
       };
       let generated: Awaited<ReturnType<typeof run>>; let retried = false;
       try {
-        generated = await run(undefined, true);
+        generated = await run(undefined, false);
         if (!generated.validation.ok || !generated.validation.reply) throw new Error(`V2 回复验证失败：${generated.validation.errors.join(",")}`);
       } catch (firstError) {
         if (request.signal.aborted) throw firstError;
         retried = true;
-        controller.enqueue(encodeStreamEvent({ type: "replace", requestId, content: "" }));
         sendStatus("正在重新生成回复", "首次输出未通过格式或事实验证，正在自动重试");
         const correction = firstError instanceof Error ? [firstError.message] : ["V2_OUTPUT_INVALID"];
-        generated = await run(correction, true);
+        generated = await run(correction, false);
       }
       if (!generated.validation.ok || !generated.validation.reply) throw new Error(`V2 回复验证失败：${generated.validation.errors.join(",")}`);
       const totalMs = Math.round(performance.now() - startedAt);

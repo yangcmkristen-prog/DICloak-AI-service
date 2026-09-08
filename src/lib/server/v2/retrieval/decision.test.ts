@@ -114,6 +114,24 @@ test("supported feature capability still uses matching function knowledge", () =
   assert.equal(result.selectedKnowledge[0]?.knowledgeId, "BATCH-OPEN");
 });
 
+test("Portuguese member profile limit request is classified as function knowledge", () => {
+  const question = "Seria interessante que a gente adm pudesse determinar quantos membros podem acessar um perfil";
+  const parsed = parseQuery(question);
+  assert.equal(parsed.language, "pt");
+  assert.deepEqual(parsed.knowledgeTypes, ["function"]);
+});
+
+test("inverse quantity limits produce partial support with only the grounded related feature", () => {
+  const question = "Seria interessante que a gente adm pudesse determinar quantos membros podem acessar um perfil";
+  const rows = [
+    candidate("PROFILE-PER-MEMBER", { knowledgeType: "function", title: "同时打开环境数限制", text: "限制每个成员可同时打开的环境数量", metadata: { description: "限制指定成员分组下每个成员可同时打开的环境数量" }, rerankScore: 0.19, vectorScore: 0.3 }),
+    candidate("MEMBER-LIST", { knowledgeType: "function", title: "成员列表", text: "查看成员信息", rerankScore: 0.2, vectorScore: 0.31 }),
+  ];
+  const result = decideRetrieval(question, parseQuery(question), rows, "low", []);
+  assert.equal(result.responseStrategy, "partial_support");
+  assert.deepEqual(result.selectedKnowledge.map((item) => item.knowledgeId), ["PROFILE-PER-MEMBER"]);
+});
+
 test("question modes distinguish broad and critical ambiguity", () => {
   assert.equal(classifyQuestionMode("环境打不开", parseQuery("环境打不开")).mode, "broad_troubleshooting");
   assert.equal(classifyQuestionMode("帮我删除它", parseQuery("帮我删除它")).mode, "missing_critical_information");

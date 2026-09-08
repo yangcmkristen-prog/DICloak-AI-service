@@ -22,8 +22,11 @@ const terms = (value: string) => {
   const latin = normalized.match(/[\p{Script=Latin}\p{N}_./{}-]{2,}/gu) ?? [];
   const han = normalized.match(/\p{Script=Han}+/gu)?.flatMap((segment) => Array.from({ length: Math.max(0, segment.length - 1) }, (_, index) => segment.slice(index, index + 2))) ?? [];
   const conceptGroups: Array<[RegExp, string[]]> = [
-    [/(?:账号|环境)|\b(?:account|profile)s?\b/i, ["profile", "profiles"]],
-    [/(?:用户|成员|席位)|\b(?:user|member|seat)s?\b/i, ["member", "members", "actual users", "devices"]],
+    [/(?:账号|环境|профил|профилей|профили|hồ sơ|môi trường)|\b(?:accounts?|profiles?|perfil|perfis|ambientes?)\b/i, ["profile", "profiles", "environment"]],
+    [/(?:用户|成员|席位|участник|участников|пользователь|người dùng|thành viên)|\b(?:user|member|seat|membro|membros|miembro|miembros|usuario|usuarios)s?\b/i, ["member", "members", "actual users", "devices"]],
+    [/(?:数量|个数|上限|限制|сколько|количество|огранич|bao nhiêu|số lượng|giới hạn)|\b(?:how\s+many|number|count|limit|maximum|quantos|quantas|quantidade|número|cuántos|cuántas|cantidad|límite)\b/i, ["number", "limit", "maximum", "quota"]],
+    [/(?:访问|打开|使用|доступ|откры|truy cập|mở|sử dụng)|\b(?:access|open|use|acessar|abrir|usar|acceder)\b/i, ["access", "open", "use"]],
+    [/(?:管理员|超管|администратор|quản trị viên)|\b(?:admin|administrator|adm|gerente|administrador)\b/i, ["admin", "administrator"]],
     [/(?:基础套餐)|\bbase\s+plan\b/i, ["base", "base plan"]],
   ];
   const concepts = conceptGroups.flatMap(([pattern, aliases]) => pattern.test(value) ? aliases : []);

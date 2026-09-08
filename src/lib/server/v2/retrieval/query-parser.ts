@@ -16,8 +16,11 @@ export function extractSearchTerms(question: string): string[] {
   const conceptAliases = [
     [/(?:分享|共享).{0,15}(?:订阅|账号|账户)|(?:团队|成员).{0,15}(?:分享|共享)|share.{0,15}(?:subscription|account)/i, ["share", "sharing", "subscription", "team", "account", "multiple sessions"]],
     [/(?:账号不存在|凭据无效)|account\s+does\s+not\s+exist|credentials?\s+(?:is|are)\s+invalid/i, ["account does not exist", "credentials invalid", "账号不存在"]],
-    [/(?:环境|浏览器配置)|\bprofiles?\b/i, ["profile", "environment"]],
-    [/(?:用户|成员|席位)|\b(?:users?|members?|seats?)\b/i, ["member", "seat", "actual users", "devices"]],
+    [/(?:环境|浏览器配置|профил|профилей|профили|hồ sơ|môi trường)|\b(?:profiles?|perfil|perfis|ambiente|ambientes)\b/i, ["profile", "environment"]],
+    [/(?:用户|成员|席位|участник|участников|пользователь|người dùng|thành viên)|\b(?:users?|members?|seats?|membro|membros|miembro|miembros|usuario|usuarios)\b/i, ["member", "members", "seat", "actual users", "devices"]],
+    [/(?:数量|个数|上限|限制|сколько|количество|огранич|bao nhiêu|số lượng|giới hạn)|\b(?:how\s+many|number|count|limit|maximum|quantos|quantas|quantidade|número|cuántos|cuántas|cantidad|límite)\b/i, ["number", "limit", "maximum", "quota"]],
+    [/(?:访问|打开|使用|доступ|откры|truy cập|mở|sử dụng)|\b(?:access|open|use|acessar|abrir|usar|acceder|abrir|usar)\b/i, ["access", "open", "use"]],
+    [/(?:管理员|超管|администратор|quản trị viên)|\b(?:admin|administrator|adm|gerente|administrador)\b/i, ["admin", "administrator"]],
     [/visualiza(?:ção|cao)\s+gr[aá]tis/i, ["free views", "free likes", "free followers", "maintenance"]],
     [/(?:como\s+)?cri(?:a|ar).{0,12}(?:navegador|novegador)|(?:create|add).{0,12}(?:browser|profile)/i, ["create browser profile", "new profile", "创建环境"]],
   ].flatMap(([pattern, aliases]) => (pattern as RegExp).test(question) ? aliases as string[] : []);
@@ -50,7 +53,7 @@ export function parseQuery(question: string, requestedProduct: "dicloak" | "para
   const operationAudit = /(?:谁|何人).{0,8}(?:改|修改|操作)|(?:操作|修改|变更).{0,8}(?:日志|记录)|who.{0,12}(?:changed|modified)|operation\s+log/i.test(normalized);
   const accountSharing = /(?:分享|共享).{0,15}(?:订阅|账号|账户)|(?:团队|成员).{0,15}(?:分享|共享)|share.{0,15}(?:subscription|account)/i.test(normalized);
   const functionOperation = /(?:como\s+)?cri(?:a|ar).{0,12}(?:navegador|novegador)|(?:create|add).{0,12}(?:browser|profile)|(?:创建|新建).{0,8}(?:环境|浏览器配置)/i.test(normalized);
-  const featureCapability = /(?:是否|能否|可不可以|可以|能不能|支持|有没有|如何|怎么).{0,24}(?:功能|按钮|菜单|栏|页面|设置|模式|同步|隐藏|显示|关闭|开启|打开|禁用|启用)|(?:功能|按钮|菜单|栏|页面|设置|模式).{0,16}(?:是否|能否|可以|支持|有没有|怎么|如何)|\b(?:can|does|support|hide|show|disable|enable|turn\s+off|turn\s+on)\b.{0,40}\b(?:feature|button|menu|bar|page|setting|mode|sync)\b/i.test(normalized);
+  const featureCapability = /(?:是否|能否|可不可以|可以|能不能|支持|有没有|如何|怎么).{0,24}(?:功能|按钮|菜单|栏|页面|设置|模式|同步|隐藏|显示|关闭|开启|打开|禁用|启用)|(?:功能|按钮|菜单|栏|页面|设置|模式).{0,16}(?:是否|能否|可以|支持|有没有|怎么|如何)|\b(?:can|could|does|support|hide|show|disable|enable|limit|restrict|configure|set|allow)\b.{0,60}\b(?:feature|button|menu|bar|page|setting|mode|sync|member|profile|device|access)\b|(?:seria\s+interessante|poderia|pudesse|podemos|é\s+possível|tem\s+como|gostaria|sería\s+interesante|podría|se\s+puede|es\s+posible|quisiera).{0,80}(?:membro|perfil|ambiente|função|configura|limite|acesso|dispositivo|miembro|usuario|función|acceso)|(?:quantos|quantidade|número\s+de|cuántos|cantidad).{0,50}(?:membro|perfil|ambiente|dispositivo|acesso|miembro|usuario)|(?:можно\s+ли|хотелось\s+бы|возможно\s+ли).{0,80}(?:участник|пользователь|профил|доступ|устройств|огранич)|(?:có\s+thể|có\s+hỗ\s+trợ|muốn).{0,80}(?:thành\s+viên|người\s+dùng|hồ\s+sơ|môi\s+trường|truy\s+cập|thiết\s+bị|giới\s+hạn)/i.test(normalized);
   const knowledgeTypes = apiType ? [apiType === "http" ? "http_api" : "local_api"] : renewal ? ["faq", "function"] : pricing ? ["pricing"] : apiMention ? ["http_api", "local_api"] : outOfScope ? ["out_of_scope"] : operationAudit || functionOperation || featureCapability ? ["function"] : accountSharing ? ["faq"] : troubleshooting ? ["troubleshooting", "troubleshooting_flow", "user_routing"] : [];
   const objectMatch = normalized.match(/(?:对象|object)\s*[:：]?\s*([\w-]+)/i);
   const actionMatch = normalized.match(/(?:动作|action)\s*[:：]?\s*([\w-]+)/i);

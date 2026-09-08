@@ -8,6 +8,19 @@ const LANGUAGE_NAMES: Record<string, string> = {
   pt: "Portuguese (Português)", es: "Spanish (Español)", vi: "Vietnamese (Tiếng Việt)",
 };
 
+const UNSUPPORTED_FEATURE_REPLIES: Record<string, string> = {
+  zh: "很遗憾，目前我们不支持这个功能。不过我会记录您的需求并反馈给产品同事，进一步调查是否可以实现相关功能。如果有更多进展，我会反馈给您！",
+  en: "Unfortunately, we do not currently support this feature. I’ll record your request and pass it to our product team to investigate whether it can be implemented. I’ll keep you updated if there is any progress.",
+  ru: "К сожалению, сейчас эта функция не поддерживается. Я зафиксирую ваш запрос и передам его команде продукта, чтобы они оценили возможность реализации. Я сообщу вам, если появятся новости.",
+  pt: "Infelizmente, ainda não oferecemos suporte a esse recurso. Vou registrar sua solicitação e encaminhá-la à equipe de produto para avaliar a possibilidade de implementação. Avisarei você caso haja novidades.",
+  es: "Lamentablemente, actualmente no ofrecemos esta función. Registraré tu solicitud y la enviaré al equipo de producto para que evalúe si es posible implementarla. Te informaré si hay novedades.",
+  vi: "Rất tiếc, hiện tại chúng tôi chưa hỗ trợ tính năng này. Tôi sẽ ghi nhận yêu cầu và chuyển cho đội ngũ sản phẩm để đánh giá khả năng triển khai. Tôi sẽ thông báo cho bạn nếu có tiến triển mới.",
+};
+
+export function unsupportedFeatureReply(language: string): string {
+  return UNSUPPORTED_FEATURE_REPLIES[language] ?? UNSUPPORTED_FEATURE_REPLIES.en;
+}
+
 const STRATEGY_RULES: Record<RetrievalTrace["responseStrategy"], string> = {
   direct: "Directly answer only the asked question. Prefer the highest-ranked knowledge. For an API answer, state Method, Endpoint or Full Path, and authentication when they are available. Do not add an unnecessary follow-up.",
   aggregated: "Combine distinct selected troubleshooting directions in a sensible order, merge duplicates, keep useful links, and never claim a possible cause is confirmed.",
@@ -15,6 +28,7 @@ const STRATEGY_RULES: Record<RetrievalTrace["responseStrategy"], string> = {
   answer_then_clarify: "First give the actionable guidance supported by selected knowledge, then ask exactly one highest-value optional question at the end.",
   clarify_only: "Ask exactly one short critical question. Do not provide speculative steps and do not mention missing knowledge.",
   unsupported: "Naturally explain the unsupported boundary. Do not reveal internal material or invent alternatives.",
+  partial_support: "First state that the exact requested capability is currently unsupported. Then explain only the closely related supported capability in SELECTED_KNOWLEDGE, making the direction of the limitation explicit so the two are not confused. Say the request will be recorded and passed to the product and technical teams for evaluation, with progress shared when available. Do not add any other feature or workaround.",
 };
 
 export const V2_SYSTEM_PROMPT = `Write one concise, natural customer-support reply as one JSON object.
