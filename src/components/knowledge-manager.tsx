@@ -291,7 +291,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   };
 
   // 同步知识库到数据库
-  const syncKnowledgeToDatabase = async (data: KnowledgeBase): Promise<boolean> => {
+  const syncKnowledgeToDatabase = async (data: KnowledgeBase): Promise<number | null> => {
     setSyncStatus('syncing');
     try {
       const response = await fetch('/api/config/knowledge', {
@@ -302,14 +302,15 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
       if (!response.ok) {
         console.error('同步知识库到数据库失败');
         setSyncStatus('error');
-        return false;
+        return null;
       }
+      const result = await response.json() as { updatedAt?: string };
       setSyncStatus('synced');
-      return true;
+      return result.updatedAt ? new Date(result.updatedAt).getTime() : Date.now();
     } catch (error) {
       console.error('同步知识库到数据库失败:', error);
       setSyncStatus('error');
-      return false;
+      return null;
     }
   };
 
@@ -495,9 +496,14 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
 
         replaceKnowledgeData(combinedData as unknown as Record<string, unknown>);
         // 同步到数据库，等待完成后再切换标签页
-        const syncSuccess = await syncKnowledgeToDatabase(combinedData as KnowledgeBase);
+        const syncedAt = await syncKnowledgeToDatabase(combinedData as KnowledgeBase);
+        if (syncedAt) {
+          combinedData.lastUpdated = syncedAt;
+          replaceKnowledgeData(combinedData as unknown as Record<string, unknown>);
+          saveKnowledgeBase(combinedData as KnowledgeBase);
+        }
         updateStats(combinedData.fileNames);
-        if (syncSuccess) {
+        if (syncedAt) {
           toast.success(`成功导入 ${successResults.length} 个文件，已同步到云端`);
           await refreshV2Index();
         } else {

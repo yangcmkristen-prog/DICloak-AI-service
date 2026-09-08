@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { KnowledgeBase } from "../../types.ts";
-import { buildWebsiteKnowledge } from "./website-index.ts";
+import { buildWebsiteKnowledge, selectActiveBuildingVersion } from "./website-index.ts";
 
 const emptyKnowledge = (): KnowledgeBase => ({ faqItems: [], troubleshootingItems: [], troubleshootingFlowItems: [], outOfScopeItems: [], mappingItems: [], functionKnowledge: [], termItems: [], apiEndpoints: [], apiParameters: [], pricingPlans: [], lastUpdated: 1 });
 
@@ -24,4 +24,16 @@ test("website API parameters remain in the same endpoint chunk", () => {
   assert.equal(built.warnings.length, 0);
   assert.equal(built.chunks[0].chunkId, "API-1#endpoint");
   assert.match(built.chunks[0].text, /time_zone/);
+});
+
+test("building versions older than the published version are ignored", () => {
+  const published = { version: "published", status: "published", created_at: "2026-09-03T00:00:00.000Z" };
+  const versions = [
+    published,
+    { version: "stale", status: "building", created_at: "2026-09-02T00:00:00.000Z" },
+  ];
+  assert.equal(selectActiveBuildingVersion(versions, published), undefined);
+
+  const active = { version: "active", status: "building", created_at: "2026-09-04T00:00:00.000Z" };
+  assert.equal(selectActiveBuildingVersion([active, ...versions], published)?.version, "active");
 });

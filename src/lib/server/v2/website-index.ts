@@ -9,6 +9,12 @@ type Row = Record<string, unknown>;
 interface StandardRecord { id: string; enabled: boolean }
 interface StandardChunk { chunkId: string; knowledgeId: string; ordinal: number; title: string; text: string; contentHash: string; termIds: string[]; metadata: Record<string, unknown>; protectedFields: Array<{ kind: string; value: string }>; }
 interface IndexPreview { sourceUpdatedAt: string | null; total: number; added: number; changed: number; removed: number; unchanged: number; warnings: Array<{ code?: string; message?: string }>; publishedVersion: string | null; buildingVersion: string | null; buildingIndexed: number; buildingExpected: number; failedVersion: string | null; failedError: string | null }
+interface IndexVersionStatus { version: string; status: string; created_at: string | Date; indexed_chunks?: number; expected_chunks?: number; error_summary?: string | null }
+
+export function selectActiveBuildingVersion(versions: IndexVersionStatus[], published: IndexVersionStatus | undefined): IndexVersionStatus | undefined {
+  const publishedAt = published ? new Date(published.created_at).getTime() : Number.NEGATIVE_INFINITY;
+  return versions.find((row) => row.status === "building" && new Date(row.created_at).getTime() > publishedAt);
+}
 
 const rows = (values: Row[]): { sheetNames: string[]; rows: (sheet: string) => Array<{ values: Row; row: number }> } => ({ sheetNames: ["Sheet1"], rows: () => values.map((value, index) => ({ values: value, row: index + 2 })) });
 const sheets = (values: Record<string, Row[]>): { sheetNames: string[]; rows: (sheet: string) => Array<{ values: Row; row: number }> } => ({ sheetNames: Object.keys(values), rows: (sheet) => (values[sheet] ?? []).map((value, index) => ({ values: value, row: index + 2 })) });
@@ -63,8 +69,8 @@ export async function previewWebsiteIndex(knowledge: KnowledgeBase, sourceUpdate
   const config = databaseConfig(); const client = new pg.Client({ connectionString: config.connectionString, ssl: { rejectUnauthorized: config.rejectUnauthorized } });
   await client.connect();
   try {
-    const versions = await client.query(`select version,status,indexed_chunks,expected_chunks,error_summary from ${config.schema}.index_versions where status in ('published','building') or (status='failed' and version like 'website-%') order by created_at desc`);
-    const published = versions.rows.find((row) => row.status === "published"); const building = versions.rows.find((row) => row.status === "building"); const failed = versions.rows.find((row) => row.status === "failed");
+    const versions = await client.query<IndexVersionStatus>(`select version,status,created_at,indexed_chunks,expected_chunks,error_summary from ${config.schema}.index_versions where status in ('published','building') or (status='failed' and version like 'website-%') order by created_at desc`);
+    const published = versions.rows.find((row) => row.status === "published"); const building = selectActiveBuildingVersion(versions.rows, published); const failed = versions.rows.find((row) => row.status === "failed");
     const old = published ? await client.query(`select chunk_id,content_hash from ${config.schema}.chunks where index_version_id=(select id from ${config.schema}.index_versions where version=$1)`, [published.version]) : { rows: [] };
     const oldHashes = new Map<string, string>(old.rows.map((row) => [row.chunk_id, row.content_hash])); const nextIds = new Set(built.chunks.map((chunk) => chunk.chunkId));
     const added = built.chunks.filter((chunk) => !oldHashes.has(chunk.chunkId)).length; const changed = built.chunks.filter((chunk) => oldHashes.has(chunk.chunkId) && oldHashes.get(chunk.chunkId) !== chunk.contentHash).length;
