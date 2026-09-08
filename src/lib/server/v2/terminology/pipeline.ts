@@ -4,8 +4,8 @@ import type {
   TerminologyBranchInput, TerminologyIssue, TerminologyKnowledge, V2TermDefinition,
 } from "./types.ts";
 
-const FUNCTION_NATURAL_FIELDS = ["module", "page", "functionName", "description", "uiLocation", "prerequisites", "steps"] as const;
-const FUNCTION_TECHNICAL_FIELDS = ["entryPath"] as const;
+const FUNCTION_NATURAL_FIELDS = ["module", "page", "functionName", "description", "entryPath", "uiLocation", "prerequisites", "steps"] as const;
+const FUNCTION_TECHNICAL_FIELDS: readonly string[] = [];
 const PLACEHOLDER_PATTERN = /\{\{\s*([^{}]+?)\s*\}\}/g;
 const INTERNAL_MARKER_PATTERN = /⟦V2:[^⟦⟧]+⟧/g;
 const normalize = (value: string): string => value.trim().toLocaleLowerCase("en-US");

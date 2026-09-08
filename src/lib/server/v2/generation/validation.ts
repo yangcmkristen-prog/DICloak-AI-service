@@ -21,6 +21,7 @@ export function validateV2Generation(envelope: V2GeneratedEnvelope, trace: Retri
     if (covered.length < Math.min(3, trace.knowledgeGroups.length)) errors.push("AGGREGATED_DIRECTIONS_INCOMPLETE");
   }
   if (INTERNAL_LANGUAGE.test(envelope.reply)) errors.push("INTERNAL_LANGUAGE_LEAKED");
+  if (prepared.targetLanguage !== "zh" && /\p{Script=Han}/u.test(envelope.reply)) errors.push("UNEXPECTED_HAN_SCRIPT");
   if (KNOWLEDGE_ID.test(envelope.reply) || [...allowedIds].some((id) => envelope.reply.includes(id))) errors.push("KNOWLEDGE_ID_LEAKED");
   const allowedTechnical = new Set(trace.selectedKnowledge.flatMap((item) => item.protectedFields ?? []).map((field) => field.value));
   const rawTechnical = [...(envelope.reply.match(/https?:\/\/[^\s<>"')\]，。；：）】]+/g) ?? []), ...(envelope.reply.match(/\/(?:openapi\/)?v\d+(?:\/[A-Za-z0-9_.{}:-]+)+/g) ?? [])];
