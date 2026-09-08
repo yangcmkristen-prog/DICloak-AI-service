@@ -14,7 +14,7 @@ const STRATEGY_RULES: Record<RetrievalTrace["responseStrategy"], string> = {
   conditional: "Naturally use conditional wording for the supplied branches. Use only each branch's bound knowledge, cover at most three branches, and give useful information before any question.",
   answer_then_clarify: "First give the actionable guidance supported by selected knowledge, then ask exactly one highest-value optional question at the end.",
   clarify_only: "Ask exactly one short critical question. Do not provide speculative steps and do not mention missing knowledge.",
-  unsupported: "Naturally explain the supported boundary. Do not reveal internal material or invent alternatives.",
+  unsupported: "Naturally explain the unsupported boundary. Do not reveal internal material or invent alternatives.",
 };
 
 export const V2_SYSTEM_PROMPT = `Write one concise, natural customer-support reply as one JSON object.
@@ -82,6 +82,9 @@ export function buildV2Messages(input: { question: string; history: V2PromptHist
     mandatoryOutputLanguage: `Write the complete reply only in ${LANGUAGE_NAMES[input.language] ?? input.language}; translate all ordinary source prose into this language.`,
     evidenceConfidence: input.trace.evidenceConfidence, responseStrategy: input.trace.responseStrategy,
     strategyInstruction: STRATEGY_RULES[input.trace.responseStrategy], selectedKnowledge: selected,
+    unsupportedFeatureInstruction: input.trace.responseStrategy === "unsupported" && input.trace.intent.knowledgeTypes.length === 1 && input.trace.intent.knowledgeTypes[0] === "function"
+      ? "State that this feature is currently unsupported, apologize briefly, and say the request will be recorded and passed to the product team to investigate feasibility, with further progress shared with the customer. Do not mention, recommend, or explain any other feature or workaround."
+      : undefined,
     pricingInstruction: pricingBundles.length ? "Compare every supplied plan for each relevant feature. Distinguish team members/seats from actual users/devices: never assume the word user means member. If that meaning changes the recommendation, explain both cases. Use actual-users-per-seat when supplied. Never infer a missing price, quota, capability, unlimited allowance, or total cost." : undefined,
     pricingUserMeaningAmbiguous: pricingBundles.length && /用户|\busers?\b/i.test(input.question) && !/成员|席位|member|seat|设备|device/i.test(input.question) ? "The customer did not say whether users means team member accounts or actual people/devices. Answer both cases conditionally; do not choose one meaning." : undefined,
     pricingBundles: pricingBundles.length ? pricingBundles : undefined,

@@ -31,6 +31,18 @@ test("function input carries required navigation facts without another model cal
   assert.deepEqual(payload.selectedKnowledge[0].requiredFacts, { module: "全局设置", functionName: "开发者工具", entry: "浏览器设置", steps: "启用并保存" });
 });
 
+test("unsupported function requests prohibit adjacent feature suggestions", () => {
+  const unsupported = trace({
+    responseStrategy: "unsupported",
+    selectedKnowledge: [],
+    intent: { product: "dicloak", language: "zh", knowledgeTypes: ["function"], apiType: null, apiVersion: null, method: null, object: null, action: null, missingConditions: [] },
+  });
+  const messages = buildV2Messages({ question: "可以隐藏 URL 栏吗", history: [], product: "dicloak", language: "zh", trace: unsupported, prepared: { ...prepared, knowledge: [], markers: [], stats: { ...prepared.stats, knowledgeCount: 0, technicalMarkers: 0 } } });
+  const payload = JSON.parse(messages[1].content) as { unsupportedFeatureInstruction?: string };
+  assert.match(payload.unsupportedFeatureInstruction ?? "", /currently unsupported/);
+  assert.match(payload.unsupportedFeatureInstruction ?? "", /Do not mention, recommend, or explain any other feature/);
+});
+
 test("pricing entries are grouped by feature across plans", () => {
   const pricingKnowledge = ["base", "plus", "share-plus"].map((plan) => ({ ...trace().selectedKnowledge[0], chunkId: `PRICING:Open API:${plan}#1`, knowledgeId: `PRICING:Open API:${plan}`, knowledgeType: "pricing", metadata: { feature: "Open API", planName: plan } }));
   const pricingPrepared = { ...prepared, knowledge: pricingKnowledge.map((item) => ({ knowledgeId: item.knowledgeId, body: item.knowledgeId, naturalLanguageFields: {}, technicalFields: {}, markers: [] })) };

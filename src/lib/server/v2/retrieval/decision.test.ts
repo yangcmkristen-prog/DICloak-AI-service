@@ -92,6 +92,28 @@ test("unrelated weak candidates are debug-only and never selected", () => {
   assert.equal(result.rejectedCandidates.length, 1);
 });
 
+test("unknown feature capability is unsupported instead of answering with adjacent functions", () => {
+  const question = "可以隐藏 URL 栏吗";
+  const parsed = parseQuery(question);
+  const rows = [
+    candidate("BATCH-OPEN", { knowledgeType: "function", title: "批量打开网址", text: "在标签页中批量打开网址", rerankScore: 0.41, vectorScore: 0.38 }),
+    candidate("BLOCK-SOURCE", { knowledgeType: "function", title: "禁止查看网站源码", text: "开启对应限制项", rerankScore: 0.34, vectorScore: 0.32 }),
+  ];
+  const result = decideRetrieval(question, parsed, rows, "medium", []);
+  assert.deepEqual(parsed.knowledgeTypes, ["function"]);
+  assert.equal(result.responseStrategy, "unsupported");
+  assert.equal(result.selectedKnowledge.length, 0);
+});
+
+test("supported feature capability still uses matching function knowledge", () => {
+  const question = "可以批量打开网址吗";
+  const parsed = parseQuery(question);
+  const rows = [candidate("BATCH-OPEN", { knowledgeType: "function", title: "批量打开网址", text: "可以批量打开网址", rerankScore: 0.43, vectorScore: 0.4 })];
+  const result = decideRetrieval(question, parsed, rows, "high", []);
+  assert.equal(result.responseStrategy, "direct");
+  assert.equal(result.selectedKnowledge[0]?.knowledgeId, "BATCH-OPEN");
+});
+
 test("question modes distinguish broad and critical ambiguity", () => {
   assert.equal(classifyQuestionMode("环境打不开", parseQuery("环境打不开")).mode, "broad_troubleshooting");
   assert.equal(classifyQuestionMode("帮我删除它", parseQuery("帮我删除它")).mode, "missing_critical_information");

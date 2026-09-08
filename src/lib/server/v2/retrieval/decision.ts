@@ -20,6 +20,18 @@ const VAGUE_REFERENCE = /(?:它|这个|那个|this|it)\s*[。.!?？]*$/i;
 const LOGIN_AMBIGUITY = /^(?:我)?(?:无法|不能|没法)?登录(?:了|。|！|!|？|\?)?$|^(?:账号不能用|无法打开账号)[。!！?？]*$|^(?:cannot|can't|unable to)\s+(?:log\s*in|login)\??$|^account\s+(?:not working|unavailable)[.!?]*$/i;
 const BROAD_FAILURE = /环境打不开|打不开环境|页面(?:打不开|加载失败)|代理(?:连接不上|失败|异常)|扩展(?:异常|不能用|无法使用)|(?:profile|page)\s+(?:won't|cannot|can't)\s+open|proxy.{0,8}(?:fail|error)|extension.{0,8}(?:fail|error)/i;
 const UNKNOWN_ACCESS_TARGET = /^(?:我)?(?:想要|要|需要)?访问(?:链接|页面)?[。.!?？]*$|^(?:I\s+)?want\s+to\s+(?:open|access)(?:\s+(?:it|a link))?[.!?]*$/i;
+const FEATURE_CAPABILITY_QUESTION = /(?:是否|能否|可不可以|可以|能不能|支持|有没有).{0,30}(?:功能|按钮|菜单|栏|页面|设置|模式|同步|隐藏|显示|关闭|开启|打开|禁用|启用)|\b(?:can|does|support|hide|show|disable|enable|turn\s+off|turn\s+on)\b/i;
+const FEATURE_ACTIONS = ["隐藏", "显示", "关闭", "开启", "打开", "禁用", "启用", "同步", "批量", "hide", "show", "disable", "enable", "turn off", "turn on", "sync", "batch"];
+
+function hasMatchingFeatureAction(question: string, candidates: RetrievalCandidate[]): boolean {
+  const normalized = question.toLocaleLowerCase();
+  const actions = FEATURE_ACTIONS.filter((action) => normalized.includes(action));
+  if (!actions.length) return true;
+  return candidates.some((candidate) => {
+    const content = `${candidate.title} ${candidate.metadata.functionName ?? ""} ${candidate.text}`.toLocaleLowerCase();
+    return actions.some((action) => content.includes(action));
+  });
+}
 
 export function classifyQuestionMode(question: string, intent: QueryIntent): { mode: QuestionMode; missingCriticalInformation: string[]; optionalFollowUpFields: string[]; reasons: string[] } {
   if (intent.knowledgeTypes.length === 1 && intent.knowledgeTypes[0] === "out_of_scope") return { mode: "unsupported", missingCriticalInformation: [], optionalFollowUpFields: [], reasons: ["问题明确超出产品支持范围"] };
@@ -105,8 +117,14 @@ export function decideRetrieval(question: string, intent: QueryIntent, candidate
   let branches: KnowledgeBranch[] = [];
   let responseStrategy: ResponseStrategy = "clarify_only";
   const decisionReasons = [...classification.reasons, ...confidenceReasons];
+  const functionCapabilityUnsupported = intent.knowledgeTypes.length === 1 && intent.knowledgeTypes[0] === "function"
+    && FEATURE_CAPABILITY_QUESTION.test(question)
+    && (confidence === "none" || confidence === "low" || !hasMatchingFeatureAction(question, safe));
 
-  if (classification.mode === "missing_critical_information") responseStrategy = "clarify_only";
+  if (functionCapabilityUnsupported) {
+    responseStrategy = "unsupported";
+    decisionReasons.push("功能能力咨询未命中足够相关且动作一致的功能知识");
+  } else if (classification.mode === "missing_critical_information") responseStrategy = "clarify_only";
   else if (classification.mode === "unsupported") { selectedKnowledge = safe.slice(0, 1); responseStrategy = selectedKnowledge.length ? "unsupported" : "clarify_only"; }
   else if (classification.mode === "ambiguous_with_safe_branches") {
     const result = loginBranches(safe); selectedKnowledge = result.selected; branches = result.branches;

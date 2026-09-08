@@ -50,7 +50,8 @@ export function parseQuery(question: string, requestedProduct: "dicloak" | "para
   const operationAudit = /(?:谁|何人).{0,8}(?:改|修改|操作)|(?:操作|修改|变更).{0,8}(?:日志|记录)|who.{0,12}(?:changed|modified)|operation\s+log/i.test(normalized);
   const accountSharing = /(?:分享|共享).{0,15}(?:订阅|账号|账户)|(?:团队|成员).{0,15}(?:分享|共享)|share.{0,15}(?:subscription|account)/i.test(normalized);
   const functionOperation = /(?:como\s+)?cri(?:a|ar).{0,12}(?:navegador|novegador)|(?:create|add).{0,12}(?:browser|profile)|(?:创建|新建).{0,8}(?:环境|浏览器配置)/i.test(normalized);
-  const knowledgeTypes = apiType ? [apiType === "http" ? "http_api" : "local_api"] : renewal ? ["faq", "function"] : pricing ? ["pricing"] : apiMention ? ["http_api", "local_api"] : outOfScope ? ["out_of_scope"] : operationAudit || functionOperation ? ["function"] : accountSharing ? ["faq"] : troubleshooting ? ["troubleshooting", "troubleshooting_flow", "user_routing"] : [];
+  const featureCapability = /(?:是否|能否|可不可以|可以|能不能|支持|有没有|如何|怎么).{0,24}(?:功能|按钮|菜单|栏|页面|设置|模式|同步|隐藏|显示|关闭|开启|打开|禁用|启用)|(?:功能|按钮|菜单|栏|页面|设置|模式).{0,16}(?:是否|能否|可以|支持|有没有|怎么|如何)|\b(?:can|does|support|hide|show|disable|enable|turn\s+off|turn\s+on)\b.{0,40}\b(?:feature|button|menu|bar|page|setting|mode|sync)\b/i.test(normalized);
+  const knowledgeTypes = apiType ? [apiType === "http" ? "http_api" : "local_api"] : renewal ? ["faq", "function"] : pricing ? ["pricing"] : apiMention ? ["http_api", "local_api"] : outOfScope ? ["out_of_scope"] : operationAudit || functionOperation || featureCapability ? ["function"] : accountSharing ? ["faq"] : troubleshooting ? ["troubleshooting", "troubleshooting_flow", "user_routing"] : [];
   const objectMatch = normalized.match(/(?:对象|object)\s*[:：]?\s*([\w-]+)/i);
   const actionMatch = normalized.match(/(?:动作|action)\s*[:：]?\s*([\w-]+)/i);
   const missingConditions = [];
