@@ -2,10 +2,14 @@ import type { RetrievalCandidate, RetrievalTrace } from "../retrieval/types.ts";
 
 const STRATEGY_LIMITS: Record<RetrievalTrace["responseStrategy"], number> = {
   direct: 3,
+  feature_overview: 3,
+  function_workflow: 3,
+  function_comparison: 3,
   aggregated: 5,
   conditional: 3,
   answer_then_clarify: 4,
   clarify_only: 0,
+  confirmation_required: 0,
   unsupported: 2,
   partial_support: 1,
 };
@@ -61,7 +65,9 @@ function compactApi(candidate: RetrievalCandidate, question: string): string {
 
 export function selectGenerationKnowledge(trace: RetrievalTrace, question: string): RetrievalCandidate[] {
   const limit = STRATEGY_LIMITS[trace.responseStrategy];
-  const candidates = trace.selectedKnowledge.some((candidate) => candidate.knowledgeType === "pricing") ? trace.selectedKnowledge : trace.selectedKnowledge.slice(0, limit);
+  const hasPricing = trace.selectedKnowledge.some((candidate) => candidate.knowledgeType === "pricing");
+  const directFunction = trace.responseStrategy === "direct" && trace.selectedKnowledge[0]?.knowledgeType === "function";
+  const candidates = hasPricing ? trace.selectedKnowledge : trace.selectedKnowledge.slice(0, directFunction ? 1 : limit);
   return candidates.map((candidate) => {
     if (candidate.knowledgeType === "pricing") {
       const plan = stringValue(candidate.metadata.planName) || stringValue(candidate.metadata.planKey);

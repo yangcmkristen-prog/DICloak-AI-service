@@ -1,4 +1,5 @@
 import { retrievalConfig } from "./config.ts";
+import { detectActions } from "./ranking.ts";
 import type { EvidenceConfidence, KnowledgeBranch, KnowledgeGroup, QueryIntent, QuestionMode, RejectedKnowledge, ResponseStrategy, RetrievalCandidate } from "./types.ts";
 
 export interface RetrievalDecision {
@@ -22,6 +23,19 @@ const BROAD_FAILURE = /环境打不开|打不开环境|页面(?:打不开|加载
 const UNKNOWN_ACCESS_TARGET = /^(?:我)?(?:想要|要|需要)?访问(?:链接|页面)?[。.!?？]*$|^(?:I\s+)?want\s+to\s+(?:open|access)(?:\s+(?:it|a link))?[.!?]*$/i;
 const FEATURE_CAPABILITY_QUESTION = /(?:是否|能否|可不可以|可以|能不能|支持|有没有).{0,30}(?:功能|按钮|菜单|栏|页面|设置|模式|同步|隐藏|显示|关闭|开启|打开|禁用|启用)|\b(?:can|could|does|support|hide|show|disable|enable|limit|restrict|configure|set|allow)\b|(?:seria\s+interessante|poderia|pudesse|podemos|é\s+possível|tem\s+como|gostaria|sería\s+interesante|podría|se\s+puede|es\s+posible|quisiera).{0,80}(?:membro|perfil|ambiente|função|configura|limite|acesso|dispositivo|miembro|usuario|función|acceso)|(?:quantos|quantidade|número\s+de|cuántos|cantidad).{0,50}(?:membro|perfil|ambiente|dispositivo|acesso|miembro|usuario)|(?:можно\s+ли|хотелось\s+бы|возможно\s+ли).{0,80}(?:участник|пользователь|профил|доступ|устройств|огранич)|(?:có\s+thể|có\s+hỗ\s+trợ|muốn).{0,80}(?:thành\s+viên|người\s+dùng|hồ\s+sơ|môi\s+trường|truy\s+cập|thiết\s+bị|giới\s+hạn)/i;
 const FEATURE_ACTIONS = ["隐藏", "显示", "关闭", "开启", "打开", "禁用", "启用", "同步", "批量", "hide", "show", "disable", "enable", "turn off", "turn on", "sync", "batch"];
+type FunctionQuestionScope = "specific_operation" | "feature_overview" | "workflow" | "comparison" | "ambiguous";
+const WORKFLOW_QUESTION = /怎么用|如何使用|怎么参与|如何参与|完整流程|全部步骤|从哪里开始|先.+再|how\s+(?:do\s+i|to)\s+(?:use|participate|get started)|step[- ]by[- ]step|workflow|processo\s+completo|cómo\s+(?:usar|participar)/i;
+const OVERVIEW_QUESTION = /是什么|有哪些(?:功能|能力)?|有什么(?:功能|能力)?|能做什么|介绍一下|功能介绍|(?:有|有没有|是否有|提供|支持).{0,24}(?:功能|活动|计划|方案|能力|奖励|返现)|what\s+is|what\s+(?:features|capabilities)|do\s+you\s+(?:have|offer)|overview|o\s+que\s+é|qué\s+es/i;
+const COMPARISON_QUESTION = /区别|差异|对比|比较|哪个好|哪个更|还是.{0,16}好|difference|compare|comparison|versus|\bvs\.?\b|qual\s+é\s+melhor|diferencia/i;
+
+export function classifyFunctionQuestionScope(question: string): FunctionQuestionScope {
+  const actions = [...new Set(detectActions(question))];
+  if (COMPARISON_QUESTION.test(question)) return "comparison";
+  if (WORKFLOW_QUESTION.test(question) || actions.length >= 2) return "workflow";
+  if (OVERVIEW_QUESTION.test(question) && actions.length === 0) return "feature_overview";
+  if (actions.length === 1) return "specific_operation";
+  return "ambiguous";
+}
 
 type QuantityEntity = "member" | "profile" | "device" | "website" | "ip";
 const QUANTITY_ENTITY_PATTERNS: Array<[QuantityEntity, string]> = [
@@ -66,6 +80,17 @@ function hasMatchingFeatureAction(question: string, candidates: RetrievalCandida
     const content = `${candidate.title} ${candidate.metadata.functionName ?? ""} ${candidate.text}`.toLocaleLowerCase();
     return actions.some((action) => content.includes(action));
   });
+}
+
+function functionFamilyKnowledge(candidates: RetrievalCandidate[]): RetrievalCandidate[] {
+  const first = candidates.find((candidate) => candidate.knowledgeType === "function");
+  if (!first) return [];
+  const module = String(first.metadata.module ?? "").trim().toLocaleLowerCase();
+  const page = String(first.metadata.page ?? "").trim().toLocaleLowerCase();
+  if (!module || !page) return [first];
+  return candidates.filter((candidate) => candidate.knowledgeType === "function"
+    && String(candidate.metadata.module ?? "").trim().toLocaleLowerCase() === module
+    && String(candidate.metadata.page ?? "").trim().toLocaleLowerCase() === page).slice(0, 3);
 }
 
 export function classifyQuestionMode(question: string, intent: QueryIntent): { mode: QuestionMode; missingCriticalInformation: string[]; optionalFollowUpFields: string[]; reasons: string[] } {
@@ -155,17 +180,31 @@ export function decideRetrieval(question: string, intent: QueryIntent, candidate
   const inverseQuantity = intent.knowledgeTypes.length === 1 && intent.knowledgeTypes[0] === "function" && FEATURE_CAPABILITY_QUESTION.test(question)
     ? inverseQuantityKnowledge(question, safe)
     : undefined;
-  const functionCapabilityUnsupported = intent.knowledgeTypes.length === 1 && intent.knowledgeTypes[0] === "function"
+  const functionCapabilityUncertain = intent.knowledgeTypes.length === 1 && intent.knowledgeTypes[0] === "function"
     && FEATURE_CAPABILITY_QUESTION.test(question)
     && (confidence === "none" || confidence === "low" || !hasMatchingFeatureAction(question, safe));
+  const functionScope = intent.knowledgeTypes.length === 1 && intent.knowledgeTypes[0] === "function" ? classifyFunctionQuestionScope(question) : null;
 
   if (inverseQuantity) {
     selectedKnowledge = [inverseQuantity];
     responseStrategy = "partial_support";
     decisionReasons.push("目标数量限制与已支持功能的限制方向相反，仅可作为部分支持说明");
-  } else if (functionCapabilityUnsupported) {
-    responseStrategy = "unsupported";
-    decisionReasons.push("功能能力咨询未命中足够相关且动作一致的功能知识");
+  } else if (functionCapabilityUncertain) {
+    responseStrategy = "confirmation_required";
+    decisionReasons.push("功能能力咨询缺少足够确定且动作一致的证据，需要进一步确认");
+  } else if (functionScope === "feature_overview" || functionScope === "workflow") {
+    selectedKnowledge = functionFamilyKnowledge(safe);
+    responseStrategy = selectedKnowledge.length >= 2 ? functionScope === "workflow" ? "function_workflow" : "feature_overview" : selectedKnowledge.length ? "direct" : "confirmation_required";
+    if (selectedKnowledge.length >= 2) {
+      const first = selectedKnowledge[0];
+      const key = `feature:${String(first.metadata.module ?? "")}:${String(first.metadata.page ?? "")}`;
+      knowledgeGroups = [{ key, label: String(first.metadata.page ?? first.metadata.module ?? "功能概览"), knowledgeIds: selectedKnowledge.map((candidate) => candidate.knowledgeId) }];
+      decisionReasons.push(functionScope === "workflow" ? "完整流程问题，整合同一模块和页面下的互补步骤" : "概览型功能问题，整合同一模块和页面下的互补功能");
+    }
+  } else if (functionScope === "comparison") {
+    selectedKnowledge = safe.filter((candidate) => candidate.knowledgeType === "function").slice(0, 3);
+    responseStrategy = selectedKnowledge.length >= 2 ? "function_comparison" : selectedKnowledge.length ? "direct" : "confirmation_required";
+    if (selectedKnowledge.length >= 2) decisionReasons.push("功能比较问题，保留多个直接相关候选用于对照");
   } else if (classification.mode === "missing_critical_information") responseStrategy = "clarify_only";
   else if (classification.mode === "unsupported") { selectedKnowledge = safe.slice(0, 1); responseStrategy = selectedKnowledge.length ? "unsupported" : "clarify_only"; }
   else if (classification.mode === "ambiguous_with_safe_branches") {
@@ -175,7 +214,10 @@ export function decideRetrieval(question: string, intent: QueryIntent, candidate
     const result = groupDiverse(safe, 5); selectedKnowledge = result.selected; knowledgeGroups = result.groups;
     responseStrategy = selectedKnowledge.length >= 2 ? (classification.optionalFollowUpFields.length ? "answer_then_clarify" : "aggregated") : selectedKnowledge.length ? "answer_then_clarify" : "clarify_only";
   } else {
-    selectedKnowledge = safe.slice(0, retrievalConfig.outputTopK); responseStrategy = selectedKnowledge.length ? "direct" : "clarify_only";
+    const uncertainFunction = intent.knowledgeTypes.length === 1 && intent.knowledgeTypes[0] === "function" && (confidence === "low" || confidence === "none");
+    selectedKnowledge = uncertainFunction ? [] : safe.slice(0, retrievalConfig.outputTopK);
+    responseStrategy = uncertainFunction ? "confirmation_required" : selectedKnowledge.length ? "direct" : "clarify_only";
+    if (uncertainFunction) decisionReasons.push("功能候选置信度不足，需要进一步确认");
   }
 
   const selectedIds = new Set(selectedKnowledge.map((candidate) => candidate.chunkId));

@@ -3,7 +3,7 @@ import { encodeStreamEvent } from "@/lib/stream-events";
 import { retrieveV2, loadV2Terms, expandPricingKnowledge } from "@/lib/server/v2/retrieval/service";
 import { prepareTerminologyPipeline } from "@/lib/server/v2/terminology/pipeline";
 import type { SupportedTermLanguage, TerminologyKnowledge } from "@/lib/server/v2/terminology/types";
-import { buildV2Messages, unsupportedFeatureReply, type V2PromptHistory } from "@/lib/server/v2/prompt";
+import { buildV2Messages, confirmationRequiredReply, unsupportedFeatureReply, type V2PromptHistory } from "@/lib/server/v2/prompt";
 import { parseV2Envelope, V2VisibleStreamFilter } from "@/lib/server/v2/generation/protocol";
 import { validateV2Generation } from "@/lib/server/v2/generation/validation";
 import { resolveV2ModelConfig, streamV2Model, type V2ModelUsage } from "@/lib/server/v2/generation/model";
@@ -49,6 +49,13 @@ export async function POST(request: NextRequest): Promise<Response> {
       const baseMeta = { engine: "v2", knowledgeIds: trace.selectedKnowledge.map((item) => item.knowledgeId), evidenceConfidence: trace.evidenceConfidence, responseStrategy: trace.responseStrategy, language: targetLanguage, terminologyWarnings: prepared.warnings.map((item) => item.code), retrievalMs: trace.timings.total };
       controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, retry: false } }));
       const isUnsupportedFeature = trace.responseStrategy === "unsupported" && trace.intent.knowledgeTypes.length === 1 && trace.intent.knowledgeTypes[0] === "function";
+      if (trace.responseStrategy === "confirmation_required") {
+        const reply = confirmationRequiredReply(targetLanguage);
+        sendStatus("正在完成回复", "该问题需要进一步确认");
+        controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: reply }));
+        controller.close();
+        return;
+      }
       if (isUnsupportedFeature) {
         const reply = unsupportedFeatureReply(targetLanguage);
         sendStatus("正在完成回复", "已确认当前功能支持范围");
