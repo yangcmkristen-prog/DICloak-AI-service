@@ -40,7 +40,7 @@ export function buildWebsiteKnowledge(knowledge: KnowledgeBase, version: string)
   const functions = rows(knowledge.functionKnowledge.map((item) => ({
     function_id: item.functionId || item.id,
     "一级模块": item.module1, "页面名称": item.pageName, "功能类型": item.functionType, "功能点名称": item.functionName,
-    "功能说明": item.description, "入口路径": item.entryPath, "界面位置": item.uiPosition, "前置条件": item.prerequisites, "操作步骤": item.steps,
+    "功能说明": item.description, "入口路径": item.entryPath, "界面位置": item.uiPosition, "前置条件": item.prerequisites, "操作步骤": item.steps, "标准组织答案": item.standardAnswer,
     "常见问题FAQ_ID": item.faqIds, "关键词（中文）": item.keywordsCN, "关键词（英文）": item.keywordsEN,
     "一级模块术语ID": item.moduleTermIds, "页面名称术语ID": item.pageTermIds, "功能点术语ID": item.functionTermIds,
     "术语匹配词": item.termMatchWords, "是否高频": item.isHighFrequency, "备注": item.notes, "已支持产品": product(item.supportedProduct),
