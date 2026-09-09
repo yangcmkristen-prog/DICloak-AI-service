@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildV2Messages, unsupportedFeatureReply, V2_SYSTEM_PROMPT } from "../prompt.ts";
+import { buildV2Messages, confirmationRequiredReply, selectNecessaryHistory, unsupportedFeatureReply, V2_SYSTEM_PROMPT } from "../prompt.ts";
 import { parseV2Envelope, V2VisibleStreamFilter } from "./protocol.ts";
 import { validateV2Generation } from "./validation.ts";
 import type { RetrievalTrace } from "../retrieval/types.ts";
@@ -33,6 +33,22 @@ test("function input uses the standard organized answer without a fixed template
   assert.equal(payload.functionResponseTemplate, undefined);
 });
 
+test("function synthesis treats standard answers as supporting rather than mandatory facts", () => {
+  const functionTrace = trace({ responseStrategy: "feature_overview", selectedKnowledge: [{ ...trace().selectedKnowledge[0], knowledgeType: "function", metadata: { standardAnswer: "进入页面并查看奖励。" } }] });
+  const functionPrepared = { ...prepared, knowledge: [{ ...prepared.knowledge[0], naturalLanguageFields: { standardAnswer: "进入页面并查看奖励。" } }] };
+  const payload = JSON.parse(buildV2Messages({ question: "你们有推广奖励活动吗", history: [], product: "dicloak", language: "zh", trace: functionTrace, prepared: functionPrepared })[1].content);
+  assert.equal(payload.selectedKnowledge[0].requiredFacts, undefined);
+  assert.deepEqual(payload.selectedKnowledge[0].supportingFacts, { standardAnswer: "进入页面并查看奖励。" });
+});
+
+test("self-contained topic switches discard history while dependent follow-ups keep it", () => {
+  const history = [{ role: "user" as const, content: "怎么修改代理" }, { role: "assistant" as const, content: "进入代理设置" }];
+  assert.deepEqual(selectNecessaryHistory("我可以更改 DICloak 界面皮肤吗", history), []);
+  assert.deepEqual(selectNecessaryHistory("那要怎么操作", history), history);
+  const payload = JSON.parse(buildV2Messages({ question: "我可以更改 DICloak 界面皮肤吗", history, product: "dicloak", language: "zh", trace: trace(), prepared })[1].content);
+  assert.deepEqual(payload.necessaryHistory, []);
+});
+
 test("unsupported function requests prohibit adjacent feature suggestions", () => {
   const unsupported = trace({
     responseStrategy: "unsupported",
@@ -50,6 +66,12 @@ test("unsupported feature replies are stable and localized", () => {
   assert.match(unsupportedFeatureReply("zh"), /反馈给产品同事/);
   assert.doesNotMatch(unsupportedFeatureReply("zh"), /批量打开|网站源码|本地网络访问/);
   assert.match(unsupportedFeatureReply("unknown"), /do not currently support this feature/);
+});
+
+test("confirmation replies are stable and never expose retrieval internals", () => {
+  assert.match(confirmationRequiredReply("zh"), /需要进一步确认/);
+  assert.doesNotMatch(confirmationRequiredReply("zh"), /知识库|检索|未找到|不支持/);
+  assert.match(confirmationRequiredReply("pt"), /confirmar/i);
 });
 
 test("partial support prompt distinguishes the requested and supported limit directions", () => {
@@ -109,6 +131,13 @@ test("grounding rejects unselected claims, invented links, IDs and excessive cla
   const result = validateV2Generation({ reply: "根据知识库 FAQ-9 请访问 https://invented.test。为什么？版本？", claims: [{ text: "猜测", knowledgeIds: ["B"] }] }, trace({ responseStrategy: "clarify_only" }), prepared);
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes("CLAIM_USES_UNSELECTED_KNOWLEDGE")); assert.ok(result.errors.some((error) => error.startsWith("UNSELECTED_OR_MODIFIED_TECHNICAL_FIELD"))); assert.ok(result.errors.includes("INTERNAL_LANGUAGE_LEAKED"));
+});
+
+test("grounding rejects customer-facing claims that information was not found", () => {
+  const chinese = validateV2Generation({ reply: "目前没有找到相关信息。", claims: [] }, trace({ responseStrategy: "clarify_only" }), prepared);
+  assert.ok(chinese.errors.includes("MISSING_INFORMATION_LANGUAGE_LEAKED"));
+  const english = validateV2Generation({ reply: "No relevant information was found.", claims: [] }, trace({ responseStrategy: "clarify_only", intent: { ...trace().intent, language: "en" } }), { ...prepared, targetLanguage: "en" });
+  assert.ok(english.errors.includes("MISSING_INFORMATION_LANGUAGE_LEAKED"));
 });
 
 test("grounding rejects Chinese prose in a non-Chinese reply", () => {

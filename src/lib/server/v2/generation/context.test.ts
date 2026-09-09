@@ -26,6 +26,22 @@ test("direct 只传前三条且 API Endpoint 保持原样", () => {
   assert.deepEqual(result[0].protectedFields?.map((field) => field.value), ["/openapi/v1/env/{env_id}/open"]);
 });
 
+test("direct 功能回答只把第一名传给生成模型", () => {
+  const selectedKnowledge = Array.from({ length: 3 }, (_, index) => ({
+    ...candidate(String(index + 1)), knowledgeType: "function", apiType: null,
+  }));
+  const result = selectGenerationKnowledge({ ...trace("direct"), selectedKnowledge }, "怎么修改环境代理？");
+  assert.deepEqual(result.map((item) => item.knowledgeId), ["1"]);
+});
+
+test("功能概览允许生成模型整合同页面的三条互补知识", () => {
+  const selectedKnowledge = Array.from({ length: 3 }, (_, index) => ({
+    ...candidate(String(index + 1)), knowledgeType: "function", apiType: null,
+  }));
+  const result = selectGenerationKnowledge({ ...trace("feature_overview"), selectedKnowledge }, "你们有推广奖励活动吗？");
+  assert.deepEqual(result.map((item) => item.knowledgeId), ["1", "2", "3"]);
+});
+
 test("询问参数时才携带结构化参数且聚合最多五条", () => {
   const result = selectGenerationKnowledge(trace("aggregated"), "请求参数是什么？");
   assert.equal(result.length, 5);
@@ -35,6 +51,7 @@ test("询问参数时才携带结构化参数且聚合最多五条", () => {
 
 test("只追问不传知识，不支持场景可携带边界知识", () => {
   assert.equal(selectGenerationKnowledge(trace("clarify_only"), "帮我删除它").length, 0);
+  assert.equal(selectGenerationKnowledge(trace("confirmation_required"), "需要确认的问题").length, 0);
   assert.equal(selectGenerationKnowledge(trace("unsupported"), "天气如何").length, 2);
 });
 

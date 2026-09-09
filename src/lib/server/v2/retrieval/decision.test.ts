@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decideRetrieval, classifyQuestionMode } from "./decision.ts";
+import { decideRetrieval, classifyFunctionQuestionScope, classifyQuestionMode } from "./decision.ts";
 import { parseQuery } from "./query-parser.ts";
 import { pricingFamiliesForQuestion } from "./service.ts";
 import type { QueryIntent, RetrievalCandidate } from "./types.ts";
@@ -92,7 +92,7 @@ test("unrelated weak candidates are debug-only and never selected", () => {
   assert.equal(result.rejectedCandidates.length, 1);
 });
 
-test("unknown feature capability is unsupported instead of answering with adjacent functions", () => {
+test("uncertain feature capability requires confirmation instead of claiming unsupported", () => {
   const question = "可以隐藏 URL 栏吗";
   const parsed = parseQuery(question);
   const rows = [
@@ -101,8 +101,17 @@ test("unknown feature capability is unsupported instead of answering with adjace
   ];
   const result = decideRetrieval(question, parsed, rows, "medium", []);
   assert.deepEqual(parsed.knowledgeTypes, ["function"]);
-  assert.equal(result.responseStrategy, "unsupported");
+  assert.equal(result.responseStrategy, "confirmation_required");
   assert.equal(result.selectedKnowledge.length, 0);
+});
+
+test("low-confidence function knowledge requires confirmation without exposing candidates", () => {
+  const question = "怎么修改环境代理";
+  const parsed = parseQuery(question);
+  const rows = [candidate("PROXY-CONFIG", { knowledgeType: "function", title: "配置代理", text: "修改环境代理", rerankScore: 0.24, vectorScore: 0.25 })];
+  const result = decideRetrieval(question, parsed, rows, "low", ["候选差距不足"]);
+  assert.equal(result.responseStrategy, "confirmation_required");
+  assert.deepEqual(result.selectedKnowledge, []);
 });
 
 test("supported feature capability still uses matching function knowledge", () => {
@@ -112,6 +121,30 @@ test("supported feature capability still uses matching function knowledge", () =
   const result = decideRetrieval(question, parsed, rows, "high", []);
   assert.equal(result.responseStrategy, "direct");
   assert.equal(result.selectedKnowledge[0]?.knowledgeId, "BATCH-OPEN");
+});
+
+test("feature overview combines complementary functions from the same page", () => {
+  const question = "你们有推广奖励活动吗";
+  const parsed = parseQuery(question);
+  const common = { module: "个人菜单", page: "推广返现" };
+  const rows = [
+    candidate("FUNC-USER-022", { knowledgeType: "function", title: "查看推广奖励", metadata: { ...common, functionName: "查看推广奖励" }, rerankScore: 0.48 }),
+    candidate("FUNC-USER-021", { knowledgeType: "function", title: "获取推广链接与推广码", metadata: { ...common, functionName: "获取推广链接与推广码" }, rerankScore: 0.44 }),
+    candidate("FUNC-USER-020", { knowledgeType: "function", title: "进入推广返现页面", metadata: { ...common, functionName: "进入推广返现页面" }, rerankScore: 0.4 }),
+    candidate("OTHER", { knowledgeType: "function", title: "其他个人设置", metadata: { module: "个人菜单", page: "个人设置" }, rerankScore: 0.39 }),
+  ];
+  const result = decideRetrieval(question, parsed, rows, "medium", []);
+  assert.equal(result.responseStrategy, "feature_overview");
+  assert.deepEqual(result.selectedKnowledge.map((item) => item.knowledgeId), ["FUNC-USER-022", "FUNC-USER-021", "FUNC-USER-020"]);
+  assert.deepEqual(result.knowledgeGroups[0]?.knowledgeIds, ["FUNC-USER-022", "FUNC-USER-021", "FUNC-USER-020"]);
+});
+
+test("function question scope is based on granularity instead of a feature-specific rule", () => {
+  assert.equal(classifyFunctionQuestionScope("怎么修改环境代理"), "specific_operation");
+  assert.equal(classifyFunctionQuestionScope("推广返现是什么"), "feature_overview");
+  assert.equal(classifyFunctionQuestionScope("推广返现怎么用"), "workflow");
+  assert.equal(classifyFunctionQuestionScope("代理设置和指纹设置有什么区别"), "comparison");
+  assert.equal(classifyFunctionQuestionScope("推广返现"), "ambiguous");
 });
 
 test("Portuguese member profile limit request is classified as function knowledge", () => {

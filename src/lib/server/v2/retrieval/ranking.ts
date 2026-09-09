@@ -33,11 +33,11 @@ const terms = (value: string) => {
   return [...new Set([...latin, ...han, ...concepts])];
 };
 
-type ActionIntent = "configure" | "inspect" | "view" | "create" | "delete" | "import" | "export" | "open" | "close" | "enable" | "disable" | "reset";
+export type ActionIntent = "configure" | "inspect" | "view" | "create" | "delete" | "import" | "export" | "open" | "close" | "enable" | "disable" | "reset";
 
 const ACTION_PATTERNS: ReadonlyArray<[ActionIntent, RegExp]> = [
   ["inspect", /(?:检测|测试|校验|验证|诊断|排查|连通性|可用性|провер|тест|диагност|kiểm tra)|\b(?:detect|test|check|verify|diagnos|connectivity|availability|detectar|testar|verificar|comprobar|probar)\w*\b/i],
-  ["configure", /(?:修改|编辑|配置|设置|更改|调整|更新|改成|变更|редакт|измен|настро|cấu hình|chỉnh sửa|thay đổi)|\b(?:edit|modify|configur|setting|settings|change|update|alter|editar|modificar|configurar|ajustar|cambiar|actualizar)\w*\b/i],
+  ["configure", /(?:修改|编辑|配置|设置|更换|替换|换成|换掉|换|更改|调整|更新|改成|变更|редакт|измен|замен|настро|cấu hình|chỉnh sửa|thay đổi)|\b(?:edit|modify|configur|setting|settings|change|replace|swap|update|alter|editar|modificar|configurar|ajustar|cambiar|reemplazar|actualizar|trocar|substituir)\w*\b/i],
   ["create", /(?:创建|新建|添加|新增|建立|生成|созда|добав|tạo|thêm)|\b(?:create|add|new|generate|criar|adicionar|crear|agregar)\w*\b/i],
   ["delete", /(?:删除|移除|清除|注销|удал|xóa|gỡ)|\b(?:delete|remove|clear|erase|deletar|remover|eliminar|borrar)\w*\b/i],
   ["import", /(?:导入|上传|импорт|nhập|tải lên)|\b(?:import|upload|importar|subir)\w*\b/i],
@@ -50,8 +50,17 @@ const ACTION_PATTERNS: ReadonlyArray<[ActionIntent, RegExp]> = [
   ["view", /(?:查看|查询|显示|浏览|列表|记录|日志|просмотр|показ|xem|hiển thị)|\b(?:view|show|list|query|browse|history|log|visualizar|consultar|mostrar|ver)\w*\b/i],
 ];
 
-function detectAction(value: string): ActionIntent | null {
-  return ACTION_PATTERNS.find(([, pattern]) => pattern.test(value))?.[0] ?? null;
+export function detectActions(value: string): ActionIntent[] {
+  const matches = ACTION_PATTERNS.flatMap(([action, pattern], priority) => {
+    const match = pattern.exec(value);
+    return match ? [{ action, index: match.index, priority }] : [];
+  });
+  matches.sort((left, right) => left.index - right.index || left.priority - right.priority);
+  return matches.map((match) => match.action);
+}
+
+export function detectAction(value: string): ActionIntent | null {
+  return detectActions(value)[0] ?? null;
 }
 
 function candidateAction(candidate: RetrievalCandidate): ActionIntent | null {
@@ -80,6 +89,23 @@ function actionAdjustment(question: string, candidate: RetrievalCandidate): numb
   return conflicts.some((pair) => pair.has(requested) && pair.has(offered)) ? -0.18 : 0;
 }
 
+function keywordAliasAdjustment(question: string, candidate: RetrievalCandidate): number {
+  if (candidate.knowledgeType !== "function") return 0;
+  const keywords = [candidate.metadata.keywordsZh, candidate.metadata.keywordsEn]
+    .flatMap((value) => Array.isArray(value) ? value : [])
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  if (!keywords.length) return 0;
+  const normalizedQuestion = question.trim().toLocaleLowerCase();
+  if (keywords.some((keyword) => normalizedQuestion.includes(keyword.trim().toLocaleLowerCase()))) return 0.16;
+  const requestedAction = detectAction(question);
+  const questionTerms = new Set(terms(question));
+  const semanticAlias = keywords.some((keyword) => {
+    if (!requestedAction || detectAction(keyword) !== requestedAction) return false;
+    return terms(keyword).some((term) => questionTerms.has(term));
+  });
+  return semanticAlias ? 0.12 : 0;
+}
+
 export function rerankCandidates(question: string, intent: QueryIntent, candidates: RetrievalCandidate[]): RetrievalCandidate[] {
   const queryTerms = terms(question);
   const teamAccountSharing = /(?:分享|共享).{0,15}(?:订阅|账号|账户)|(?:团队|成员).{0,15}(?:分享|共享)|share.{0,15}(?:subscription|account)/i.test(question);
@@ -100,7 +126,7 @@ export function rerankCandidates(question: string, intent: QueryIntent, candidat
     const sharingCategory = teamAccountSharing && candidate.knowledgeType === "faq" && String(candidate.metadata.category ?? "") === "团队管理" && String(candidate.metadata.subcategory ?? "").includes("账号共享") ? 1 : 0;
     const categoricalCoverage = Math.max(outOfScopeCategory, sharingCategory);
     const baseCoverage = Math.max(coverage, structuralCoverage);
-    const rerankScore = retrievalConfig.rerank.rrf * (candidate.rrfScore / maxRrf) + retrievalConfig.rerank.vector * Math.max(0, candidate.vectorScore) + retrievalConfig.rerank.text * normalizedText + retrievalConfig.rerank.coverage * baseCoverage + retrievalConfig.rerank.categorical * categoricalCoverage + actionAdjustment(question, candidate);
+    const rerankScore = retrievalConfig.rerank.rrf * (candidate.rrfScore / maxRrf) + retrievalConfig.rerank.vector * Math.max(0, candidate.vectorScore) + retrievalConfig.rerank.text * normalizedText + retrievalConfig.rerank.coverage * baseCoverage + retrievalConfig.rerank.categorical * categoricalCoverage + actionAdjustment(question, candidate) + keywordAliasAdjustment(question, candidate);
     return { ...candidate, rerankScore };
   }).sort((a, b) => b.rerankScore - a.rerankScore);
 }

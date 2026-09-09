@@ -26,6 +26,12 @@ test("deterministic parser separates troubleshooting and pricing intents", () =>
   assert.deepEqual(parseQuery("我要怎么进行 DICloak 的长期续费").knowledgeTypes, ["faq", "function"]);
   assert.deepEqual(parseQuery("如何用 API 创建环境").knowledgeTypes, ["http_api", "local_api"]);
   assert.deepEqual(parseQuery("我想分享 Claude 订阅").knowledgeTypes, ["faq"]);
+  assert.deepEqual(parseQuery("怎么换环境已配置的代理ip").knowledgeTypes, ["function"]);
+  assert.deepEqual(parseQuery("我可以更改 DICloak 界面皮肤吗").knowledgeTypes, ["function"]);
+  assert.deepEqual(parseQuery("你们有推广奖励活动吗").knowledgeTypes, ["function"]);
+  assert.deepEqual(parseQuery("推广返现是什么").knowledgeTypes, ["function"]);
+  assert.deepEqual(parseQuery("推广返现怎么用").knowledgeTypes, ["function"]);
+  assert.deepEqual(parseQuery("代理设置和指纹设置有什么区别").knowledgeTypes, ["function"]);
 });
 
 test("Portuguese capability wording is generally classified without a feature-specific alias", () => {
@@ -90,6 +96,22 @@ test("reranker distinguishes operations on the same object", () => {
     candidate("CONFIGURE-PROXY", { knowledgeType: "function", title: "配置代理", text: "在环境管理中编辑环境，修改代理类型、主机和端口后保存", metadata: { functionName: "配置代理", description: "修改环境使用的代理 IP" }, vectorScore: 0.62, textScore: 0.6, rrfScore: 0.025 }),
   ]);
   assert.equal(ranked[0]?.knowledgeId, "CONFIGURE-PROXY");
+});
+
+test("reranker treats replacement as configuration and viewing configuration as view", () => {
+  const ranked = rerankCandidates("怎么换环境已配置的代理ip", intent({ knowledgeTypes: ["function"], language: "zh" }), [
+    candidate("VIEW-PROXY", { knowledgeType: "function", title: "查看代理配置", text: "鼠标移到代理图标上查看当前代理 IP", metadata: { functionName: "查看代理配置", description: "查看环境已经配置的代理" }, vectorScore: 0.72, textScore: 0.7, rrfScore: 0.03 }),
+    candidate("CONFIGURE-PROXY", { knowledgeType: "function", title: "配置代理", text: "编辑环境并更换代理主机、端口后保存", metadata: { functionName: "配置代理", description: "修改环境使用的代理 IP" }, vectorScore: 0.62, textScore: 0.6, rrfScore: 0.025 }),
+  ]);
+  assert.equal(ranked[0]?.knowledgeId, "CONFIGURE-PROXY");
+});
+
+test("function keywords act as semantic aliases when action and object are separated", () => {
+  const ranked = rerankCandidates("怎么换环境已配置的代理ip", intent({ knowledgeTypes: ["function"], language: "zh" }), [
+    candidate("GENERIC-CONFIG", { knowledgeType: "function", title: "环境配置", metadata: { functionName: "环境配置" }, vectorScore: 0.68, textScore: 0.65 }),
+    candidate("PROXY-ALIAS", { knowledgeType: "function", title: "编辑代理配置", metadata: { functionName: "编辑代理配置", keywordsZh: ["编辑代理", "修改代理", "更改代理", "换代理"] }, vectorScore: 0.58, textScore: 0.55 }),
+  ]);
+  assert.equal(ranked[0]?.knowledgeId, "PROXY-ALIAS");
 });
 
 test("action-aware reranking works across common feature operations", () => {
