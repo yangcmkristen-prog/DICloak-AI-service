@@ -33,6 +33,53 @@ const terms = (value: string) => {
   return [...new Set([...latin, ...han, ...concepts])];
 };
 
+type ActionIntent = "configure" | "inspect" | "view" | "create" | "delete" | "import" | "export" | "open" | "close" | "enable" | "disable" | "reset";
+
+const ACTION_PATTERNS: ReadonlyArray<[ActionIntent, RegExp]> = [
+  ["inspect", /(?:检测|测试|校验|验证|诊断|排查|连通性|可用性|провер|тест|диагност|kiểm tra)|\b(?:detect|test|check|verify|diagnos|connectivity|availability|detectar|testar|verificar|comprobar|probar)\w*\b/i],
+  ["configure", /(?:修改|编辑|配置|设置|更改|调整|更新|改成|变更|редакт|измен|настро|cấu hình|chỉnh sửa|thay đổi)|\b(?:edit|modify|configur|setting|settings|change|update|alter|editar|modificar|configurar|ajustar|cambiar|actualizar)\w*\b/i],
+  ["create", /(?:创建|新建|添加|新增|建立|生成|созда|добав|tạo|thêm)|\b(?:create|add|new|generate|criar|adicionar|crear|agregar)\w*\b/i],
+  ["delete", /(?:删除|移除|清除|注销|удал|xóa|gỡ)|\b(?:delete|remove|clear|erase|deletar|remover|eliminar|borrar)\w*\b/i],
+  ["import", /(?:导入|上传|импорт|nhập|tải lên)|\b(?:import|upload|importar|subir)\w*\b/i],
+  ["export", /(?:导出|下载|экспорт|xuất|tải xuống)|\b(?:export|download|exportar|descargar)\w*\b/i],
+  ["enable", /(?:启用|开启|打开开关|激活|включ|kích hoạt|bật)|\b(?:enable|activate|habilitar|ativar)\w*\b/i],
+  ["disable", /(?:禁用|停用|关闭开关|取消启用|отключ|vô hiệu hóa|tắt)|\b(?:disable|deactivate|desabilitar|desativar)\w*\b/i],
+  ["reset", /(?:重置|恢复默认|初始化|сброс|đặt lại)|\b(?:reset|restore default|redefinir|restablecer)\w*\b/i],
+  ["close", /(?:关闭|退出|关掉|закры|đóng)|\b(?:close|exit|fechar|cerrar)\w*\b/i],
+  ["open", /(?:打开|启动|进入|访问|откры|запуст|mở|truy cập)|\b(?:open|launch|start|access|abrir|iniciar|acessar)\w*\b/i],
+  ["view", /(?:查看|查询|显示|浏览|列表|记录|日志|просмотр|показ|xem|hiển thị)|\b(?:view|show|list|query|browse|history|log|visualizar|consultar|mostrar|ver)\w*\b/i],
+];
+
+function detectAction(value: string): ActionIntent | null {
+  return ACTION_PATTERNS.find(([, pattern]) => pattern.test(value))?.[0] ?? null;
+}
+
+function candidateAction(candidate: RetrievalCandidate): ActionIntent | null {
+  const metadataAction = String(candidate.metadata.action ?? "");
+  const heading = [candidate.title, candidate.metadata.functionName, candidate.metadata.description]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join("\n");
+  return detectAction(metadataAction) ?? detectAction(heading);
+}
+
+function actionAdjustment(question: string, candidate: RetrievalCandidate): number {
+  const requested = detectAction(question);
+  const offered = candidateAction(candidate);
+  if (!requested || !offered) return 0;
+  if (requested === offered) return 0.14;
+
+  const conflicts: ReadonlyArray<ReadonlySet<ActionIntent>> = [
+    new Set(["configure", "inspect"]),
+    new Set(["configure", "view"]),
+    new Set(["create", "delete"]),
+    new Set(["import", "export"]),
+    new Set(["open", "close"]),
+    new Set(["enable", "disable"]),
+    new Set(["reset", "configure"]),
+  ];
+  return conflicts.some((pair) => pair.has(requested) && pair.has(offered)) ? -0.18 : 0;
+}
+
 export function rerankCandidates(question: string, intent: QueryIntent, candidates: RetrievalCandidate[]): RetrievalCandidate[] {
   const queryTerms = terms(question);
   const teamAccountSharing = /(?:分享|共享).{0,15}(?:订阅|账号|账户)|(?:团队|成员).{0,15}(?:分享|共享)|share.{0,15}(?:subscription|account)/i.test(question);
@@ -53,7 +100,7 @@ export function rerankCandidates(question: string, intent: QueryIntent, candidat
     const sharingCategory = teamAccountSharing && candidate.knowledgeType === "faq" && String(candidate.metadata.category ?? "") === "团队管理" && String(candidate.metadata.subcategory ?? "").includes("账号共享") ? 1 : 0;
     const categoricalCoverage = Math.max(outOfScopeCategory, sharingCategory);
     const baseCoverage = Math.max(coverage, structuralCoverage);
-    const rerankScore = retrievalConfig.rerank.rrf * (candidate.rrfScore / maxRrf) + retrievalConfig.rerank.vector * Math.max(0, candidate.vectorScore) + retrievalConfig.rerank.text * normalizedText + retrievalConfig.rerank.coverage * baseCoverage + retrievalConfig.rerank.categorical * categoricalCoverage;
+    const rerankScore = retrievalConfig.rerank.rrf * (candidate.rrfScore / maxRrf) + retrievalConfig.rerank.vector * Math.max(0, candidate.vectorScore) + retrievalConfig.rerank.text * normalizedText + retrievalConfig.rerank.coverage * baseCoverage + retrievalConfig.rerank.categorical * categoricalCoverage + actionAdjustment(question, candidate);
     return { ...candidate, rerankScore };
   }).sort((a, b) => b.rerankScore - a.rerankScore);
 }

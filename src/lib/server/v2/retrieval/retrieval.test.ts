@@ -84,6 +84,30 @@ test("reranker handles only short fused candidates and rewards answer coverage",
   assert.equal(ranked[0].chunkId, "answer"); assert.ok(ranked[0].rerankScore > ranked[1].rerankScore);
 });
 
+test("reranker distinguishes operations on the same object", () => {
+  const ranked = rerankCandidates("如何修改环境的代理 IP", intent({ knowledgeTypes: ["function"], language: "zh" }), [
+    candidate("DETECT-PROXY", { knowledgeType: "function", title: "检测代理", text: "进入编辑环境，在代理设置中检测当前代理 IP 的连通性，然后保存", metadata: { functionName: "检测代理", description: "检测当前配置的代理 IP 是否可用" }, vectorScore: 0.72, textScore: 0.7, rrfScore: 0.03 }),
+    candidate("CONFIGURE-PROXY", { knowledgeType: "function", title: "配置代理", text: "在环境管理中编辑环境，修改代理类型、主机和端口后保存", metadata: { functionName: "配置代理", description: "修改环境使用的代理 IP" }, vectorScore: 0.62, textScore: 0.6, rrfScore: 0.025 }),
+  ]);
+  assert.equal(ranked[0]?.knowledgeId, "CONFIGURE-PROXY");
+});
+
+test("action-aware reranking works across common feature operations", () => {
+  const cases = [
+    ["how to delete a profile", "Delete profile", "View profiles"],
+    ["Como testar o proxy?", "Testar proxy", "Configurar proxy"],
+    ["¿Cómo importar perfiles?", "Importar perfiles", "Exportar perfiles"],
+    ["Как создать профиль?", "Создать профиль", "Удалить профиль"],
+  ] as const;
+  for (const [question, matchingTitle, conflictingTitle] of cases) {
+    const ranked = rerankCandidates(question, intent({ knowledgeTypes: ["function"] }), [
+      candidate("CONFLICT", { knowledgeType: "function", title: conflictingTitle, metadata: { functionName: conflictingTitle }, vectorScore: 0.7 }),
+      candidate("MATCH", { knowledgeType: "function", title: matchingTitle, metadata: { functionName: matchingTitle }, vectorScore: 0.6 }),
+    ]);
+    assert.equal(ranked[0]?.knowledgeId, "MATCH", question);
+  }
+});
+
 test("reranker uses the declared out-of-scope subtype instead of generic semantic proximity", () => {
   const rows = [
     candidate("create-account", { knowledgeType: "out_of_scope", metadata: { subType: "account_service" } }),
