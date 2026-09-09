@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { callTextModel, messagesAfterSummary, normalizeMessageTimestamp, snapshotToTranscript, validateSnapshot, type SummaryCursor } from "../shared";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { hasOnlySupportedCustomerChannels, normalizeCustomerChannels } from "@/lib/customer-channels";
-import { manualCustomerDatabaseUpdate, mergeFeishuCustomerUpdate } from "@/lib/customer-summary-updates";
+import { isFeishuCustomerImport, manualCustomerDatabaseUpdate, mergeFeishuCustomerUpdate } from "@/lib/customer-summary-updates";
 
 const CORS_HEADERS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
 
@@ -340,7 +340,7 @@ export async function POST(request: NextRequest) {
     const requestBody = await request.json() as unknown;
     if (requestBody && typeof requestBody === "object" && !Array.isArray(requestBody) && "customerImport" in requestBody) {
       const body = requestBody as { customerImport?: unknown; commit?: unknown; source?: unknown };
-      const isFeishuImport = body.source === "feishu";
+      const isFeishuImport = isFeishuCustomerImport(body.source);
       const parsed = validateCustomerImportRows(body.customerImport);
       const client = getSupabaseClient();
       const { data: existingRows, error: lookupError } = await client.from("customer_summaries")

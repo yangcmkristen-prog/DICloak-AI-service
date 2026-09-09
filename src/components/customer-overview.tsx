@@ -411,7 +411,7 @@ function CustomerImportDialog({ open, onOpenChange, onImported }: { open: boolea
     try {
       const parsedRows = await parseCustomerImportFile(file);
       const response = await fetch("/api/copilot/customer-summary", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerImport: parsedRows, commit: false }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "manual", customerImport: parsedRows, commit: false }),
       });
       const payload = await response.json() as ImportAnalysis & { error?: string };
       if (!response.ok) throw new Error(payload.error || "表格分析失败");
@@ -425,7 +425,7 @@ function CustomerImportDialog({ open, onOpenChange, onImported }: { open: boolea
     setSaving(true);
     try {
       const response = await fetch("/api/copilot/customer-summary", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerImport: rows, commit: true }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "manual", customerImport: rows, commit: true }),
       });
       const payload = await response.json() as ImportAnalysis & { error?: string };
       if (!response.ok) throw new Error(payload.error || "客户导入失败");

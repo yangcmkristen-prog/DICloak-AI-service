@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { manualCustomerDatabaseUpdate, mergeFeishuCustomerUpdate, mergeManualCustomerUpdate } from "./customer-summary-updates.ts";
+import { isFeishuCustomerImport, manualCustomerDatabaseUpdate, mergeFeishuCustomerUpdate, mergeManualCustomerUpdate } from "./customer-summary-updates.ts";
+
+test("legacy imports without a source remain compatible with Feishu", () => {
+  assert.equal(isFeishuCustomerImport(undefined), true);
+  assert.equal(isFeishuCustomerImport("feishu"), true);
+  assert.equal(isFeishuCustomerImport("manual"), false);
+  assert.equal(isFeishuCustomerImport("unknown"), false);
+});
 
 test("manual customer edits preserve the Feishu synchronization time", () => {
   const automaticUpdatedAt = "2026-09-01T08:00:00.000Z";
