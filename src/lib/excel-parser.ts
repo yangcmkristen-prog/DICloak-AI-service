@@ -221,6 +221,7 @@ function parseFunctionKnowledgeSheet(sheet: XLSX.WorkSheet): FunctionKnowledge[]
       uiPosition: getCellValue(row['界面位置']),
       prerequisites: getCellValue(row['前置条件']),
       steps: getCellValue(row['操作步骤']),
+      standardAnswer: getCellValue(row['标准组织答案']),
       faqIds: getCellValue(row['常见问题FAQ_ID']),
       keywordsCN: getCellValue(row['关键词（中文）']),
       keywordsEN: getCellValue(row['关键词（英文）']),

@@ -51,17 +51,19 @@ test('排障流程把同一节点的多条匹配分支聚合为一个稳定知�
   assert.match(records[0].body, /member_solution/);
 });
 
-test('功能知识补齐并保留三段 termIds 解析链，步骤按完整语义边界分块', () => {
+test('功能知识优先使用标准组织答案并保留三段 termIds 解析链', () => {
   const warnings = [];
   const [record] = adaptFunctions({
-    workbook: workbook({ 功能知识库: [{ function_id: 'FUNC-1', 一级模块: '环境', 页面名称: '编辑环境', 功能点名称: '代理设置', 功能说明: '设置代理', 入口路径: '环境 > 编辑', 界面位置: '代理设置', 前置条件: '已有环境', 操作步骤: '1. 打开编辑\n2. 保存', 已支持产品: 'dicloak', 一级模块术语ID: 'TERM-1', 页面名称术语ID: 'TERM-2', 功能点术语ID: 'TERM-3,TERM-4', 常见问题FAQ_ID: 'FAQ-1,FAQ-2' }] }),
+    workbook: workbook({ 功能知识库: [{ function_id: 'FUNC-1', 一级模块: '环境', 页面名称: '编辑环境', 功能点名称: '代理设置', 功能说明: '设置代理', 入口路径: '环境 > 编辑', 界面位置: '代理设置', 前置条件: '已有环境', 操作步骤: '1. 打开编辑\n2. 保存', 标准组织答案: '在环境中设置代理，打开编辑页面并保存。', 已支持产品: 'dicloak', 一级模块术语ID: 'TERM-1', 页面名称术语ID: 'TERM-2', 功能点术语ID: 'TERM-3,TERM-4', 常见问题FAQ_ID: 'FAQ-1,FAQ-2' }] }),
     file: '功能知识库.xlsx', version: '1', warnings,
   });
   assert.deepEqual(record.termIds, ['TERM-1', 'TERM-2', 'TERM-3', 'TERM-4']);
   assert.deepEqual(record.metadata.faqIds, ['FAQ-1', 'FAQ-2']);
+  assert.equal(record.metadata.standardAnswer, '在环境中设置代理，打开编辑页面并保存。');
   const chunks = chunkKnowledge([record]);
   assert.equal(chunks.length, 2);
-  assert.match(chunks[1].text, /1\. 打开编辑\n2\. 保存/);
+  assert.match(chunks[1].text, /标准组织答案：在环境中设置代理，打开编辑页面并保存。/);
+  assert.equal(chunks[1].metadata.boundary, 'complete_standard_answer');
   assert.deepEqual(validateChunks([record], chunks), []);
 });
 

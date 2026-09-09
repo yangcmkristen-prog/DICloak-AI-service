@@ -68,12 +68,13 @@ test("conditional branches retain only their own knowledge term scopes", () => {
   assert.deepEqual(prepared.markers.filter((item) => item.knowledgeId === "LOGIN-DIC").map((item) => item.termId), ["member"]);
 });
 
-test("function entry paths remain translatable prose while protected terms and URLs stay exact", () => {
-  const prepared = prepareTerminologyPipeline({ knowledge: [knowledge({ id: "FUNC-1", type: "function", sourceLanguage: "zh", body: "", termIds: ["profile"], metadata: { functionName: "打开环境", description: "选择环境", steps: "点击环境 https://help.example/v1", entryPath: "环境/Profile" }, protectedFields: [{ kind: "url", value: "https://help.example/v1" }] })], terms, targetLanguage: "pt" });
+test("function standard answers and entry paths remain translatable while protected values stay exact", () => {
+  const prepared = prepareTerminologyPipeline({ knowledge: [knowledge({ id: "FUNC-1", type: "function", sourceLanguage: "zh", body: "", termIds: ["profile"], metadata: { functionName: "打开环境", description: "选择环境", steps: "点击环境 https://help.example/v1", entryPath: "环境/Profile", standardAnswer: "在环境中点击 Profile，并访问 https://help.example/v1" }, protectedFields: [{ kind: "url", value: "https://help.example/v1" }] })], terms, targetLanguage: "pt" });
   assert.match(prepared.knowledge[0].naturalLanguageFields.functionName, /⟦V2:/);
   assert.match(prepared.knowledge[0].naturalLanguageFields.entryPath, /⟦V2:/);
   assert.equal(prepared.knowledge[0].technicalFields.entryPath, undefined);
   assert.match(prepared.knowledge[0].naturalLanguageFields.steps, /⟦V2:/);
+  assert.match(prepared.knowledge[0].naturalLanguageFields.standardAnswer, /⟦V2:/);
   assert.equal(restoreProtectedResponse(prepared.knowledge[0].naturalLanguageFields.entryPath, prepared, { requireAll: false }).text, "Perfil/Profile");
 });
 

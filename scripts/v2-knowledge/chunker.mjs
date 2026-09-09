@@ -35,11 +35,14 @@ function functionChunks(record) {
     text(metadata.entryPath) ? `入口：${text(metadata.entryPath)}` : '',
     text(metadata.uiLocation) ? `界面位置：${text(metadata.uiLocation)}` : '',
     text(metadata.prerequisites) ? `前置条件：${text(metadata.prerequisites)}` : '',
+    text(metadata.standardAnswer) ? `标准组织答案：${text(metadata.standardAnswer)}` : '',
   ].filter(Boolean).join('\n');
   const chunks = [buildChunk(record, 0, 'overview', `${record.title} · 功能概览`, overview, { boundary: 'function_overview' })];
-  if (text(metadata.steps)) {
-    const steps = [`功能：${record.title}`, `操作步骤：${text(metadata.steps)}`].join('\n');
-    chunks.push(buildChunk(record, 1, 'steps', `${record.title} · 操作步骤`, steps, { boundary: 'complete_steps' }));
+  if (text(metadata.standardAnswer) || text(metadata.steps)) {
+    const answer = text(metadata.standardAnswer)
+      ? [`功能：${record.title}`, `标准组织答案：${text(metadata.standardAnswer)}`].join('\n')
+      : [`功能：${record.title}`, `操作步骤：${text(metadata.steps)}`].join('\n');
+    chunks.push(buildChunk(record, 1, 'steps', `${record.title} · 标准答案`, answer, { boundary: text(metadata.standardAnswer) ? 'complete_standard_answer' : 'complete_steps' }));
   }
   return chunks;
 }

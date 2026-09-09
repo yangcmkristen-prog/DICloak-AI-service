@@ -125,9 +125,11 @@ export function adaptFunctions({ workbook, file, version, warnings }) {
     const termIds = unique([
       ...splitList(values['一级模块术语ID']), ...splitList(values['页面名称术语ID']), ...splitList(values['功能点术语ID']),
     ]);
+    const standardAnswer = text(values['标准组织答案']);
     const body = valuesBody([
       ['模块', values['一级模块']], ['页面', values['页面名称']], ['功能名称', values['功能点名称']], ['说明', values['功能说明']],
       ['入口', values['入口路径']], ['界面位置', values['界面位置']], ['前置条件', values['前置条件']], ['操作步骤', values['操作步骤']],
+      ['标准组织答案', standardAnswer],
     ]);
     return [createRecord({
       id, type: 'function', productScope: normalizeProductScope(values['已支持产品'], ['dicloak']), enabled: true, sourceLanguage: 'zh',
@@ -137,7 +139,7 @@ export function adaptFunctions({ workbook, file, version, warnings }) {
       metadata: {
         module: text(values['一级模块']), page: text(values['页面名称']), functionType: text(values['功能类型']), functionName: text(values['功能点名称']),
         description: text(values['功能说明']), entryPath: text(values['入口路径']), uiLocation: text(values['界面位置']), prerequisites: text(values['前置条件']),
-        steps: text(values['操作步骤']), keywordsZh: splitList(values['关键词（中文）']), keywordsEn: splitList(values['关键词（英文）']),
+        steps: text(values['操作步骤']), standardAnswer, keywordsZh: splitList(values['关键词（中文）']), keywordsEn: splitList(values['关键词（英文）']),
         faqIds: splitList(values['常见问题FAQ_ID']), termType: text(values['术语类型']), notes: text(values['备注']),
       },
       protectedFields: uniqueProtectedFields([...extractTextProtectedFields(body, 'body'), ...termIds.map((termId) => protectedField('term', termId, 'termIds'))]),

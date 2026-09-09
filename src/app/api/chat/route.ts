@@ -2100,6 +2100,7 @@ The customer requested step-by-step setup instructions. Before giving any number
         uiPosition?: string;
         prerequisites?: string;
         steps?: string;
+        standardAnswer?: string;
         faqIds?: string;
         keywordsCN?: string;
         keywordsEN?: string;
@@ -2125,6 +2126,7 @@ The customer requested step-by-step setup instructions. Before giving any number
           item.uiPosition,
           item.prerequisites,
           item.steps,
+          item.standardAnswer,
         ];
         const searchableText = searchableFields.map(normalizeFunctionText).filter(Boolean).join(' ');
         const compactMessage = msgLower.replace(/[\s,，。！？?；;、]/g, '');
@@ -2551,7 +2553,7 @@ The customer requested step-by-step setup instructions. Before giving any number
       if (shouldUseFunctionKnowledge && matchedFunctionKnowledge.length > 0) {
         knowledgeContext += "## Function Knowledge Base (sorted by relevance score)\n";
         knowledgeContext += "IMPORTANT: For feature capability / function usage questions, you MUST use this function knowledge before saying no related knowledge was found.\n";
-        knowledgeContext += "Use EntryPath, UIPosition, Prerequisites and Steps to answer how the feature works.\n";
+        knowledgeContext += "When StandardOrganizedAnswer is present, use it as the complete answer source and preserve all of its facts and steps. Only fall back to EntryPath, UIPosition, Prerequisites and Steps when StandardOrganizedAnswer is empty.\n";
         knowledgeContext += "INTERNAL: Each item has a FUNCTION ID for source selection only. Do NOT output [FUNCTION_ID: xxx] or any source marker.\n\n";
 
         matchedFunctionKnowledge.slice(0, 20).forEach((m, index) => {
@@ -2561,11 +2563,15 @@ The customer requested step-by-step setup instructions. Before giving any number
           if (item.pageName) knowledgeContext += `Page: ${item.pageName}\n`;
           if (item.functionType) knowledgeContext += `FunctionType: ${item.functionType}\n`;
           if (item.functionName) knowledgeContext += `FunctionName: ${item.functionName}\n`;
-          if (item.description) knowledgeContext += `Description: ${item.description}\n`;
-          if (item.entryPath) knowledgeContext += `EntryPath: ${item.entryPath}\n`;
-          if (item.uiPosition) knowledgeContext += `UIPosition: ${item.uiPosition}\n`;
-          if (item.prerequisites) knowledgeContext += `Prerequisites: ${item.prerequisites}\n`;
-          if (item.steps) knowledgeContext += `Steps: ${item.steps}\n`;
+          if (item.standardAnswer) {
+            knowledgeContext += `StandardOrganizedAnswer: ${item.standardAnswer}\n`;
+          } else {
+            if (item.description) knowledgeContext += `Description: ${item.description}\n`;
+            if (item.entryPath) knowledgeContext += `EntryPath: ${item.entryPath}\n`;
+            if (item.uiPosition) knowledgeContext += `UIPosition: ${item.uiPosition}\n`;
+            if (item.prerequisites) knowledgeContext += `Prerequisites: ${item.prerequisites}\n`;
+            if (item.steps) knowledgeContext += `Steps: ${item.steps}\n`;
+          }
           if (item.keywordsCN) knowledgeContext += `KeywordsCN: ${item.keywordsCN}\n`;
           if (item.keywordsEN) knowledgeContext += `KeywordsEN: ${item.keywordsEN}\n`;
           if (item.faqIds) knowledgeContext += `RelatedFAQ: ${item.faqIds}\n`;

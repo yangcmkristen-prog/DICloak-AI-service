@@ -171,6 +171,7 @@ export interface FunctionKnowledge {
   uiPosition: string;        // 界面位置
   prerequisites: string;     // 前置条件
   steps: string;            // 操作步骤
+  standardAnswer?: string;  // 标准组织答案
   faqIds: string;          // 常见问题FAQ_ID
   keywordsCN: string;       // 关键词（中文）
   keywordsEN: string;       // 关键词（英文）
