@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { manualCustomerDatabaseUpdate, mergeManualCustomerUpdate } from "./customer-summary-updates.ts";
+import { manualCustomerDatabaseUpdate, mergeFeishuCustomerUpdate, mergeManualCustomerUpdate } from "./customer-summary-updates.ts";
 
 test("manual customer edits preserve the Feishu synchronization time", () => {
   const automaticUpdatedAt = "2026-09-01T08:00:00.000Z";
@@ -31,4 +31,16 @@ test("manual database updates do not touch the row update timestamp", () => {
 
   assert.equal(update.contact_name, "New name");
   assert.equal("updated_at" in update, false);
+});
+
+test("an explicitly identified Feishu import updates the synchronization time", () => {
+  const automaticUpdatedAt = "2026-09-09T03:00:00.000Z";
+  const result = mergeFeishuCustomerUpdate(
+    { contactName: "Old name", automaticUpdatedAt: "2026-09-08T03:00:00.000Z" },
+    { contactName: "New name", automaticUpdatedAt: "untrusted-value" },
+    automaticUpdatedAt,
+  );
+
+  assert.equal(result.contactName, "New name");
+  assert.equal(result.automaticUpdatedAt, automaticUpdatedAt);
 });

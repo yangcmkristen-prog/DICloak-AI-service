@@ -14,6 +14,17 @@ export function mergeManualCustomerUpdate(
   return { ...existing, ...safeUpdates };
 }
 
+export function mergeFeishuCustomerUpdate(
+  existing: Record<string, unknown>,
+  updates: Record<string, unknown>,
+  automaticUpdatedAt: string,
+): Record<string, unknown> {
+  return {
+    ...mergeManualCustomerUpdate(existing, updates),
+    automaticUpdatedAt,
+  };
+}
+
 export function manualCustomerDatabaseUpdate(
   existing: Record<string, unknown>,
   updates: Record<string, unknown>,

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { callTextModel, messagesAfterSummary, normalizeMessageTimestamp, snapshotToTranscript, validateSnapshot, type SummaryCursor } from "../shared";
 import { getSupabaseClient } from "@/storage/database/supabase-client";
 import { hasOnlySupportedCustomerChannels, normalizeCustomerChannels } from "@/lib/customer-channels";
-import { manualCustomerDatabaseUpdate } from "@/lib/customer-summary-updates";
+import { manualCustomerDatabaseUpdate, mergeFeishuCustomerUpdate } from "@/lib/customer-summary-updates";
 
 const CORS_HEADERS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
 
@@ -339,7 +339,8 @@ export async function POST(request: NextRequest) {
   try {
     const requestBody = await request.json() as unknown;
     if (requestBody && typeof requestBody === "object" && !Array.isArray(requestBody) && "customerImport" in requestBody) {
-      const body = requestBody as { customerImport?: unknown; commit?: unknown };
+      const body = requestBody as { customerImport?: unknown; commit?: unknown; source?: unknown };
+      const isFeishuImport = body.source === "feishu";
       const parsed = validateCustomerImportRows(body.customerImport);
       const client = getSupabaseClient();
       const { data: existingRows, error: lookupError } = await client.from("customer_summaries")
@@ -362,7 +363,15 @@ export async function POST(request: NextRequest) {
         const existing = existingByTeamId.get(normalizedTeamId(row.teamId));
         const updates = Object.fromEntries(Object.entries(row).filter(([key]) => key !== "teamId"));
         if (existing) {
-          const databaseUpdate = manualCustomerDatabaseUpdate(existing.summary_data, { ...updates, teamId: row.teamId });
+          const importedUpdates = { ...updates, teamId: row.teamId };
+          const databaseUpdate = isFeishuImport
+            ? {
+                summary_data: mergeFeishuCustomerUpdate(existing.summary_data, importedUpdates, savedAt),
+                contact_name: typeof updates.contactName === "string"
+                  ? updates.contactName
+                  : typeof existing.summary_data.contactName === "string" ? existing.summary_data.contactName : "",
+              }
+            : manualCustomerDatabaseUpdate(existing.summary_data, importedUpdates);
           const { error } = await client.from("customer_summaries").update(databaseUpdate)
             .eq("external_chat_id", existing.external_chat_id);
           if (error) throw error;
@@ -374,10 +383,12 @@ export async function POST(request: NextRequest) {
         const summary = {
           externalChatId, platform: "manual", contactName, contactMethod: "批量导入", teamId: row.teamId,
           customerStatus: "活跃", ...updates, createdAt, updatedAt: "",
+          ...(isFeishuImport ? { automaticUpdatedAt: savedAt } : {}),
         };
         const { error } = await client.from("customer_summaries").insert({
           external_chat_id: externalChatId, platform: "manual", contact_name: contactName, summary_data: summary,
-          source_message_hash: "customer-import", message_count: 0, created_at: createdAt, updated_at: savedAt,
+          source_message_hash: isFeishuImport ? "feishu-customer-import" : "customer-import",
+          message_count: 0, created_at: createdAt, updated_at: savedAt,
         });
         if (error) throw error;
       }
