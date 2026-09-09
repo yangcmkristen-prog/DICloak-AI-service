@@ -1707,7 +1707,7 @@ export default function Home() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="customers" className="relative flex-1 min-h-0 m-0 overflow-hidden">
+          <TabsContent forceMount value="customers" className="relative flex-1 min-h-0 m-0 overflow-hidden data-[state=inactive]:hidden">
             <CustomerOverview />
           </TabsContent>
 
