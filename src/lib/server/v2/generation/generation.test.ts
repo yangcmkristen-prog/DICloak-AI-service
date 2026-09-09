@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildV2Messages, V2_SYSTEM_PROMPT } from "../prompt.ts";
+import { buildV2Messages, unsupportedFeatureReply, V2_SYSTEM_PROMPT } from "../prompt.ts";
 import { parseV2Envelope, V2VisibleStreamFilter } from "./protocol.ts";
 import { validateV2Generation } from "./validation.ts";
 import type { RetrievalTrace } from "../retrieval/types.ts";
@@ -27,8 +27,43 @@ test("role-specific answer variants are passed explicitly for conditional genera
 
 test("function input carries required navigation facts without another model call", () => {
   const functionTrace = trace({ selectedKnowledge: [{ ...trace().selectedKnowledge[0], knowledgeType: "function", metadata: { module: "全局设置", page: "全局设置", functionName: "开发者工具", entryPath: "浏览器设置", steps: "启用并保存" } }] });
-  const payload = JSON.parse(buildV2Messages({ question: "如何设置", history: [], product: "dicloak", language: "zh", trace: functionTrace, prepared })[1].content);
-  assert.deepEqual(payload.selectedKnowledge[0].requiredFacts, { module: "全局设置", functionName: "开发者工具", entry: "浏览器设置", steps: "启用并保存" });
+  const functionPrepared = { ...prepared, knowledge: [{ ...prepared.knowledge[0], naturalLanguageFields: { module: "全局设置", page: "全局设置", functionName: "开发者工具", entryPath: "浏览器设置", steps: "启用并保存" } }] };
+  const payload = JSON.parse(buildV2Messages({ question: "如何设置", history: [], product: "dicloak", language: "zh", trace: functionTrace, prepared: functionPrepared })[1].content);
+  assert.deepEqual(payload.selectedKnowledge[0].requiredFacts, { module: "全局设置", steps: "启用并保存" });
+  assert.equal(payload.functionResponseTemplate.template, "In [module], you can [description]. The steps are: [steps].");
+});
+
+test("unsupported function requests prohibit adjacent feature suggestions", () => {
+  const unsupported = trace({
+    responseStrategy: "unsupported",
+    selectedKnowledge: [],
+    intent: { product: "dicloak", language: "zh", knowledgeTypes: ["function"], apiType: null, apiVersion: null, method: null, object: null, action: null, missingConditions: [] },
+  });
+  const messages = buildV2Messages({ question: "可以隐藏 URL 栏吗", history: [], product: "dicloak", language: "zh", trace: unsupported, prepared: { ...prepared, knowledge: [], markers: [], stats: { ...prepared.stats, knowledgeCount: 0, technicalMarkers: 0 } } });
+  const payload = JSON.parse(messages[1].content) as { unsupportedFeatureInstruction?: string };
+  assert.match(payload.unsupportedFeatureInstruction ?? "", /currently unsupported/);
+  assert.match(payload.unsupportedFeatureInstruction ?? "", /Do not mention, recommend, or explain any other feature/);
+});
+
+test("unsupported feature replies are stable and localized", () => {
+  assert.match(unsupportedFeatureReply("zh"), /目前我们不支持这个功能/);
+  assert.match(unsupportedFeatureReply("zh"), /反馈给产品同事/);
+  assert.doesNotMatch(unsupportedFeatureReply("zh"), /批量打开|网站源码|本地网络访问/);
+  assert.match(unsupportedFeatureReply("unknown"), /do not currently support this feature/);
+});
+
+test("partial support prompt distinguishes the requested and supported limit directions", () => {
+  const partialKnowledge = { ...trace().selectedKnowledge[0], knowledgeType: "function", metadata: { functionName: "同时打开环境数限制", description: "限制每个成员可同时打开的环境数量", entryPath: "环境设置", steps: "开启并保存" } };
+  const partial = trace({ responseStrategy: "partial_support", selectedKnowledge: [partialKnowledge] });
+  const partialPrepared = { ...prepared, knowledge: [{ ...prepared.knowledge[0], naturalLanguageFields: { functionName: "同时打开环境数限制", description: "限制每个成员可同时打开的环境数量", entryPath: "环境设置", steps: "开启并保存" }, body: "完整功能知识" }] };
+  const payload = JSON.parse(buildV2Messages({ question: "限制一个环境的成员数", history: [], product: "dicloak", language: "zh", trace: partial, prepared: partialPrepared })[1].content) as { strategyInstruction: string; selectedKnowledge: Array<{ content: string; requiredFacts?: unknown }> };
+  assert.match(payload.strategyInstruction, /direction of the limitation/);
+  assert.match(payload.strategyInstruction, /FUNCTION_RESPONSE_TEMPLATE/);
+  const responseTemplate = (payload as unknown as { functionResponseTemplate: { template: string } }).functionResponseTemplate.template;
+  assert.match(responseTemplate, /exact capability requested is not currently supported/);
+  assert.match(responseTemplate, /product and technical teams/);
+  assert.equal(payload.selectedKnowledge[0]?.content, "完整功能知识");
+  assert.deepEqual(payload.selectedKnowledge[0]?.requiredFacts, { description: "限制每个成员可同时打开的环境数量", steps: "开启并保存" });
 });
 
 test("pricing entries are grouped by feature across plans", () => {
@@ -77,6 +112,11 @@ test("grounding rejects unselected claims, invented links, IDs and excessive cla
   const result = validateV2Generation({ reply: "根据知识库 FAQ-9 请访问 https://invented.test。为什么？版本？", claims: [{ text: "猜测", knowledgeIds: ["B"] }] }, trace({ responseStrategy: "clarify_only" }), prepared);
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes("CLAIM_USES_UNSELECTED_KNOWLEDGE")); assert.ok(result.errors.some((error) => error.startsWith("UNSELECTED_OR_MODIFIED_TECHNICAL_FIELD"))); assert.ok(result.errors.includes("INTERNAL_LANGUAGE_LEAKED"));
+});
+
+test("grounding rejects Chinese prose in a non-Chinese reply", () => {
+  const result = validateV2Generation({ reply: "Acesse 下滑至环境设置。", claims: [{ text: "Passo", knowledgeIds: ["A"] }] }, trace({ intent: { ...trace().intent, language: "pt" } }), { ...prepared, targetLanguage: "pt" });
+  assert.ok(result.errors.includes("UNEXPECTED_HAN_SCRIPT"));
 });
 
 test("conditional and aggregated strategies require traceable coverage", () => {

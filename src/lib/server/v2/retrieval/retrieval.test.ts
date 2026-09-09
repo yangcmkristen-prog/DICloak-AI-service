@@ -28,6 +28,29 @@ test("deterministic parser separates troubleshooting and pricing intents", () =>
   assert.deepEqual(parseQuery("我想分享 Claude 订阅").knowledgeTypes, ["faq"]);
 });
 
+test("Portuguese capability wording is generally classified without a feature-specific alias", () => {
+  const question = "Seria interessante que a gente adm pudesse determinar quantos membros podem acessar um perfil";
+  assert.deepEqual(parseQuery(question).knowledgeTypes, ["function"]);
+  assert.ok(!extractSearchTerms(question).includes("concurrent profile open limit"));
+  assert.ok(extractSearchTerms(question).includes("limit"));
+  assert.ok(extractSearchTerms(question).includes("profile"));
+  assert.ok(extractSearchTerms(question).includes("member"));
+  assert.deepEqual(parseQuery("Tem como limitar a quantidade de dispositivos por membro?").knowledgeTypes, ["function"]);
+  assert.deepEqual(parseQuery("Gostaria de configurar o acesso dos membros por horário").knowledgeTypes, ["function"]);
+  assert.deepEqual(parseQuery("¿Se puede limitar cuántos miembros acceden a un perfil?").knowledgeTypes, ["function"]);
+  assert.deepEqual(parseQuery("Можно ли ограничить количество профилей для участника?").knowledgeTypes, ["function"]);
+  assert.deepEqual(parseQuery("Có thể giới hạn số lượng hồ sơ cho thành viên không?").knowledgeTypes, ["function"]);
+});
+
+test("multilingual concept normalization favors matching constraints over adjacent entities", () => {
+  const question = "Seria interessante que a gente adm pudesse determinar quantos membros podem acessar um perfil";
+  const ranked = rerankCandidates(question, parseQuery(question), [
+    candidate("ADJACENT", { knowledgeType: "function", title: "Group members", text: "View members included in a profile group", vectorScore: 0.35, rrfScore: 0.02 }),
+    candidate("MATCHING", { knowledgeType: "function", title: "Profile limit", text: "Limit the number of profiles each member can open", vectorScore: 0.35, rrfScore: 0.02 }),
+  ]);
+  assert.equal(ranked[0]?.knowledgeId, "MATCHING");
+});
+
 test("deterministic parser recognizes broad tool failures and insufficient balance", () => {
   assert.ok(parseQuery("Can't use ChatGPT").knowledgeTypes.includes("troubleshooting"));
   assert.ok(parseQuery("Gamma 显示余额不足").knowledgeTypes.includes("user_routing"));

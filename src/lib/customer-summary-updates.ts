@@ -4,6 +4,13 @@
  */
 const externallyManagedCustomerFields = new Set(["automaticUpdatedAt"]);
 
+/** Preserve compatibility with the existing Feishu automation, which cannot
+ * currently add a source marker. First-party spreadsheet imports must identify
+ * themselves explicitly as manual. */
+export function isFeishuCustomerImport(source: unknown): boolean {
+  return source === undefined || source === "feishu";
+}
+
 export function mergeManualCustomerUpdate(
   existing: Record<string, unknown>,
   updates: Record<string, unknown>,
@@ -12,6 +19,17 @@ export function mergeManualCustomerUpdate(
     Object.entries(updates).filter(([key]) => !externallyManagedCustomerFields.has(key)),
   );
   return { ...existing, ...safeUpdates };
+}
+
+export function mergeFeishuCustomerUpdate(
+  existing: Record<string, unknown>,
+  updates: Record<string, unknown>,
+  automaticUpdatedAt: string,
+): Record<string, unknown> {
+  return {
+    ...mergeManualCustomerUpdate(existing, updates),
+    automaticUpdatedAt,
+  };
 }
 
 export function manualCustomerDatabaseUpdate(

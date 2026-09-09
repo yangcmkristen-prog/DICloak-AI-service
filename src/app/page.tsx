@@ -693,7 +693,7 @@ export default function Home() {
     if (loadedConversations.length > 0) {
       setConversations(loadedConversations);
       const currentId = getCurrentConversationId();
-      if (currentId) {
+      if (currentId && loadedConversations.some((conversation) => conversation.id === currentId)) {
         setCurrentConversationIdState(currentId);
       } else {
         setCurrentConversationIdState(loadedConversations[0].id);
@@ -715,6 +715,18 @@ export default function Home() {
     setNewConversationProduct('dicloak');
     setNewConversationAiEngine('v1');
     setIsCreateConversationDialogOpen(true);
+  };
+
+  const handleToggleAssistant = () => {
+    if (isAssistantOpen) {
+      setIsAssistantOpen(false);
+      return;
+    }
+
+    setIsAssistantOpen(true);
+    if (conversations.length === 0) {
+      handleCreateConversation();
+    }
   };
 
   const handleConfirmCreateConversation = () => {
@@ -2283,7 +2295,7 @@ export default function Home() {
             </section>
           </div>
         )}
-        <Button className="h-14 rounded-full bg-blue-600 px-5 shadow-lg hover:bg-blue-700" onClick={() => setIsAssistantOpen((open) => !open)}>
+        <Button className="h-14 rounded-full bg-blue-600 px-5 shadow-lg hover:bg-blue-700" onClick={handleToggleAssistant}>
           <MessageCircle className="mr-2 size-5" />AI 助手
         </Button>
       </div>
