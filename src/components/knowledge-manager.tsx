@@ -32,6 +32,7 @@ interface V2IndexPreview {
   warnings: Array<{ code?: string; message?: string }>;
   publishedVersion: string | null; buildingVersion: string | null; buildingIndexed: number; buildingExpected: number;
   buildingCreatedAt: string | null;
+  buildingStale: boolean;
   failedVersion: string | null; failedError: string | null;
 }
 
@@ -915,8 +916,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button className="flex-1" disabled={!v2IndexPreview || isPublishingV2Index || Boolean(v2IndexPreview.buildingVersion) || Boolean(v2IndexPreview.warnings.length) || (!v2IndexPreview.added && !v2IndexPreview.changed && !v2IndexPreview.removed)}>
-                  {isPublishingV2Index && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}发布到 V2
+                <Button className="flex-1" disabled={!v2IndexPreview || isPublishingV2Index || Boolean(v2IndexPreview.buildingVersion && !v2IndexPreview.buildingStale) || Boolean(v2IndexPreview.warnings.length) || (!v2IndexPreview.added && !v2IndexPreview.changed && !v2IndexPreview.removed)}>
+                  {isPublishingV2Index && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{v2IndexPreview?.buildingStale ? '继续发布 V2' : '发布到 V2'}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
