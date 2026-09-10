@@ -28,7 +28,7 @@ const sheets = (values: Record<string, Row[]>): { sheetNames: string[]; rows: (s
 const product = (value: string): string => value === "all" ? "dicloak,paraturbo" : value;
 
 function faqRow(item: KnowledgeBase["faqItems"][number]): Row { return { FAQ_ID: item.faqId || item.id, "一级分类": item.category1, "二级分类": item.category2, "标签": item.tags.join(","), "标准问题（中文）": item.questionCN, "标准问题（英文）": item.questionEN, "用户问法": item.userPhrases, "标准答案": item.answer, function_id: item.functionId, term_id: item.termIds?.join(","), "优先级": item.priority }; }
-function generalFaqRow(item: KnowledgeBase["faqItems"][number]): Row { return { FAQ_ID: item.faqId || item.id, "问题": item.questionCN || item.questionEN || item.userPhrases, "答案": item.answer, "原答案": item.originalAnswer || item.answer, "答案模板_ID": item.answerTemplateId, "语言": item.language || (item.questionCN ? 'zh' : 'en'), "产品": item.supportedProduct || 'all', "是否启用": item.enabled !== false, "问题类型": item.problemType || item.category2, "新分类": item.category1 }; }
+function generalFaqRow(item: KnowledgeBase["faqItems"][number]): Row { return { FAQ_ID: item.faqId || item.id, "问题": item.questionCN || item.questionEN || item.userPhrases, "答案": item.answer, "原答案": item.originalAnswer, "答案模板_ID": item.answerTemplateId, "语言": item.language || (item.questionCN ? 'zh' : 'en'), "产品": item.supportedProduct || 'all', "是否启用": item.enabled !== false, "问题类型": item.problemType || item.category2, "新分类": item.category1 }; }
 
 export function buildWebsiteKnowledge(knowledge: KnowledgeBase, version: string): { records: StandardRecord[]; chunks: StandardChunk[]; warnings: Array<{ code?: string; message?: string }> } {
   const warnings: Array<{ code?: string; message?: string }> = [];

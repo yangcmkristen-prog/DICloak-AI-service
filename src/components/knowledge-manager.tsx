@@ -170,6 +170,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   const [extensionCustomModelName, setExtensionCustomModelName] = useState("");
   // 同步状态
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+  const [syncError, setSyncError] = useState('');
   // Prompt 版本信息
   const [promptVersion, setPromptVersion] = useState<number | null>(null);
   const [promptUpdatedAt, setPromptUpdatedAt] = useState<string | null>(null);
@@ -301,6 +302,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   // 同步知识库到数据库
   const syncKnowledgeToDatabase = async (data: KnowledgeBase): Promise<number | null> => {
     setSyncStatus('syncing');
+    setSyncError('');
     try {
       const response = await fetch('/api/config/knowledge', {
         method: 'POST',
@@ -308,7 +310,10 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
         body: JSON.stringify({ knowledgeData: data }),
       });
       if (!response.ok) {
-        console.error('同步知识库到数据库失败');
+        const payload = await response.json().catch(() => null) as { error?: string } | null;
+        const message = payload?.error || `同步请求失败（HTTP ${response.status}）`;
+        console.error('同步知识库到数据库失败:', message);
+        setSyncError(message);
         setSyncStatus('error');
         return null;
       }
@@ -317,6 +322,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
       return result.updatedAt ? new Date(result.updatedAt).getTime() : Date.now();
     } catch (error) {
       console.error('同步知识库到数据库失败:', error);
+      setSyncError(error instanceof Error ? error.message : '网络请求失败');
       setSyncStatus('error');
       return null;
     }
@@ -819,7 +825,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                 <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
                   <AlertCircle className="w-5 h-5 text-red-600" />
                   <span className="text-sm text-red-700 dark:text-red-300 font-medium">
-                    同步失败，请重试
+                    同步失败：{syncError || '请重试'}
                   </span>
                 </div>
               )}
