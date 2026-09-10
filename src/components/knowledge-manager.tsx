@@ -31,6 +31,8 @@ interface V2IndexPreview {
   total: number; added: number; changed: number; vectorChanged: number; metadataOnly: number; removed: number; unchanged: number;
   warnings: Array<{ code?: string; message?: string }>;
   publishedVersion: string | null; buildingVersion: string | null; buildingIndexed: number; buildingExpected: number;
+  buildingCreatedAt: string | null;
+  buildingStale: boolean;
   failedVersion: string | null; failedError: string | null;
 }
 
@@ -82,11 +84,13 @@ function mergeFileNames(existing: KnowledgeFileNames | undefined, next: Knowledg
     ...(next?.allFiles || []),
     ...[
       existing?.faqFile,
+      existing?.generalFaqFile,
       existing?.termFile,
       existing?.functionFile,
       existing?.apiFile,
       existing?.pricingFile,
       next?.faqFile,
+      next?.generalFaqFile,
       next?.termFile,
       next?.functionFile,
       next?.apiFile,
@@ -96,6 +100,7 @@ function mergeFileNames(existing: KnowledgeFileNames | undefined, next: Knowledg
 
   return {
     faqFile: next?.faqFile || existing?.faqFile,
+    generalFaqFile: next?.generalFaqFile || existing?.generalFaqFile,
     termFile: next?.termFile || existing?.termFile,
     functionFile: next?.functionFile || existing?.functionFile,
     apiFile: next?.apiFile || existing?.apiFile,
@@ -114,6 +119,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   const [showResults, setShowResults] = useState(false);
   const [stats, setStats] = useState<{
     faqCount: number;
+    generalFaqCount: number;
     troubleshootingCount: number;
     troubleshootingFlowCount: number;
     outOfScopeCount: number;
@@ -127,6 +133,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     fileNames: KnowledgeFileNames;
   }>({
     faqCount: 0,
+    generalFaqCount: 0,
     troubleshootingCount: 0,
     troubleshootingFlowCount: 0,
     outOfScopeCount: 0,
@@ -139,6 +146,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     lastUpdated: 0,
     fileNames: {
       faqFile: undefined,
+      generalFaqFile: undefined,
       termFile: undefined,
       functionFile: undefined,
       apiFile: undefined,
@@ -331,18 +339,36 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   const handlePublishV2Index = async (): Promise<void> => {
     setIsPublishingV2Index(true);
     try {
-      const response = await fetch('/api/v2/index', { method: 'POST' });
-      const data = await response.json() as { started?: boolean; unchanged?: boolean; version?: string; preview?: V2IndexPreview; error?: string };
-      if (!response.ok) throw new Error(data.error || 'V2 发布失败');
-      if (data.unchanged) { if (data.preview) setV2IndexPreview(data.preview); toast.success('V2 知识库已是最新'); return; }
+      const startPublish = async (): Promise<{ version: string | null; unchanged: boolean }> => {
+        const response = await fetch('/api/v2/index', { method: 'POST' });
+        const data = await response.json() as { started?: boolean; unchanged?: boolean; version?: string; preview?: V2IndexPreview; error?: string };
+        if (!response.ok) throw new Error(data.error || 'V2 发布失败');
+        if (data.preview) setV2IndexPreview(data.preview);
+        return { version: data.version || null, unchanged: Boolean(data.unchanged) };
+      };
+      let started = await startPublish();
+      if (started.unchanged) { toast.success('V2 知识库已是最新'); return; }
+      if (!started.version) throw new Error('发布任务未返回版本号');
       toast.success('已开始在后台生成 V2 向量');
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 3000));
-        const preview = await refreshV2Index();
-        if (preview && preview.publishedVersion === data.version) { toast.success('V2 知识库发布成功'); return; }
-        if (preview && preview.failedVersion === data.version) throw new Error(preview.failedError || 'V2 后台发布失败');
+      for (let continuation = 0; continuation < 6; continuation += 1) {
+        const currentVersion = started.version;
+        let shouldContinue = false;
+        for (let attempt = 0; attempt < 110; attempt += 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 3000));
+          const preview = await refreshV2Index();
+          if (!preview) continue;
+          if (preview.publishedVersion === currentVersion) { toast.success('V2 知识库发布成功'); return; }
+          if (preview.failedVersion === currentVersion) { shouldContinue = true; break; }
+          const startedAt = preview.buildingVersion === currentVersion && preview.buildingCreatedAt ? new Date(preview.buildingCreatedAt).getTime() : 0;
+          if (startedAt && Date.now() - startedAt > 315_000) { shouldContinue = true; break; }
+        }
+        if (!shouldContinue) throw new Error('V2 后台发布长时间无状态更新');
+        toast.info(`发布任务已中断，正在从已有进度继续（${continuation + 1}/6）`);
+        started = await startPublish();
+        if (started.unchanged) { toast.success('V2 知识库发布成功'); return; }
+        if (!started.version) throw new Error('续跑任务未返回版本号');
       }
-      toast.info('后台仍在处理，可稍后点击刷新状态');
+      throw new Error('V2 发布多次中断，请稍后重试');
     } catch (error) { toast.error(error instanceof Error ? error.message : 'V2 发布失败'); }
     finally { setIsPublishingV2Index(false); }
   };
@@ -435,7 +461,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
       // 如果有成功的结果，更新知识库
       const successResults = results.filter(r => r.success && r.data);
       if (successResults.length > 0) {
-        const combinedData: Partial<KnowledgeBase> = {
+        const onlyGeneralFaq = successResults.every(result => result.fileType === 'general_faq');
+        let combinedData: Partial<KnowledgeBase> = {
           faqItems: [],
           troubleshootingItems: [],
           troubleshootingFlowItems: [],
@@ -449,6 +476,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
           pricingRawTable: undefined,
           fileNames: {
             faqFile: '',
+            generalFaqFile: '',
             termFile: '',
             functionFile: '',
             apiFile: '',
@@ -456,6 +484,22 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
             allFiles: [],
           },
         };
+
+        // 通用问答库是独立知识源。单独上传时只替换上一次通用问答，保留原 FAQ、
+        // 功能、术语、排障、API 和价格数据，避免一次增量上传清空整套知识库。
+        if (onlyGeneralFaq) {
+          const currentResponse = await fetch('/api/config/knowledge', { cache: 'no-store' });
+          const currentPayload = currentResponse.ok ? await currentResponse.json() as { data?: Partial<KnowledgeBase>; isEmpty?: boolean } : {};
+          const current = !currentPayload.isEmpty && currentPayload.data ? currentPayload.data : {};
+          combinedData = {
+            ...current,
+            faqItems: (current.faqItems || []).filter(item => item.source !== 'general_faq'),
+            troubleshootingItems: current.troubleshootingItems || [], troubleshootingFlowItems: current.troubleshootingFlowItems || [],
+            outOfScopeItems: current.outOfScopeItems || [], mappingItems: current.mappingItems || [], functionKnowledge: current.functionKnowledge || [],
+            termItems: current.termItems || [], apiEndpoints: current.apiEndpoints || [], apiParameters: current.apiParameters || [], pricingPlans: current.pricingPlans || [],
+            fileNames: mergeFileNames(current.fileNames, undefined),
+          };
+        }
 
         for (const result of successResults) {
           if (result.data) {
@@ -482,6 +526,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
             ]));
             if (result.fileType === 'faq') {
               combinedData.fileNames!.faqFile = result.fileName;
+            } else if (result.fileType === 'general_faq') {
+              combinedData.fileNames!.generalFaqFile = result.fileName;
             } else if (result.fileType === 'term') {
               combinedData.fileNames!.termFile = result.fileName;
             } else if (result.fileType === 'function') {
@@ -656,7 +702,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     } : null);
   };
 
-  const totalItems = stats.faqCount + stats.troubleshootingCount + stats.troubleshootingFlowCount + stats.outOfScopeCount +
+  const totalItems = stats.faqCount + stats.generalFaqCount + stats.troubleshootingCount + stats.troubleshootingFlowCount + stats.outOfScopeCount +
                      stats.mappingCount + stats.functionCount + stats.termCount +
                      stats.apiEndpointCount + stats.apiParameterCount + stats.pricingPlanCount;
 
@@ -672,7 +718,9 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
             Excel 文件导入
           </CardTitle>
           <CardDescription>
-            上传 FAQ库.xlsx、功能知识库.xlsx、术语库.xlsx 文件导入知识库
+            上传 FAQ库.xlsx、通用问答库.xlsx、功能知识库.xlsx、术语库.xlsx 文件导入知识库
+            。通用问答库使用“FAQ_ID、问题、答案、语言、产品、是否启用、问题类型、新分类”列，
+            可选添加“原答案、答案模板_ID、模板复查标记”列。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -734,6 +782,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                     {result.success && (
                       <div className="flex flex-wrap gap-3 mt-1 text-sm text-green-600 dark:text-green-400">
                         {result.stats.faqCount > 0 && <span>FAQ: {result.stats.faqCount}</span>}
+                        {result.stats.generalFaqCount > 0 && <span>通用问答: {result.stats.generalFaqCount}</span>}
                         {result.stats.troubleshootingCount > 0 && <span>排障: {result.stats.troubleshootingCount}</span>}
                         {result.stats.troubleshootingFlowCount > 0 && <span>多轮排障节点: {result.stats.troubleshootingFlowCount}</span>}
                         {result.stats.outOfScopeCount > 0 && <span>超范围: {result.stats.outOfScopeCount}</span>}
@@ -794,6 +843,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <StatCard label="FAQ" count={stats.faqCount} color="blue" />
+                <StatCard label="通用问答" count={stats.generalFaqCount} color="blue" />
                 <StatCard label="排障问题" count={stats.troubleshootingCount} color="orange" />
                 <StatCard label="多轮排障节点" count={stats.troubleshootingFlowCount} color="orange" />
                 <StatCard label="超范围问题" count={stats.outOfScopeCount} color="gray" />
@@ -857,7 +907,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                   <p className="text-xs text-muted-foreground">{v2IndexPreview.buildingIndexed} / {v2IndexPreview.buildingExpected} 个分块</p>
                 </div>
               )}
-              {v2IndexPreview.failedError && <p className="text-sm text-red-600">最近一次发布失败：{v2IndexPreview.failedError}</p>}
+              {!v2IndexPreview.buildingVersion && v2IndexPreview.failedError && <p className="text-sm text-red-600">最近一次发布失败：{v2IndexPreview.failedError}</p>}
               {v2IndexPreview.warnings.length > 0 && <p className="text-sm text-red-600">检测到 {v2IndexPreview.warnings.length} 个知识格式问题，修复前不能发布。</p>}
             </div>
           ) : <p className="text-sm text-muted-foreground">点击“检测变化”对比网站知识库与当前正式 V2 索引。</p>}
@@ -867,8 +917,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button className="flex-1" disabled={!v2IndexPreview || isPublishingV2Index || Boolean(v2IndexPreview.buildingVersion) || Boolean(v2IndexPreview.warnings.length) || (!v2IndexPreview.added && !v2IndexPreview.changed && !v2IndexPreview.removed)}>
-                  {isPublishingV2Index && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}发布到 V2
+                <Button className="flex-1" disabled={!v2IndexPreview || isPublishingV2Index || Boolean(v2IndexPreview.buildingVersion && !v2IndexPreview.buildingStale) || Boolean(v2IndexPreview.warnings.length) || (!v2IndexPreview.added && !v2IndexPreview.changed && !v2IndexPreview.removed)}>
+                  {isPublishingV2Index && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{v2IndexPreview?.buildingStale ? '继续发布 V2' : '发布到 V2'}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>

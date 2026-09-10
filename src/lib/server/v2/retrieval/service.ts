@@ -34,15 +34,22 @@ export async function runParallelRecall<T>(fulltext: () => Promise<T>, vector: (
 }
 
 export function dedupeKnowledgeCandidates(candidates: RetrievalCandidate[]): RetrievalCandidate[] {
-  const key = (candidate: RetrievalCandidate) => candidate.knowledgeType === "pricing" ? candidate.knowledgeId.replace(/:[^:]+$/, "") : candidate.knowledgeId;
+  const key = (candidate: RetrievalCandidate) => {
+    if (candidate.knowledgeType === "pricing") return candidate.knowledgeId.replace(/:[^:]+$/, "");
+    const templateId = candidate.knowledgeType === "general_faq" ? candidate.metadata.answerTemplateId : null;
+    return typeof templateId === "string" && templateId.trim() ? `answer-template:${templateId.trim()}` : candidate.knowledgeId;
+  };
   return candidates.filter((candidate, index, items) => items.findIndex((item) => key(item) === key(candidate)) === index);
 }
 
-function filters(intent: QueryIntent, alias = "c"): { sql: string; params: unknown[]; debug: Record<string, unknown> } {
+export function buildRetrievalFilters(intent: QueryIntent, alias = "c"): { sql: string; params: unknown[]; debug: Record<string, unknown> } {
   const conditions = ["v.status='published'", `${alias}.enabled`, `${alias}.knowledge_type <> 'terminology'`, "$1 = any(c.products)"];
   const params: unknown[] = [intent.product];
   const add = (sql: string, value: unknown) => { params.push(value); conditions.push(sql.replace("?", `$${params.length}`)); };
-  if (intent.knowledgeTypes.length) add(`${alias}.knowledge_type = any(?::text[])`, intent.knowledgeTypes);
+  if (intent.knowledgeTypes.length) {
+    const apiOnly = intent.knowledgeTypes.every((type) => type === 'http_api' || type === 'local_api');
+    add(`${alias}.knowledge_type = any(?::text[])`, apiOnly ? intent.knowledgeTypes : [...new Set([...intent.knowledgeTypes, 'general_faq'])]);
+  }
   else conditions.push(`${alias}.knowledge_type not in ('http_api','local_api','pricing')`);
   // A stateless query may enter a troubleshooting flow only at its entry node.
   // Terminal/branch nodes require flow state that this retrieval call does not have.
@@ -101,7 +108,7 @@ async function embedQuery(question: string, signal: AbortSignal): Promise<{ vect
 }
 
 async function fulltextRecall(question: string, intent: QueryIntent): Promise<RetrievalCandidate[]> {
-  const scoped = filters(intent); const queryParam = scoped.params.length + 1; const termsParam = queryParam + 1; const deterministicFallbackParam = termsParam + 1;
+  const scoped = buildRetrievalFilters(intent); const queryParam = scoped.params.length + 1; const termsParam = queryParam + 1; const deterministicFallbackParam = termsParam + 1;
   const searchTerms = extractSearchTerms(question);
   const deterministicFallback = intent.knowledgeTypes.length === 1 && intent.knowledgeTypes[0] === "out_of_scope";
   const result = await getPool().query(`select c.chunk_id,c.knowledge_id,c.title,c.full_text,c.metadata,c.protected_fields,c.source_language,c.knowledge_type,c.api_type,c.api_version,c.products, greatest(ts_rank_cd(c.search_document,websearch_to_tsquery('simple',$${queryParam})),similarity(c.title,$${queryParam}),similarity(c.full_text,$${queryParam}),case when $${queryParam}=any(c.exact_terms) then 1 else 0 end,lexical.score) text_score from v2_search.chunks c join v2_search.index_versions v on v.id=c.index_version_id cross join lateral (select coalesce(count(*) filter (where lower(c.full_text) like '%' || lower(term) || '%'),0)::float / greatest(cardinality($${termsParam}::text[]),1) score from unnest($${termsParam}::text[]) term) lexical where ${scoped.sql} and ($${deterministicFallbackParam} or c.search_document @@ websearch_to_tsquery('simple',$${queryParam}) or similarity(c.title,$${queryParam})>0.08 or similarity(c.full_text,$${queryParam})>0.08 or $${queryParam}=any(c.exact_terms) or lexical.score>0) order by text_score desc limit ${retrievalConfig.fulltextTopK}`, [...scoped.params, question, searchTerms, deterministicFallback]);
@@ -109,14 +116,14 @@ async function fulltextRecall(question: string, intent: QueryIntent): Promise<Re
 }
 
 async function vectorRecall(vector: string, intent: QueryIntent): Promise<RetrievalCandidate[]> {
-  const scoped = filters(intent); const vectorParam = scoped.params.length + 1;
+  const scoped = buildRetrievalFilters(intent); const vectorParam = scoped.params.length + 1;
   const result = await getPool().query(`select c.chunk_id,c.knowledge_id,c.title,c.full_text,c.metadata,c.protected_fields,c.source_language,c.knowledge_type,c.api_type,c.api_version,c.products,1-(c.embedding <=> $${vectorParam}::vector) vector_score from v2_search.chunks c join v2_search.index_versions v on v.id=c.index_version_id where ${scoped.sql} order by c.embedding <=> $${vectorParam}::vector limit ${retrievalConfig.vectorTopK}`, [...scoped.params, vector]);
   return result.rows.map((row, index) => candidate(row, "vector", index + 1));
 }
 
 export async function retrieveV2(question: string, product: "dicloak" | "paraturbo" = "dicloak", signal?: AbortSignal): Promise<RetrievalTrace> {
   const totalStarted = performance.now(); const timings: Record<string, number> = {}; const degradedRoutes: string[] = [];
-  const intent = parseQuery(question, product); const scoped = filters(intent);
+  const intent = parseQuery(question, product); const scoped = buildRetrievalFilters(intent);
   const textTask = runTimedOperation("全文召回", () => fulltextRecall(question, intent), signal);
   const embeddingTask = runTimedOperation("查询 embedding", (taskSignal) => embedQuery(question, taskSignal), signal, retrievalConfig.embeddingTimeoutMs);
   const [textResult, embeddingResult] = await Promise.all([textTask, embeddingTask]);

@@ -1,5 +1,6 @@
 export type V2KnowledgeType =
   | "faq"
+  | "general_faq"
   | "troubleshooting"
   | "troubleshooting_flow"
   | "user_routing"

@@ -76,6 +76,10 @@ export function selectGenerationKnowledge(trace: RetrievalTrace, question: strin
       const value = typeof rawValue === "string" || typeof rawValue === "number" || typeof rawValue === "boolean" ? String(rawValue) : "";
       return { ...candidate, text: `${plan} · ${feature}：${value}`, protectedFields: (candidate.protectedFields ?? []).filter((field) => value.includes(field.value)) };
     }
+    if (candidate.knowledgeType === "general_faq") {
+      const answer = stringValue(candidate.metadata.answer);
+      return answer ? { ...candidate, text: answer } : candidate;
+    }
     const isApi = candidate.knowledgeType.includes("api") || candidate.apiType !== null;
     if (!isApi) return candidate;
     const compactText = compactApi(candidate, question);

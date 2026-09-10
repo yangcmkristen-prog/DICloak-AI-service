@@ -179,6 +179,7 @@ export async function saveKnowledgeBase(data: Partial<KnowledgeBase>): Promise<v
 
 export function getKnowledgeStats(data?: Partial<KnowledgeBase>): {
   faqCount: number;
+  generalFaqCount: number;
   troubleshootingCount: number;
   troubleshootingFlowCount: number;
   outOfScopeCount: number;
@@ -191,6 +192,7 @@ export function getKnowledgeStats(data?: Partial<KnowledgeBase>): {
   lastUpdated: number;
   fileNames: {
     faqFile?: string;
+    generalFaqFile?: string;
     termFile?: string;
     functionFile?: string;
     apiFile?: string;
@@ -200,6 +202,7 @@ export function getKnowledgeStats(data?: Partial<KnowledgeBase>): {
 } {
   const result = {
     faqCount: 0,
+    generalFaqCount: 0,
     troubleshootingCount: 0,
     troubleshootingFlowCount: 0,
     outOfScopeCount: 0,
@@ -210,7 +213,7 @@ export function getKnowledgeStats(data?: Partial<KnowledgeBase>): {
     apiParameterCount: 0,
     pricingPlanCount: 0,
     lastUpdated: 0,
-    fileNames: {} as { faqFile?: string; termFile?: string; functionFile?: string; apiFile?: string; pricingFile?: string; allFiles?: string[] },
+    fileNames: {} as { faqFile?: string; generalFaqFile?: string; termFile?: string; functionFile?: string; apiFile?: string; pricingFile?: string; allFiles?: string[] },
   };
   
   // 如果没有传入数据，从 localStorage 读取
@@ -233,7 +236,8 @@ export function getKnowledgeStats(data?: Partial<KnowledgeBase>): {
   
   // 统计各项数量
   if (knowledgeData.faqItems) {
-    result.faqCount += knowledgeData.faqItems.length;
+    result.generalFaqCount += knowledgeData.faqItems.filter(item => item.source === 'general_faq').length;
+    result.faqCount += knowledgeData.faqItems.filter(item => item.source !== 'general_faq').length;
   }
   if (knowledgeData.troubleshootingItems) {
     result.troubleshootingCount += knowledgeData.troubleshootingItems.length;

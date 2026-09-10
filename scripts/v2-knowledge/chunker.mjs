@@ -27,6 +27,11 @@ function faqText(record) {
   return [record.title, questions, utterances, record.body].filter(Boolean).join('\n\n');
 }
 
+function generalFaqText(record) {
+  const questions = record.canonicalQuestions.map((item) => `${item.language}: ${item.text}`).join('\n');
+  return [record.title, questions, record.tags.length ? `标签：${record.tags.join('、')}` : ''].filter(Boolean).join('\n\n');
+}
+
 function functionChunks(record) {
   const metadata = record.metadata;
   const overview = [
@@ -61,6 +66,8 @@ export function chunkKnowledge(records) {
       chunks.push(buildChunk(record, 0, 'plan-feature', record.title, record.body, { boundary: 'single_plan_feature' }));
     } else if (record.type === 'terminology') {
       chunks.push(buildChunk(record, 0, 'term', record.title, record.body, { boundary: 'single_term' }));
+    } else if (record.type === 'general_faq') {
+      chunks.push(buildChunk(record, 0, 'entry', record.title, generalFaqText(record), { boundary: 'single_faq' }));
     } else {
       chunks.push(buildChunk(record, 0, 'entry', record.title, faqText(record), { boundary: record.type === 'troubleshooting_flow' ? 'single_flow_node' : 'single_faq' }));
     }

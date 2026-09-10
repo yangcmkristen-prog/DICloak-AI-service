@@ -37,6 +37,36 @@ function faqRecord({ values, row, file, sheet, version, type, answerColumns, que
   });
 }
 
+function generalFaqRecord({ values, row, file, sheet, version }) {
+  const language = text(values['语言']).toLowerCase() || 'en';
+  const question = text(values['问题']);
+  return createRecord({
+    id: text(values.FAQ_ID), type: 'general_faq',
+    productScope: normalizeProductScope(values['产品'], ['dicloak', 'paraturbo']),
+    enabled: parseEnabled(values['是否启用'], true), sourceLanguage: language,
+    title: question || text(values.FAQ_ID), canonicalQuestions: [{ language, text: question }],
+    utterances: [], body: text(values['答案']), termIds: [],
+    tags: compact([values['新分类'] ?? values['分类'], values['问题类型']]),
+    metadata: {
+      category: text(values['新分类'] ?? values['分类']), problemType: text(values['问题类型']),
+      answer: text(values['答案']), originalAnswer: text(values['原答案']) || text(values['答案']),
+      answerTemplateId: text(values['答案模板_ID']), priorityTier: 'fallback',
+    },
+    protectedFields: extractTextProtectedFields(values['答案'], '答案'),
+    source: source(file, sheet, row), knowledgeVersion: version,
+  });
+}
+
+export function adaptGeneralFaqWorkbook({ workbook, file, version, warnings }) {
+  const sheet = workbook.sheetNames[0];
+  return workbook.rows(sheet).flatMap((entry) => {
+    const record = generalFaqRecord({ ...entry, file, sheet, version });
+    if (!record.id) { warnings.push({ code: 'FAQ_ID_MISSING', message: '通用问答缺少稳定 FAQ_ID', source: record.source }); return []; }
+    if (!record.title || !record.body) { warnings.push({ code: 'GENERAL_FAQ_CONTENT_MISSING', message: '通用问答的问题或答案为空', source: record.source }); return []; }
+    return [record];
+  });
+}
+
 export function adaptFaqWorkbook({ workbook, file, version, warnings }) {
   const records = [];
   const specs = [

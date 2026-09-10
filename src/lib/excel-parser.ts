@@ -103,6 +103,32 @@ function parseFAQSheet(sheet: XLSX.WorkSheet, source: 'feature_faq' | 'user_rout
     })) as FAQItem[];
 }
 
+function parseGeneralFAQSheet(sheet: XLSX.WorkSheet): FAQItem[] {
+  const data = XLSX.utils.sheet_to_json<Record<string, CellValue>>(sheet, { defval: '' });
+  return data.flatMap((row): FAQItem[] => {
+    const faqId = getCellValue(row['FAQ_ID']);
+    const question = getCellValue(row['问题']);
+    const answer = getCellValue(row['答案']);
+    // 空 ID、空问题或空答案不能形成可用知识，导入时直接跳过，避免一条脏数据
+    // 阻塞整批通用问答发布。
+    if (!faqId || !question || !answer) return [];
+    const language = getCellValue(row['语言']).toLowerCase() || 'en';
+    const enabledRaw = getCellValue(row['是否启用']).toLowerCase();
+    const enabled = !['0', 'false', 'no', '否', '禁用', 'disabled'].includes(enabledRaw);
+    const category = getCellValue(row['新分类']) || getCellValue(row['分类']);
+    const problemType = getCellValue(row['问题类型']);
+    const originalAnswer = getCellValue(row['原答案']) || answer;
+    const answerTemplateId = getCellValue(row['答案模板_ID']);
+    return [{
+      id: generateId(), faqId, source: 'general_faq', category1: category, category2: problemType,
+      tags: [category, problemType].filter(Boolean), questionCN: language === 'zh' ? question : '',
+      questionEN: language === 'zh' ? '' : question, userPhrases: question, answer,
+      language, supportedProduct: parseSupportedProduct(row['产品']), enabled, problemType,
+      originalAnswer, answerTemplateId,
+    }];
+  });
+}
+
 // 解析 troubleshooting
 function parseTroubleshootingSheet(sheet: XLSX.WorkSheet): TroubleshootingItem[] {
   const data = XLSX.utils.sheet_to_json<Record<string, CellValue>>(sheet, { defval: '' });
@@ -400,9 +426,10 @@ export interface ImportResult {
   success: boolean;
   message: string;
   fileName: string;  // 文件名
-  fileType: 'faq' | 'term' | 'function' | 'api' | 'pricing';  // 文件类型
+  fileType: 'faq' | 'general_faq' | 'term' | 'function' | 'api' | 'pricing';  // 文件类型
   stats: {
     faqCount: number;
+    generalFaqCount: number;
     troubleshootingCount: number;
     troubleshootingFlowCount: number;
     outOfScopeCount: number;
@@ -425,6 +452,7 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
     // 使用确定存在的本地数组完成整个解析过程，避免可选的 Partial 字段在
     // 新增 Sheet 类型或热更新后的旧数据结构中出现 undefined.push/length。
     const faqItems: FAQItem[] = [];
+    let generalFaqCount = 0;
     const troubleshootingItems: TroubleshootingItem[] = [];
     const troubleshootingFlowItems: TroubleshootingFlowItem[] = [];
     const outOfScopeItems: OutOfScopeItem[] = [];
@@ -496,8 +524,14 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
           // Sheet1 需要自动检测类型
           if (sheetData.length > 0) {
             const columns = Object.keys(sheetData[0]);
+            if (columns.includes('FAQ_ID') && columns.includes('问题') && columns.includes('答案')) {
+              console.log('[EXCEL DEBUG] Sheet1 检测为通用问答库');
+              const items = parseGeneralFAQSheet(sheet);
+              faqItems.push(...items);
+              generalFaqCount += items.length;
+            }
             // 如果有 Features 列和套餐列（包含 '/'），则是价格功能表
-            if (columns.includes('Features') && columns.some(col => col.includes('/'))) {
+            else if (columns.includes('Features') && columns.some(col => col.includes('/'))) {
               console.log('[EXCEL DEBUG] Sheet1 检测为价格功能表');
               const sheet1PricingResult = parsePricingSheet(sheet);
               pricingPlans.push(...sheet1PricingResult.plans);
@@ -531,8 +565,10 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
       pricingPlans.length;
 
     // 判断文件类型：优先根据实际解析出的内容判断，避免 FAQ 文件因 Sheet1/术语页被误归类
-    let fileType: 'faq' | 'term' | 'function' | 'api' | 'pricing' = 'faq';
-    if (faqItems.length > 0 || troubleshootingItems.length > 0 || troubleshootingFlowItems.length > 0 || outOfScopeItems.length > 0 || mappingItems.length > 0) {
+    let fileType: ImportResult['fileType'] = 'faq';
+    if (generalFaqCount > 0 && generalFaqCount === faqItems.length && troubleshootingItems.length === 0 && outOfScopeItems.length === 0) {
+      fileType = 'general_faq';
+    } else if (faqItems.length > 0 || troubleshootingItems.length > 0 || troubleshootingFlowItems.length > 0 || outOfScopeItems.length > 0 || mappingItems.length > 0) {
       fileType = 'faq';
     } else if (apiEndpoints.length > 0 || apiParameters.length > 0) {
       fileType = 'api';
@@ -550,7 +586,8 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
       fileName: file.name,
       fileType,
       stats: {
-        faqCount: faqItems.length,
+        faqCount: faqItems.length - generalFaqCount,
+        generalFaqCount,
         troubleshootingCount: troubleshootingItems.length,
         troubleshootingFlowCount: troubleshootingFlowItems.length,
         outOfScopeCount: outOfScopeItems.length,
@@ -571,6 +608,7 @@ export async function importExcelFile(file: File): Promise<ImportResult> {
       fileType: 'faq',
       stats: {
         faqCount: 0,
+        generalFaqCount: 0,
         troubleshootingCount: 0,
         troubleshootingFlowCount: 0,
         outOfScopeCount: 0,
@@ -625,6 +663,7 @@ export async function importMultipleExcelFiles(files: File[]): Promise<{
 
   const totalStats = {
     faqCount: combinedData.faqItems!.length,
+    generalFaqCount: combinedData.faqItems!.filter(item => item.source === 'general_faq').length,
     troubleshootingCount: combinedData.troubleshootingItems!.length,
     troubleshootingFlowCount: combinedData.troubleshootingFlowItems!.length,
     outOfScopeCount: combinedData.outOfScopeItems!.length,

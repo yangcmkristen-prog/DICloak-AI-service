@@ -126,7 +126,9 @@ export function rerankCandidates(question: string, intent: QueryIntent, candidat
     const sharingCategory = teamAccountSharing && candidate.knowledgeType === "faq" && String(candidate.metadata.category ?? "") === "团队管理" && String(candidate.metadata.subcategory ?? "").includes("账号共享") ? 1 : 0;
     const categoricalCoverage = Math.max(outOfScopeCategory, sharingCategory);
     const baseCoverage = Math.max(coverage, structuralCoverage);
-    const rerankScore = retrievalConfig.rerank.rrf * (candidate.rrfScore / maxRrf) + retrievalConfig.rerank.vector * Math.max(0, candidate.vectorScore) + retrievalConfig.rerank.text * normalizedText + retrievalConfig.rerank.coverage * baseCoverage + retrievalConfig.rerank.categorical * categoricalCoverage + actionAdjustment(question, candidate) + keywordAliasAdjustment(question, candidate);
+    // 专用知识在相近分数下优先；通用问答只有明显更贴近用户原问时才越过它。
+    const sourcePriority = candidate.knowledgeType === 'general_faq' ? -0.03 : 0;
+    const rerankScore = retrievalConfig.rerank.rrf * (candidate.rrfScore / maxRrf) + retrievalConfig.rerank.vector * Math.max(0, candidate.vectorScore) + retrievalConfig.rerank.text * normalizedText + retrievalConfig.rerank.coverage * baseCoverage + retrievalConfig.rerank.categorical * categoricalCoverage + actionAdjustment(question, candidate) + keywordAliasAdjustment(question, candidate) + sourcePriority;
     return { ...candidate, rerankScore };
   }).sort((a, b) => b.rerankScore - a.rerankScore);
 }
