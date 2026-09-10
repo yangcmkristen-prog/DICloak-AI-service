@@ -36,7 +36,7 @@ test("website API parameters remain in the same endpoint chunk", () => {
   assert.match(built.chunks[0].text, /time_zone/);
 });
 
-test("building versions older than the published version are ignored", () => {
+test("only building versions newer than the published version are shown", () => {
   const published = { version: "published", status: "published", created_at: "2026-09-03T00:00:00.000Z" };
   const versions = [
     published,
@@ -47,8 +47,8 @@ test("building versions older than the published version are ignored", () => {
 
   const active = { version: "active", status: "building", created_at: "2026-09-04T00:00:00.000Z" };
   assert.equal(selectActiveBuildingVersion([active, ...versions], published, now)?.version, "active");
-  const timedOut = { version: "timed-out", status: "building", created_at: "2026-09-03T23:50:00.000Z" };
-  assert.equal(selectActiveBuildingVersion([timedOut, published], published, now), undefined);
+  const longRunning = { version: "long-running", status: "building", created_at: "2026-09-03T23:50:00.000Z" };
+  assert.equal(selectActiveBuildingVersion([longRunning, published], published, now)?.version, "long-running");
 });
 
 test("embeddings are reused when only metadata changed", () => {

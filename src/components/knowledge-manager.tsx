@@ -31,6 +31,7 @@ interface V2IndexPreview {
   total: number; added: number; changed: number; vectorChanged: number; metadataOnly: number; removed: number; unchanged: number;
   warnings: Array<{ code?: string; message?: string }>;
   publishedVersion: string | null; buildingVersion: string | null; buildingIndexed: number; buildingExpected: number;
+  buildingCreatedAt: string | null;
   failedVersion: string | null; failedError: string | null;
 }
 
@@ -337,18 +338,36 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   const handlePublishV2Index = async (): Promise<void> => {
     setIsPublishingV2Index(true);
     try {
-      const response = await fetch('/api/v2/index', { method: 'POST' });
-      const data = await response.json() as { started?: boolean; unchanged?: boolean; version?: string; preview?: V2IndexPreview; error?: string };
-      if (!response.ok) throw new Error(data.error || 'V2 发布失败');
-      if (data.unchanged) { if (data.preview) setV2IndexPreview(data.preview); toast.success('V2 知识库已是最新'); return; }
+      const startPublish = async (): Promise<{ version: string | null; unchanged: boolean }> => {
+        const response = await fetch('/api/v2/index', { method: 'POST' });
+        const data = await response.json() as { started?: boolean; unchanged?: boolean; version?: string; preview?: V2IndexPreview; error?: string };
+        if (!response.ok) throw new Error(data.error || 'V2 发布失败');
+        if (data.preview) setV2IndexPreview(data.preview);
+        return { version: data.version || null, unchanged: Boolean(data.unchanged) };
+      };
+      let started = await startPublish();
+      if (started.unchanged) { toast.success('V2 知识库已是最新'); return; }
+      if (!started.version) throw new Error('发布任务未返回版本号');
       toast.success('已开始在后台生成 V2 向量');
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 3000));
-        const preview = await refreshV2Index();
-        if (preview && preview.publishedVersion === data.version) { toast.success('V2 知识库发布成功'); return; }
-        if (preview && preview.failedVersion === data.version) throw new Error(preview.failedError || 'V2 后台发布失败');
+      for (let continuation = 0; continuation < 6; continuation += 1) {
+        const currentVersion = started.version;
+        let shouldContinue = false;
+        for (let attempt = 0; attempt < 110; attempt += 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 3000));
+          const preview = await refreshV2Index();
+          if (!preview) continue;
+          if (preview.publishedVersion === currentVersion) { toast.success('V2 知识库发布成功'); return; }
+          if (preview.failedVersion === currentVersion) { shouldContinue = true; break; }
+          const startedAt = preview.buildingVersion === currentVersion && preview.buildingCreatedAt ? new Date(preview.buildingCreatedAt).getTime() : 0;
+          if (startedAt && Date.now() - startedAt > 315_000) { shouldContinue = true; break; }
+        }
+        if (!shouldContinue) throw new Error('V2 后台发布长时间无状态更新');
+        toast.info(`发布任务已中断，正在从已有进度继续（${continuation + 1}/6）`);
+        started = await startPublish();
+        if (started.unchanged) { toast.success('V2 知识库发布成功'); return; }
+        if (!started.version) throw new Error('续跑任务未返回版本号');
       }
-      toast.info('后台仍在处理，可稍后点击刷新状态');
+      throw new Error('V2 发布多次中断，请稍后重试');
     } catch (error) { toast.error(error instanceof Error ? error.message : 'V2 发布失败'); }
     finally { setIsPublishingV2Index(false); }
   };
@@ -886,7 +905,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                   <p className="text-xs text-muted-foreground">{v2IndexPreview.buildingIndexed} / {v2IndexPreview.buildingExpected} 个分块</p>
                 </div>
               )}
-              {v2IndexPreview.failedError && <p className="text-sm text-red-600">最近一次发布失败：{v2IndexPreview.failedError}</p>}
+              {!v2IndexPreview.buildingVersion && v2IndexPreview.failedError && <p className="text-sm text-red-600">最近一次发布失败：{v2IndexPreview.failedError}</p>}
               {v2IndexPreview.warnings.length > 0 && <p className="text-sm text-red-600">检测到 {v2IndexPreview.warnings.length} 个知识格式问题，修复前不能发布。</p>}
             </div>
           ) : <p className="text-sm text-muted-foreground">点击“检测变化”对比网站知识库与当前正式 V2 索引。</p>}
