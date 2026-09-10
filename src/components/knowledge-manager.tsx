@@ -82,11 +82,13 @@ function mergeFileNames(existing: KnowledgeFileNames | undefined, next: Knowledg
     ...(next?.allFiles || []),
     ...[
       existing?.faqFile,
+      existing?.generalFaqFile,
       existing?.termFile,
       existing?.functionFile,
       existing?.apiFile,
       existing?.pricingFile,
       next?.faqFile,
+      next?.generalFaqFile,
       next?.termFile,
       next?.functionFile,
       next?.apiFile,
@@ -96,6 +98,7 @@ function mergeFileNames(existing: KnowledgeFileNames | undefined, next: Knowledg
 
   return {
     faqFile: next?.faqFile || existing?.faqFile,
+    generalFaqFile: next?.generalFaqFile || existing?.generalFaqFile,
     termFile: next?.termFile || existing?.termFile,
     functionFile: next?.functionFile || existing?.functionFile,
     apiFile: next?.apiFile || existing?.apiFile,
@@ -114,6 +117,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
   const [showResults, setShowResults] = useState(false);
   const [stats, setStats] = useState<{
     faqCount: number;
+    generalFaqCount: number;
     troubleshootingCount: number;
     troubleshootingFlowCount: number;
     outOfScopeCount: number;
@@ -127,6 +131,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     fileNames: KnowledgeFileNames;
   }>({
     faqCount: 0,
+    generalFaqCount: 0,
     troubleshootingCount: 0,
     troubleshootingFlowCount: 0,
     outOfScopeCount: 0,
@@ -139,6 +144,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     lastUpdated: 0,
     fileNames: {
       faqFile: undefined,
+      generalFaqFile: undefined,
       termFile: undefined,
       functionFile: undefined,
       apiFile: undefined,
@@ -435,7 +441,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
       // 如果有成功的结果，更新知识库
       const successResults = results.filter(r => r.success && r.data);
       if (successResults.length > 0) {
-        const combinedData: Partial<KnowledgeBase> = {
+        const onlyGeneralFaq = successResults.every(result => result.fileType === 'general_faq');
+        let combinedData: Partial<KnowledgeBase> = {
           faqItems: [],
           troubleshootingItems: [],
           troubleshootingFlowItems: [],
@@ -449,6 +456,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
           pricingRawTable: undefined,
           fileNames: {
             faqFile: '',
+            generalFaqFile: '',
             termFile: '',
             functionFile: '',
             apiFile: '',
@@ -456,6 +464,22 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
             allFiles: [],
           },
         };
+
+        // 通用问答库是独立知识源。单独上传时只替换上一次通用问答，保留原 FAQ、
+        // 功能、术语、排障、API 和价格数据，避免一次增量上传清空整套知识库。
+        if (onlyGeneralFaq) {
+          const currentResponse = await fetch('/api/config/knowledge', { cache: 'no-store' });
+          const currentPayload = currentResponse.ok ? await currentResponse.json() as { data?: Partial<KnowledgeBase>; isEmpty?: boolean } : {};
+          const current = !currentPayload.isEmpty && currentPayload.data ? currentPayload.data : {};
+          combinedData = {
+            ...current,
+            faqItems: (current.faqItems || []).filter(item => item.source !== 'general_faq'),
+            troubleshootingItems: current.troubleshootingItems || [], troubleshootingFlowItems: current.troubleshootingFlowItems || [],
+            outOfScopeItems: current.outOfScopeItems || [], mappingItems: current.mappingItems || [], functionKnowledge: current.functionKnowledge || [],
+            termItems: current.termItems || [], apiEndpoints: current.apiEndpoints || [], apiParameters: current.apiParameters || [], pricingPlans: current.pricingPlans || [],
+            fileNames: mergeFileNames(current.fileNames, undefined),
+          };
+        }
 
         for (const result of successResults) {
           if (result.data) {
@@ -482,6 +506,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
             ]));
             if (result.fileType === 'faq') {
               combinedData.fileNames!.faqFile = result.fileName;
+            } else if (result.fileType === 'general_faq') {
+              combinedData.fileNames!.generalFaqFile = result.fileName;
             } else if (result.fileType === 'term') {
               combinedData.fileNames!.termFile = result.fileName;
             } else if (result.fileType === 'function') {
@@ -656,7 +682,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
     } : null);
   };
 
-  const totalItems = stats.faqCount + stats.troubleshootingCount + stats.troubleshootingFlowCount + stats.outOfScopeCount +
+  const totalItems = stats.faqCount + stats.generalFaqCount + stats.troubleshootingCount + stats.troubleshootingFlowCount + stats.outOfScopeCount +
                      stats.mappingCount + stats.functionCount + stats.termCount +
                      stats.apiEndpointCount + stats.apiParameterCount + stats.pricingPlanCount;
 
@@ -672,7 +698,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
             Excel 文件导入
           </CardTitle>
           <CardDescription>
-            上传 FAQ库.xlsx、功能知识库.xlsx、术语库.xlsx 文件导入知识库
+            上传 FAQ库.xlsx、通用问答库.xlsx、功能知识库.xlsx、术语库.xlsx 文件导入知识库
+            。通用问答库使用“FAQ_ID、问题、答案、语言、产品、是否启用、问题类型、新分类”列。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -734,6 +761,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
                     {result.success && (
                       <div className="flex flex-wrap gap-3 mt-1 text-sm text-green-600 dark:text-green-400">
                         {result.stats.faqCount > 0 && <span>FAQ: {result.stats.faqCount}</span>}
+                        {result.stats.generalFaqCount > 0 && <span>通用问答: {result.stats.generalFaqCount}</span>}
                         {result.stats.troubleshootingCount > 0 && <span>排障: {result.stats.troubleshootingCount}</span>}
                         {result.stats.troubleshootingFlowCount > 0 && <span>多轮排障节点: {result.stats.troubleshootingFlowCount}</span>}
                         {result.stats.outOfScopeCount > 0 && <span>超范围: {result.stats.outOfScopeCount}</span>}
@@ -794,6 +822,7 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <StatCard label="FAQ" count={stats.faqCount} color="blue" />
+                <StatCard label="通用问答" count={stats.generalFaqCount} color="blue" />
                 <StatCard label="排障问题" count={stats.troubleshootingCount} color="orange" />
                 <StatCard label="多轮排障节点" count={stats.troubleshootingFlowCount} color="orange" />
                 <StatCard label="超范围问题" count={stats.outOfScopeCount} color="gray" />

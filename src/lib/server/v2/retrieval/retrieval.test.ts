@@ -2,11 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { extractSearchTerms, parseQuery } from "./query-parser.ts";
 import { calculateConfidence, reciprocalRankFusion, rerankCandidates } from "./ranking.ts";
-import { dedupeKnowledgeCandidates, runParallelRecall, runTimedOperation } from "./service.ts";
+import { buildRetrievalFilters, dedupeKnowledgeCandidates, runParallelRecall, runTimedOperation } from "./service.ts";
 import type { QueryIntent, RetrievalCandidate } from "./types.ts";
 
 const candidate = (id: string, overrides: Partial<RetrievalCandidate> = {}): RetrievalCandidate => ({ chunkId: id, knowledgeId: id.split("#")[0], title: id, text: "create profile POST /v1/env", metadata: {}, knowledgeType: "faq", apiType: null, apiVersion: null, products: ["dicloak"], source: "vector", sourceRank: 1, textScore: 0, vectorScore: 0.6, rrfScore: 0, rerankScore: 0, matchedBy: ["vector"], ...overrides });
 const intent = (overrides: Partial<QueryIntent> = {}): QueryIntent => ({ product: "dicloak", language: "en", knowledgeTypes: [], apiType: null, apiVersion: null, method: null, object: null, action: null, missingConditions: [], ...overrides });
+
+test("general FAQ participates as fallback without weakening API isolation", () => {
+  assert.deepEqual(buildRetrievalFilters(intent({ knowledgeTypes: ["function"] })).params[1], ["function", "general_faq"]);
+  assert.deepEqual(buildRetrievalFilters(intent({ knowledgeTypes: ["http_api", "local_api"] })).params[1], ["http_api", "local_api"]);
+});
 
 test("deterministic parser extracts product, language and strict API fields", () => {
   assert.deepEqual(parseQuery("DICloak HTTP API v1 POST object:env action:create", "paraturbo"), { product: "dicloak", language: "en", knowledgeTypes: ["http_api"], apiType: "http", apiVersion: "v1", method: "POST", object: "env", action: "create", missingConditions: [] });

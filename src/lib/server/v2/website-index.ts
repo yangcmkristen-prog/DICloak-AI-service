@@ -1,12 +1,12 @@
 import pg from "pg";
 import type { KnowledgeBase } from "@/lib/types";
 // The production CLI and website publisher intentionally share the same canonical adapters.
-import { adaptApi, adaptFaqWorkbook, adaptFunctions, adaptPricing, adaptTerminology } from "../../../../scripts/v2-knowledge/adapters.mjs";
+import { adaptApi, adaptFaqWorkbook, adaptFunctions, adaptGeneralFaqWorkbook, adaptPricing, adaptTerminology } from "../../../../scripts/v2-knowledge/adapters.mjs";
 import { chunkKnowledge, validateChunks } from "../../../../scripts/v2-knowledge/chunker.mjs";
 import { buildEmbeddingText, buildFullText, buildSearchMetadata } from "../../../../scripts/v2-search/embedding-text.mjs";
 
 type Row = Record<string, unknown>;
-interface StandardRecord { id: string; enabled: boolean }
+interface StandardRecord { id: string; type: string; enabled: boolean }
 interface StandardChunk { chunkId: string; knowledgeId: string; ordinal: number; title: string; text: string; contentHash: string; termIds: string[]; metadata: Record<string, unknown>; protectedFields: Array<{ kind: string; value: string }>; }
 interface IndexPreview { sourceUpdatedAt: string | null; total: number; added: number; changed: number; vectorChanged: number; metadataOnly: number; removed: number; unchanged: number; warnings: Array<{ code?: string; message?: string }>; publishedVersion: string | null; buildingVersion: string | null; buildingIndexed: number; buildingExpected: number; failedVersion: string | null; failedError: string | null }
 interface IndexVersionStatus { version: string; status: string; created_at: string | Date; indexed_chunks?: number; expected_chunks?: number; error_summary?: string | null }
@@ -27,15 +27,18 @@ const sheets = (values: Record<string, Row[]>): { sheetNames: string[]; rows: (s
 const product = (value: string): string => value === "all" ? "dicloak,paraturbo" : value;
 
 function faqRow(item: KnowledgeBase["faqItems"][number]): Row { return { FAQ_ID: item.faqId || item.id, "一级分类": item.category1, "二级分类": item.category2, "标签": item.tags.join(","), "标准问题（中文）": item.questionCN, "标准问题（英文）": item.questionEN, "用户问法": item.userPhrases, "标准答案": item.answer, function_id: item.functionId, term_id: item.termIds?.join(","), "优先级": item.priority }; }
+function generalFaqRow(item: KnowledgeBase["faqItems"][number]): Row { return { FAQ_ID: item.faqId || item.id, "问题": item.questionCN || item.questionEN || item.userPhrases, "答案": item.answer, "语言": item.language || (item.questionCN ? 'zh' : 'en'), "产品": item.supportedProduct || 'all', "是否启用": item.enabled !== false, "问题类型": item.problemType || item.category2, "新分类": item.category1 }; }
 
 export function buildWebsiteKnowledge(knowledge: KnowledgeBase, version: string): { records: StandardRecord[]; chunks: StandardChunk[]; warnings: Array<{ code?: string; message?: string }> } {
   const warnings: Array<{ code?: string; message?: string }> = [];
   const regularFaq = knowledge.faqItems.filter((item) => item.source === "feature_faq").map(faqRow);
+  const generalFaq = knowledge.faqItems.filter((item) => item.source === "general_faq").map(generalFaqRow);
   const routing = knowledge.faqItems.filter((item) => item.source === "user_routing").map(faqRow);
   const troubleshooting = knowledge.troubleshootingItems.map((item) => ({ ...faqRow(item), "标准答案（通用）": item.answer, "标准答案（client）": item.answerClient, "标准答案（end_user）": item.answerEndUser, "用户问法（英文）": item.userPhrases }));
   const outOfScope = knowledge.outOfScopeItems.map((item) => ({ ...faqRow(item), "标准答案（英文）": item.answer, sub_type: item.subType, "匹配规则": item.matchRule }));
   const flow = knowledge.troubleshootingFlowItems.map((item) => ({ FLOW_ID: item.flowId, FLOW_NAME: item.flowName, NODE_ID: item.nodeId, NODE_NAME: item.nodeName, NODE_TYPE: item.nodeType, "标准问题（中文）": item.questionCN, "用户问法": item.userPhrases, "标签": item.tags.join(","), "是否启用": item.enabled, PREREQUISITES: item.prerequisites, QUESTION: item.question, COLLECT_FIELD: item.collectField, MATCH_VALUE: item.matchValue, MATCH_KEYWORDS: item.matchKeywords, NEXT_NODE_ID: item.nextNodeId, SOLUTION: item.solution }));
   const faqWorkbook = sheets({ feature_faq: regularFaq, troubleshooting, user_routing: routing, out_of_scope: outOfScope, troubleshooting_flow: flow });
+  const generalFaqWorkbook = rows(generalFaq);
   const terms = rows(knowledge.termItems.map((item) => ({ term_id: item.termId || item.id, "一级模块": item.module1, "二级模块": item.module2, "中文": item.termCN, "英文": item.termEN, "俄语": item.termRU, "葡萄牙语（巴西）": item.termPT, "西班牙语": item.termES, "越南语": item.termVI, "术语类型": item.termType, "定义说明": item.definition, is_ui_visible: item.isUiVisible })));
   const functions = rows(knowledge.functionKnowledge.map((item) => ({
     function_id: item.functionId || item.id,
@@ -55,7 +58,7 @@ export function buildWebsiteKnowledge(knowledge: KnowledgeBase, version: string)
   const api = sheets({ "API 端点总表": endpointRows, "API 参数明细表": parameterRows });
   const pricing = rows(knowledge.pricingRawTable?.rows ?? []);
   const records = [
-    ...adaptFaqWorkbook({ workbook: faqWorkbook, file: "website", version, warnings }), ...adaptTerminology({ workbook: terms, file: "website", version, warnings }),
+    ...adaptFaqWorkbook({ workbook: faqWorkbook, file: "website", version, warnings }), ...adaptGeneralFaqWorkbook({ workbook: generalFaqWorkbook, file: "website-general-faq", version, warnings }), ...adaptTerminology({ workbook: terms, file: "website", version, warnings }),
     ...adaptFunctions({ workbook: functions, file: "website", version, warnings }), ...adaptApi({ workbook: api, file: "website", version, warnings }),
     ...adaptPricing({ workbook: pricing, file: "website", version, warnings }),
   ] as StandardRecord[];

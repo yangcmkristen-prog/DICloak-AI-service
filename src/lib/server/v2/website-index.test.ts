@@ -16,6 +16,16 @@ test("website knowledge is adapted into stable V2 chunks", () => {
   assert.match(built.chunks[0].text, /如何创建环境/);
 });
 
+test("website general FAQ is indexed as an independent fallback source", () => {
+  const knowledge = emptyKnowledge();
+  knowledge.faqItems.push({ id: "row-g1", faqId: "GFAQ-000001", source: "general_faq", category1: "账号与登录", category2: "账号问题", tags: [], questionCN: "", questionEN: "How much is registration?", userPhrases: "How much is registration?", answer: "Registration is free.", language: "en", supportedProduct: "all", enabled: true, problemType: "账号问题" });
+  const built = buildWebsiteKnowledge(knowledge, "test-version");
+  assert.equal(built.warnings.length, 0);
+  assert.equal(built.records[0].type, "general_faq");
+  assert.equal(built.chunks[0].knowledgeId, "GFAQ-000001");
+  assert.match(built.chunks[0].text, /Registration is free/);
+});
+
 test("website API parameters remain in the same endpoint chunk", () => {
   const knowledge = emptyKnowledge();
   knowledge.apiEndpoints.push({ id: "endpoint-1", apiId: "API-1", apiName: "编辑成员", apiType: "HTTP API", supportedProduct: "dicloak", searchKeywords: "edit member", method: "GET", endpoint: "/gin/v1/api/member/open/edit", description: "编辑成员", module: "member", object: "member", operation: "update", isSupported: true });

@@ -97,7 +97,7 @@ export interface Conversation {
 // FAQ 数据基础接口
 export interface FAQItem {
   id: string;
-  source: 'feature_faq' | 'user_routing' | 'troubleshooting' | 'out_of_scope' | 'mapping';
+  source: 'feature_faq' | 'general_faq' | 'user_routing' | 'troubleshooting' | 'out_of_scope' | 'mapping';
   category1: string;      // 一级分类
   category2: string;     // 二级分类
   tags: string[];        // 标签
@@ -109,6 +109,10 @@ export interface FAQItem {
   termIds?: string[];    // 关联的术语ID列表
   priority?: number;     // 优先级
   faqId: string;        // FAQ_ID
+  language?: string;    // 通用问答原始语言
+  supportedProduct?: SupportedProduct;
+  enabled?: boolean;
+  problemType?: string;
 }
 
 // Troubleshooting 专用字段
@@ -316,6 +320,7 @@ export interface KnowledgeBase {
   lastUpdated: number;
   fileNames?: {
     faqFile?: string;
+    generalFaqFile?: string;
     termFile?: string;
     functionFile?: string;
     apiFile?: string;
