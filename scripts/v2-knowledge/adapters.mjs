@@ -49,7 +49,7 @@ function generalFaqRecord({ values, row, file, sheet, version }) {
     tags: compact([values['新分类'] ?? values['分类'], values['问题类型']]),
     metadata: {
       category: text(values['新分类'] ?? values['分类']), problemType: text(values['问题类型']),
-      answer: text(values['答案']), originalAnswer: text(values['原答案']) || text(values['答案']),
+      answer: text(values['答案']), originalAnswer: text(values['原答案']),
       answerTemplateId: text(values['答案模板_ID']), priorityTier: 'fallback',
     },
     protectedFields: extractTextProtectedFields(values['答案'], '答案'),
