@@ -113,6 +113,8 @@ export interface FAQItem {
   supportedProduct?: SupportedProduct;
   enabled?: boolean;
   problemType?: string;
+  originalAnswer?: string;        // 导入时保留的原答案，供人工复查
+  answerTemplateId?: string;      // 同一标准答案模板的稳定分组 ID
 }
 
 // Troubleshooting 专用字段

@@ -24,6 +24,14 @@ test('embedding text and full text keep useful typed and protected fields withou
   for (const value of ['POST', '/api/v1/profiles', 'env_id', 'E1001']) assert.match(fullText, new RegExp(value.replaceAll('/', '\\/')));
 });
 
+test('general FAQ search text excludes the long answer while metadata can retain it', () => {
+  const faqRecord = record({ type: 'general_faq', title: 'Where is my license key?', canonicalQuestions: [{ language: 'en', text: 'Where is my license key?' }], utterances: [], body: 'A very long third-party support answer.', tags: ['第三方工具', '第三方问题'] });
+  const faqChunk = chunk({ type: 'general_faq', title: 'Where is my license key?', text: 'Where is my license key?', protectedFields: [], metadata: { answer: 'A very long third-party support answer.', answerTemplateId: 'TPL-THIRD-PARTY-AUTH' } });
+  assert.match(buildEmbeddingText(faqRecord, faqChunk), /license key/);
+  assert.doesNotMatch(buildEmbeddingText(faqRecord, faqChunk), /long third-party support answer/);
+  assert.doesNotMatch(buildFullText(faqRecord, faqChunk), /long third-party support answer/);
+});
+
 test('metadata contains required filters and API separation', () => {
   assert.deepEqual(buildSearchMetadata(record(), chunk()), { products: ['dicloak'], knowledgeType: 'http_api', enabled: true, knowledgeVersion: '1', apiType: 'http', apiVersion: 'v1', sourceLanguage: 'en', contentHash: 'chunk-hash' });
   assert.equal(buildSearchMetadata(record({ type: 'local_api' }), chunk({ type: 'local_api' })).apiType, 'local');

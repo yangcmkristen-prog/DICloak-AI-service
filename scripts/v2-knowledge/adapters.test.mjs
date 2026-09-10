@@ -37,7 +37,7 @@ test('通用问答保留语言、产品、分类并跳过禁用项分块', () =>
   const warnings = [];
   const records = adaptGeneralFaqWorkbook({
     workbook: workbook({ Sheet1: [
-      { FAQ_ID: 'GFAQ-000001', 问题: 'How much is registration?', 答案: 'Registration is free.', 语言: 'en', 产品: 'all', 是否启用: 1, 问题类型: '账号问题', 新分类: '账号与登录' },
+      { FAQ_ID: 'GFAQ-000001', 问题: 'How much is registration?', 答案: 'Registration is free.', 原答案: 'Original registration answer.', 答案模板_ID: 'TPL-ACCOUNT-FREE', 语言: 'en', 产品: 'all', 是否启用: 1, 问题类型: '账号问题', 新分类: '账号与登录' },
       { FAQ_ID: 'GFAQ-000002', 问题: 'Disabled', 答案: 'Do not use', 语言: 'en', 产品: 'dicloak', 是否启用: 0 },
     ] }), file: '通用问答库.xlsx', version: '1', warnings,
   });
@@ -46,7 +46,12 @@ test('通用问答保留语言、产品、分类并跳过禁用项分块', () =>
   assert.equal(records[0].sourceLanguage, 'en');
   assert.deepEqual(records[0].productScope, ['dicloak', 'paraturbo']);
   assert.deepEqual(records[0].tags, ['账号与登录', '账号问题']);
-  assert.deepEqual(chunkKnowledge(records).map((chunk) => chunk.knowledgeId), ['GFAQ-000001']);
+  assert.equal(records[0].metadata.answer, 'Registration is free.');
+  assert.equal(records[0].metadata.originalAnswer, 'Original registration answer.');
+  assert.equal(records[0].metadata.answerTemplateId, 'TPL-ACCOUNT-FREE');
+  const chunks = chunkKnowledge(records);
+  assert.doesNotMatch(chunks[0].text, /Registration is free/);
+  assert.deepEqual(chunks.map((chunk) => chunk.knowledgeId), ['GFAQ-000001']);
 });
 
 test('排障流程把同一节点的多条匹配分支聚合为一个稳定知识 ID', () => {

@@ -18,12 +18,16 @@ test("website knowledge is adapted into stable V2 chunks", () => {
 
 test("website general FAQ is indexed as an independent fallback source", () => {
   const knowledge = emptyKnowledge();
-  knowledge.faqItems.push({ id: "row-g1", faqId: "GFAQ-000001", source: "general_faq", category1: "账号与登录", category2: "账号问题", tags: [], questionCN: "", questionEN: "How much is registration?", userPhrases: "How much is registration?", answer: "Registration is free.", language: "en", supportedProduct: "all", enabled: true, problemType: "账号问题" });
+  knowledge.faqItems.push({ id: "row-g1", faqId: "GFAQ-000001", source: "general_faq", category1: "账号与登录", category2: "账号问题", tags: [], questionCN: "", questionEN: "How much is registration?", userPhrases: "How much is registration?", answer: "Registration is free.", originalAnswer: "Original answer.", answerTemplateId: "TPL-ACCOUNT-FREE", language: "en", supportedProduct: "all", enabled: true, problemType: "账号问题" });
   const built = buildWebsiteKnowledge(knowledge, "test-version");
   assert.equal(built.warnings.length, 0);
   assert.equal(built.records[0].type, "general_faq");
   assert.equal(built.chunks[0].knowledgeId, "GFAQ-000001");
-  assert.match(built.chunks[0].text, /Registration is free/);
+  assert.equal(built.chunks[0].metadata.answerTemplateId, "TPL-ACCOUNT-FREE");
+  assert.equal(built.chunks[0].metadata.originalAnswer, "Original answer.");
+  assert.equal(built.chunks[0].metadata.answer, "Registration is free.");
+  assert.doesNotMatch(built.chunks[0].text, /Registration is free/);
+  assert.match(built.chunks[0].text, /How much is registration/);
 });
 
 test("website API parameters remain in the same endpoint chunk", () => {

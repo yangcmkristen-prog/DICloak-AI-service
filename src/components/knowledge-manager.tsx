@@ -719,7 +719,8 @@ export function KnowledgeManager({ onPromptChange }: KnowledgeManagerProps) {
           </CardTitle>
           <CardDescription>
             上传 FAQ库.xlsx、通用问答库.xlsx、功能知识库.xlsx、术语库.xlsx 文件导入知识库
-            。通用问答库使用“FAQ_ID、问题、答案、语言、产品、是否启用、问题类型、新分类”列。
+            。通用问答库使用“FAQ_ID、问题、答案、语言、产品、是否启用、问题类型、新分类”列，
+            可选添加“原答案、答案模板_ID、模板复查标记”列。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

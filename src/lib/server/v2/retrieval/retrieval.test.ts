@@ -156,6 +156,16 @@ test("pricing results are diversified by feature instead of repeated by plan", (
   assert.deepEqual(dedupeKnowledgeCandidates(rows).map((row) => row.knowledgeId), ["PRICING:included members:base", "PRICING:base plan price:plus"]);
 });
 
+test("general FAQ candidates are diversified by answer template", () => {
+  const rows = [
+    candidate("FAQ-A", { knowledgeType: "general_faq", metadata: { answerTemplateId: "TPL-LOGIN" }, rerankScore: 0.8 }),
+    candidate("FAQ-B", { knowledgeType: "general_faq", metadata: { answerTemplateId: "TPL-LOGIN" }, rerankScore: 0.7 }),
+    candidate("FAQ-C", { knowledgeType: "general_faq", metadata: { answerTemplateId: "TPL-BILLING" }, rerankScore: 0.6 }),
+    candidate("FAQ-D", { knowledgeType: "general_faq", metadata: {}, rerankScore: 0.5 }),
+  ];
+  assert.deepEqual(dedupeKnowledgeCandidates(rows).map((row) => row.knowledgeId), ["FAQ-A", "FAQ-C", "FAQ-D"]);
+});
+
 test("confidence returns none for weak knowledge and low for conflicts", () => {
   assert.equal(calculateConfidence(intent(), [candidate("weak", { rerankScore: 0.19, vectorScore: 0.05, textScore: 0.05 })]).confidence, "none");
   const conflict = [candidate("http", { rerankScore: 0.7, apiType: "http" }), candidate("local", { rerankScore: 0.69, apiType: "local" })];

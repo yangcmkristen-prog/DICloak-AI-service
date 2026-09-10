@@ -117,11 +117,14 @@ function parseGeneralFAQSheet(sheet: XLSX.WorkSheet): FAQItem[] {
     const enabled = !['0', 'false', 'no', '否', '禁用', 'disabled'].includes(enabledRaw);
     const category = getCellValue(row['新分类']) || getCellValue(row['分类']);
     const problemType = getCellValue(row['问题类型']);
+    const originalAnswer = getCellValue(row['原答案']) || answer;
+    const answerTemplateId = getCellValue(row['答案模板_ID']);
     return [{
       id: generateId(), faqId, source: 'general_faq', category1: category, category2: problemType,
       tags: [category, problemType].filter(Boolean), questionCN: language === 'zh' ? question : '',
       questionEN: language === 'zh' ? '' : question, userPhrases: question, answer,
       language, supportedProduct: parseSupportedProduct(row['产品']), enabled, problemType,
+      originalAnswer, answerTemplateId,
     }];
   });
 }

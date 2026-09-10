@@ -15,6 +15,9 @@ export function buildSearchMetadata(record, chunk) {
 
 export function buildEmbeddingText(record, chunk) {
   const metadata = chunk.metadata;
+  if (chunk.type === 'general_faq') {
+    return unique(lines(chunk.title, record.canonicalQuestions.map((item) => item.text), record.utterances, record.tags)).join('\n');
+  }
   const common = lines(chunk.title, chunk.text, record.canonicalQuestions.map((item) => item.text), record.utterances, record.tags);
   if (chunk.type === 'function') common.push(...lines(metadata.functionName, metadata.module, metadata.page, metadata.keywordsZh, metadata.keywordsEn, metadata.uiLocation));
   if (chunk.type === 'http_api' || chunk.type === 'local_api') common.push(...lines(metadata.apiFamily, metadata.version, metadata.method, metadata.endpoint, namedValues(metadata.parameters), metadata.errorCodes));
@@ -24,6 +27,7 @@ export function buildEmbeddingText(record, chunk) {
 }
 
 export function buildFullText(record, chunk) {
+  if (chunk.type === 'general_faq') return buildEmbeddingText(record, chunk);
   const exact = chunk.protectedFields.map((field) => field.value);
   return unique(lines(buildEmbeddingText(record, chunk), exact, record.tags, record.utterances)).join('\n');
 }

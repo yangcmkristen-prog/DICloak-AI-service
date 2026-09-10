@@ -47,7 +47,11 @@ function generalFaqRecord({ values, row, file, sheet, version }) {
     title: question || text(values.FAQ_ID), canonicalQuestions: [{ language, text: question }],
     utterances: [], body: text(values['答案']), termIds: [],
     tags: compact([values['新分类'] ?? values['分类'], values['问题类型']]),
-    metadata: { category: text(values['新分类'] ?? values['分类']), problemType: text(values['问题类型']), priorityTier: 'fallback' },
+    metadata: {
+      category: text(values['新分类'] ?? values['分类']), problemType: text(values['问题类型']),
+      answer: text(values['答案']), originalAnswer: text(values['原答案']) || text(values['答案']),
+      answerTemplateId: text(values['答案模板_ID']), priorityTier: 'fallback',
+    },
     protectedFields: extractTextProtectedFields(values['答案'], '答案'),
     source: source(file, sheet, row), knowledgeVersion: version,
   });

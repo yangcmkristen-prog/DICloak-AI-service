@@ -34,6 +34,12 @@ test("direct 功能回答只把第一名传给生成模型", () => {
   assert.deepEqual(result.map((item) => item.knowledgeId), ["1"]);
 });
 
+test("通用问答检索正文与生成答案分离", () => {
+  const first = { ...candidate("GFAQ-1"), knowledgeType: "general_faq", apiType: null, text: "question-only search text", metadata: { answer: "Use the curated answer." } };
+  const result = selectGenerationKnowledge({ ...trace("direct"), selectedKnowledge: [first] }, "How?");
+  assert.equal(result[0].text, "Use the curated answer.");
+});
+
 test("功能概览允许生成模型整合同页面的三条互补知识", () => {
   const selectedKnowledge = Array.from({ length: 3 }, (_, index) => ({
     ...candidate(String(index + 1)), knowledgeType: "function", apiType: null,

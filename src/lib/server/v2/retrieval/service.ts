@@ -34,7 +34,11 @@ export async function runParallelRecall<T>(fulltext: () => Promise<T>, vector: (
 }
 
 export function dedupeKnowledgeCandidates(candidates: RetrievalCandidate[]): RetrievalCandidate[] {
-  const key = (candidate: RetrievalCandidate) => candidate.knowledgeType === "pricing" ? candidate.knowledgeId.replace(/:[^:]+$/, "") : candidate.knowledgeId;
+  const key = (candidate: RetrievalCandidate) => {
+    if (candidate.knowledgeType === "pricing") return candidate.knowledgeId.replace(/:[^:]+$/, "");
+    const templateId = candidate.knowledgeType === "general_faq" ? candidate.metadata.answerTemplateId : null;
+    return typeof templateId === "string" && templateId.trim() ? `answer-template:${templateId.trim()}` : candidate.knowledgeId;
+  };
   return candidates.filter((candidate, index, items) => items.findIndex((item) => key(item) === key(candidate)) === index);
 }
 
