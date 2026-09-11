@@ -1120,10 +1120,16 @@ export default function Home() {
       console.error("生成回复失败:", error);
       toast.error("生成回复失败，请稍后重试");
 
-      // 保留用户问题，只移除未通过验证的临时 AI 输出。
+      // V2 不删除回复卡片：服务端异常也要给客服留下明确、可见的结果。
       setConversations((prev) => {
         const updated = prev.map((c) => {
           if (c.id === requestConversationId) {
+            if (c.aiEngine === "v2") {
+              const fallback = "这个问题我们需要进一步确认，确认后会给您准确答复。";
+              return { ...c, messages: c.messages.some((message) => message.id === assistantMessageId)
+                ? c.messages.map((message) => message.id === assistantMessageId ? { ...message, content: fallback } : message)
+                : [...c.messages, { id: assistantMessageId, role: "assistant" as const, content: fallback, timestamp: Date.now() }] };
+            }
             return { ...c, messages: c.messages.filter((m) => m.id !== assistantMessageId) };
           }
           return c;

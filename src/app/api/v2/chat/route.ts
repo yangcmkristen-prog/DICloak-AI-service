@@ -6,7 +6,6 @@ import { prepareTerminologyPipeline } from "@/lib/server/v2/terminology/pipeline
 import type { SupportedTermLanguage, TerminologyKnowledge } from "@/lib/server/v2/terminology/types";
 import { buildV2Messages, confirmationRequiredReply, unsupportedFeatureReply, type V2PromptHistory } from "@/lib/server/v2/prompt";
 import { parseV2Envelope, V2VisibleStreamFilter } from "@/lib/server/v2/generation/protocol";
-import { validateV2Generation } from "@/lib/server/v2/generation/validation";
 import { completeV2Json, resolveV2ModelConfig, streamV2Model, type V2ModelUsage } from "@/lib/server/v2/generation/model";
 import { selectGenerationKnowledge } from "@/lib/server/v2/generation/context";
 import { logV2Route } from "@/lib/server/v2/logger";
@@ -87,43 +86,22 @@ export async function POST(request: NextRequest): Promise<Response> {
       if (!modelConfig) throw new Error("V2 主模型配置不完整，请配置独立 V2 模型");
       sendStatus("正在生成回复", "已准备选中知识，等待模型首个响应片段");
       let usage: V2ModelUsage = {}; let modelCalls = queryUnderstanding ? 1 : 0; let firstTokenMs: number | null = null; const generationStartedAt = performance.now();
-      const run = async (retryErrors?: string[], streamCustomer = false) => {
+      const run = async () => {
         modelCalls += 1;
         const filter = new V2VisibleStreamFilter(new Map(prepared.markers.map((marker) => [marker.marker, marker.value])));
-        const raw = await streamV2Model({ config: modelConfig, messages: buildV2Messages({ question, history, product, language: targetLanguage, trace, prepared, queryUnderstanding, retryErrors }), signal: request.signal,
-          onDelta: (delta) => { if (firstTokenMs === null) { firstTokenMs = Math.round(performance.now() - startedAt); sendStatus("正在生成回复", "已收到模型输出，完成前暂不可使用"); } const visible = filter.push(delta); if (streamCustomer && visible) controller.enqueue(encodeStreamEvent({ type: "delta", requestId, content: visible })); },
+        const raw = await streamV2Model({ config: modelConfig, messages: buildV2Messages({ question, history, product, language: targetLanguage, trace, prepared, queryUnderstanding }), signal: request.signal,
+          onDelta: (delta) => { if (firstTokenMs === null) { firstTokenMs = Math.round(performance.now() - startedAt); sendStatus("正在生成回复", "已收到模型输出，完成前暂不可使用"); } filter.push(delta); },
           onUsage: (next) => { usage = { prompt_tokens: (usage.prompt_tokens ?? 0) + (next.prompt_tokens ?? 0), completion_tokens: (usage.completion_tokens ?? 0) + (next.completion_tokens ?? 0), total_tokens: (usage.total_tokens ?? 0) + (next.total_tokens ?? 0) }; },
         });
-        const envelope = parseV2Envelope(raw); return { validation: validateV2Generation(envelope, trace, prepared), claims: envelope.claims };
+        const envelope = parseV2Envelope(raw);
+        const reply = prepared.markers.reduce((text, marker) => text.split(marker.marker).join(marker.value), envelope.reply);
+        return { reply, claims: envelope.claims };
       };
-      let generated: Awaited<ReturnType<typeof run>>; let retried = false;
-      try {
-        generated = await run(undefined, false);
-        if (!generated.validation.ok || !generated.validation.reply) throw new Error(`V2 回复验证失败：${generated.validation.errors.join(",")}`);
-      } catch (firstError) {
-        if (request.signal.aborted) throw firstError;
-        retried = true;
-        sendStatus("正在重新生成回复", "首次输出未通过格式或事实验证，正在自动重试");
-        const correction = firstError instanceof Error ? [firstError.message] : ["V2_OUTPUT_INVALID"];
-        generated = await run(correction, false);
-      }
-      if (!generated.validation.ok || !generated.validation.reply) {
-        const fallback = confirmationRequiredReply(targetLanguage);
-        const totalMs = Math.round(performance.now() - startedAt);
-        controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: {
-          ...baseMeta, usage, modelCalls, retry: retried, validationFallback: true,
-          validationErrors: generated.validation.errors, firstTokenMs,
-          generationMs: Math.round(performance.now() - generationStartedAt), totalMs,
-        } }));
-        sendStatus("正在完成回复", "生成内容未通过事实验证，已改用安全回复");
-        controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: fallback }));
-        controller.close();
-        return;
-      }
+      const generated = await run();
       const totalMs = Math.round(performance.now() - startedAt);
-      controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, usage, modelCalls, retry: retried, firstTokenMs, generationMs: Math.round(performance.now() - generationStartedAt), totalMs, claims: generated.claims } }));
-      sendStatus("正在完成回复", "事实、术语和技术字段验证通过");
-      controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: generated.validation.reply })); controller.close();
+      controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, usage, modelCalls, retry: false, validationDisabled: true, firstTokenMs, generationMs: Math.round(performance.now() - generationStartedAt), totalMs, claims: generated.claims } }));
+      sendStatus("正在完成回复", "模型回复已生成");
+      controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: generated.reply })); controller.close();
     } catch (error) { if (!request.signal.aborted) controller.enqueue(encodeStreamEvent({ type: "error", requestId, message: error instanceof Error ? error.message : "V2 生成失败" })); controller.close(); }
   } });
   return new Response(stream, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform", "Connection": "keep-alive", "x-request-id": requestId, "x-ai-engine": "v2", "x-ai-engine-version": typeof body.aiEngineVersion === "string" ? body.aiEngineVersion : "2.0-phase-6" } });
