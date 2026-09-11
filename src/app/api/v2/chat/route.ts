@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { encodeStreamEvent } from "@/lib/stream-events";
 import { retrieveV2, loadV2Terms, expandPricingKnowledge, preferRetrievalTrace } from "@/lib/server/v2/retrieval/service";
-import { buildQueryUnderstandingMessages, parseQueryUnderstanding, supplementalQueries } from "@/lib/server/v2/retrieval/query-understanding";
+import { buildQueryUnderstandingMessages, knowledgeTypesForTaskType, parseQueryUnderstanding, supplementalQueries } from "@/lib/server/v2/retrieval/query-understanding";
+import type { RetrievalTrace } from "@/lib/server/v2/retrieval/types";
 import { prepareTerminologyPipeline } from "@/lib/server/v2/terminology/pipeline";
 import type { SupportedTermLanguage, TerminologyKnowledge } from "@/lib/server/v2/terminology/types";
 import { buildV2Messages, confirmationRequiredReply, unsupportedFeatureReply, type V2PromptHistory } from "@/lib/server/v2/prompt";
@@ -41,10 +42,14 @@ export async function POST(request: NextRequest): Promise<Response> {
           queryUnderstanding = parseQueryUnderstanding(raw);
         } catch { queryUnderstanding = null; }
       }
+      const scopedKnowledgeTypes = queryUnderstanding ? knowledgeTypesForTaskType(queryUnderstanding.taskType) : undefined;
       const supplementalRetrievals = queryUnderstanding ? await Promise.all(supplementalQueries(queryUnderstanding, question)
-        .map((query) => retrieveV2(query, product, request.signal).catch(() => null))) : [];
-      const preferredRetrieval = supplementalRetrievals.reduce(preferRetrievalTrace, originalRetrieval);
-      const hasUsefulAmbiguousEvidence = Boolean(queryUnderstanding?.ambiguity) && (preferredRetrieval.evidenceConfidence === "high" || preferredRetrieval.evidenceConfidence === "medium") && preferredRetrieval.selectedKnowledge.length > 0;
+        .map((query) => retrieveV2(query, product, request.signal, scopedKnowledgeTypes).catch(() => null))) : [];
+      const usableSupplementalRetrievals = supplementalRetrievals.filter((trace): trace is RetrievalTrace => Boolean(trace && trace.evidenceConfidence !== "none" && trace.selectedKnowledge.length));
+      const preferredRetrieval = usableSupplementalRetrievals.length
+        ? usableSupplementalRetrievals.slice(1).reduce(preferRetrievalTrace, usableSupplementalRetrievals[0])
+        : originalRetrieval;
+      const hasUsefulAmbiguousEvidence = Boolean(queryUnderstanding?.ambiguity) && preferredRetrieval.selectedKnowledge.length > 0;
       const retrievalTrace = {
         ...preferredRetrieval,
         intent: { ...preferredRetrieval.intent, language: originalRetrieval.intent.language },
@@ -65,7 +70,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       const terminologyKnowledge: TerminologyKnowledge[] = trace.selectedKnowledge.map((item) => ({ id: item.knowledgeId, type: item.knowledgeType === "function" ? "function" : item.knowledgeType, sourceLanguage: item.sourceLanguage || String(item.metadata.sourceLanguage ?? "en"), body: item.text, termIds: item.termIds ?? [], metadata: item.metadata, protectedFields: item.protectedFields ?? [] }));
       const prepared = prepareTerminologyPipeline({ knowledge: terminologyKnowledge, terms, targetLanguage, branches: trace.branches });
       if (!prepared.ok) throw new Error(`V2 术语准备失败：${prepared.errors.map((item) => item.code).join(",")}`);
-      const baseMeta = { engine: "v2", knowledgeIds: trace.selectedKnowledge.map((item) => item.knowledgeId), evidenceConfidence: trace.evidenceConfidence, responseStrategy: trace.responseStrategy, language: targetLanguage, terminologyWarnings: prepared.warnings.map((item) => item.code), retrievalMs: trace.timings.total, queryUnderstanding: queryUnderstanding ? { normalizedQuery: queryUnderstanding.normalizedQuery, ambiguity: queryUnderstanding.ambiguity, confidence: queryUnderstanding.confidence } : undefined };
+      const baseMeta = { engine: "v2", knowledgeIds: trace.selectedKnowledge.map((item) => item.knowledgeId), evidenceConfidence: trace.evidenceConfidence, responseStrategy: trace.responseStrategy, language: targetLanguage, terminologyWarnings: prepared.warnings.map((item) => item.code), retrievalMs: trace.timings.total, queryUnderstanding: queryUnderstanding ? { normalizedQuery: queryUnderstanding.normalizedQuery, ambiguity: queryUnderstanding.ambiguity, taskType: queryUnderstanding.taskType, confidence: queryUnderstanding.confidence } : undefined };
       controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, retry: false } }));
       const isUnsupportedFeature = trace.responseStrategy === "unsupported" && trace.intent.knowledgeTypes.length === 1 && trace.intent.knowledgeTypes[0] === "function";
       if (trace.responseStrategy === "confirmation_required") {

@@ -610,7 +610,7 @@ function V2SingleReply({ message, onCopy, copiedId, isIncomplete }: { message: M
       <div className="mt-2 space-y-1 break-words">
         <p>知识 ID：{message.v2Debug.knowledgeIds?.join(", ") || "无"}</p>
         <p>置信度：{message.v2Debug.evidenceConfidence || "-"}；策略：{message.v2Debug.responseStrategy || "-"}；语言：{message.v2Debug.language || "-"}</p>
-        {message.v2Debug.queryUnderstanding?.normalizedQuery ? <p>问题理解：{message.v2Debug.queryUnderstanding.normalizedQuery}{message.v2Debug.queryUnderstanding.ambiguity ? `；歧义：${message.v2Debug.queryUnderstanding.ambiguity}` : ""}</p> : null}
+        {message.v2Debug.queryUnderstanding?.normalizedQuery ? <p>问题理解：{message.v2Debug.queryUnderstanding.normalizedQuery}；任务类型：{message.v2Debug.queryUnderstanding.taskType || "unknown"}{message.v2Debug.queryUnderstanding.ambiguity ? `；歧义：${message.v2Debug.queryUnderstanding.ambiguity}` : ""}</p> : null}
         <p>术语告警：{message.v2Debug.terminologyWarnings?.join(", ") || "无"}</p>
         <p>Token：{message.v2Debug.usage?.total_tokens ?? "-"}；首字：{message.v2Debug.firstTokenMs ?? "-"} ms；完整：{message.v2Debug.totalMs ?? "-"} ms</p>
         <p>模型：{message.v2Debug.model || "-"}</p>

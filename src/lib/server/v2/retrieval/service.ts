@@ -131,9 +131,11 @@ async function vectorRecall(vector: string, intent: QueryIntent): Promise<Retrie
   return result.rows.map((row, index) => candidate(row, "vector", index + 1));
 }
 
-export async function retrieveV2(question: string, product: "dicloak" | "paraturbo" = "dicloak", signal?: AbortSignal): Promise<RetrievalTrace> {
+export async function retrieveV2(question: string, product: "dicloak" | "paraturbo" = "dicloak", signal?: AbortSignal, knowledgeTypes?: string[]): Promise<RetrievalTrace> {
   const totalStarted = performance.now(); const timings: Record<string, number> = {}; const degradedRoutes: string[] = [];
-  const intent = parseQuery(question, product); const scoped = buildRetrievalFilters(intent);
+  const parsedIntent = parseQuery(question, product);
+  const intent = knowledgeTypes?.length ? { ...parsedIntent, knowledgeTypes } : parsedIntent;
+  const scoped = buildRetrievalFilters(intent);
   const textTask = runTimedOperation("全文召回", () => fulltextRecall(question, intent), signal);
   const embeddingTask = runTimedOperation("查询 embedding", (taskSignal) => embedQuery(question, taskSignal), signal, retrievalConfig.embeddingTimeoutMs);
   const [textResult, embeddingResult] = await Promise.all([textTask, embeddingTask]);
