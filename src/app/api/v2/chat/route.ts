@@ -5,7 +5,7 @@ import { buildQueryUnderstandingMessages, parseQueryUnderstanding, supplementalQ
 import { prepareTerminologyPipeline } from "@/lib/server/v2/terminology/pipeline";
 import type { SupportedTermLanguage, TerminologyKnowledge } from "@/lib/server/v2/terminology/types";
 import { buildV2Messages, confirmationRequiredReply, unsupportedFeatureReply, type V2PromptHistory } from "@/lib/server/v2/prompt";
-import { completeV2Json, resolveV2ModelConfig, streamV2Model, type V2ModelUsage } from "@/lib/server/v2/generation/model";
+import { completeV2Json, resolveV2ModelConfig, streamV2Model, V2ModelRequestError, type V2ModelUsage } from "@/lib/server/v2/generation/model";
 import { selectGenerationKnowledge } from "@/lib/server/v2/generation/context";
 import { logV2Route } from "@/lib/server/v2/logger";
 
@@ -97,18 +97,27 @@ export async function POST(request: NextRequest): Promise<Response> {
       };
       let generated: string;
       let generationError: string | undefined;
+      let generationHttpStatus: number | undefined; let generationProviderType: string | undefined;
+      let generationProviderCode: string | undefined; let generationProviderParam: string | undefined;
       try {
         generated = await run();
       } catch (error) {
         if (request.signal.aborted) throw error;
         generationError = error instanceof Error ? error.message : "V2_MODEL_FAILED";
-        const groundedFallback = trace.selectedKnowledge[0]?.text?.trim();
-        generated = groundedFallback
-          ? prepared.markers.reduce((text, marker) => text.split(marker.marker).join(marker.value), groundedFallback)
-          : confirmationRequiredReply(targetLanguage);
+        if (error instanceof V2ModelRequestError) {
+          generationHttpStatus = error.status; generationProviderType = error.providerType;
+          generationProviderCode = error.providerCode; generationProviderParam = error.providerParam;
+        }
+        const primary = trace.selectedKnowledge[0];
+        const primaryPrepared = primary ? prepared.knowledge.find((item) => item.knowledgeId === primary.knowledgeId) : undefined;
+        const groundedFallback = primaryPrepared?.naturalLanguageFields.standardAnswer?.trim()
+          || primaryPrepared?.naturalLanguageFields.steps?.trim()
+          || primary?.text?.trim()
+          || "Model generation failed.";
+        generated = prepared.markers.reduce((text, marker) => text.split(marker.marker).join(marker.value), groundedFallback);
       }
       const totalMs = Math.round(performance.now() - startedAt);
-      controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, usage, modelCalls, retry: false, validationDisabled: true, generationFallback: Boolean(generationError), generationError, firstTokenMs, generationMs: Math.round(performance.now() - generationStartedAt), totalMs } }));
+      controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, model: modelConfig.model, usage, modelCalls, retry: false, validationDisabled: true, generationFallback: Boolean(generationError), generationError, generationHttpStatus, generationProviderType, generationProviderCode, generationProviderParam, firstTokenMs, generationMs: Math.round(performance.now() - generationStartedAt), totalMs } }));
       sendStatus("正在完成回复", generationError ? "模型调用异常，已使用已命中知识回答" : "模型回复已生成");
       controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: generated })); controller.close();
     } catch (error) { if (!request.signal.aborted) controller.enqueue(encodeStreamEvent({ type: "error", requestId, message: error instanceof Error ? error.message : "V2 生成失败" })); controller.close(); }

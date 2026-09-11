@@ -31,6 +31,11 @@ export interface Message {
     retry?: boolean;
     generationFallback?: boolean;
     generationError?: string;
+    generationHttpStatus?: number;
+    generationProviderType?: string;
+    generationProviderCode?: string;
+    generationProviderParam?: string;
+    model?: string;
     firstTokenMs?: number | null;
     totalMs?: number;
     claims?: Array<{ text: string; knowledgeIds: string[] }>;

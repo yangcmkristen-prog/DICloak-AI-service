@@ -3,6 +3,11 @@ import { consumeOpenAIStream } from "@/lib/server/openai-stream";
 
 export interface V2ModelUsage { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
 export interface V2ModelConfig { baseUrl: string; apiKey: string; model: string }
+export class V2ModelRequestError extends Error {
+  constructor(message: string, public readonly status: number, public readonly providerType?: string, public readonly providerCode?: string, public readonly providerParam?: string) {
+    super(message); this.name = "V2ModelRequestError";
+  }
+}
 
 interface StoredConfig { apiKey?: unknown; baseUrl?: unknown; v2Model?: unknown; customConfig?: { endpoint?: unknown } }
 
@@ -50,7 +55,22 @@ export async function streamV2Model(input: { config: V2ModelConfig; messages: Ar
     headers: { authorization: `Bearer ${input.config.apiKey}`, "content-type": "application/json" },
     body: JSON.stringify({ model: input.config.model, messages: input.messages, temperature: 0.1, max_completion_tokens: maxCompletionTokens, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}), stream: true, stream_options: { include_usage: true } }),
   });
-  if (!response.ok) throw new Error(`V2 主模型调用失败：HTTP ${response.status}`);
+  if (!response.ok) {
+    const raw = (await response.text()).slice(0, 1200);
+    let detail = raw;
+    let providerType: string | undefined; let providerCode: string | undefined; let providerParam: string | undefined;
+    try {
+      const parsed = JSON.parse(raw) as { error?: { message?: unknown; type?: unknown; code?: unknown; param?: unknown } };
+      const error = parsed.error;
+      if (error) {
+        detail = typeof error.message === "string" ? error.message : raw;
+        providerType = typeof error.type === "string" ? error.type : undefined;
+        providerCode = typeof error.code === "string" ? error.code : undefined;
+        providerParam = typeof error.param === "string" ? error.param : undefined;
+      }
+    } catch { /* keep the truncated provider response */ }
+    throw new V2ModelRequestError(`V2 主模型调用失败：HTTP ${response.status}${detail ? `；${detail}` : ""}`, response.status, providerType, providerCode, providerParam);
+  }
   if (!response.body) throw new Error("V2 主模型没有返回响应流");
   return consumeOpenAIStream(response.body, input.onDelta, { signal: input.signal, onUsage: (usage) => input.onUsage(usage as V2ModelUsage) });
 }
