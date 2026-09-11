@@ -36,7 +36,7 @@ const terms = (value: string) => {
 export type ActionIntent = "configure" | "inspect" | "view" | "create" | "delete" | "import" | "export" | "open" | "close" | "enable" | "disable" | "reset";
 
 const ACTION_PATTERNS: ReadonlyArray<[ActionIntent, RegExp]> = [
-  ["inspect", /(?:检测|测试|校验|验证|诊断|排查|连通性|可用性|провер|тест|диагност|kiểm tra)|\b(?:detect|test|check|verify|diagnos|connectivity|availability|detectar|testar|verificar|comprobar|probar)\w*\b/i],
+  ["inspect", /(?:检测|校验|验证|诊断|排查|连通性|可用性|провер|диагност|kiểm tra)|\b(?:detect|check|verify|diagnos|connectivity|availability|detectar|verificar|comprobar)\w*\b|\b(?:test|testar|probar)\w*\b.{0,20}\b(?:proxy|proxies)\b|(?:测试|тест).{0,12}(?:代理|прокси)/i],
   ["configure", /(?:修改|编辑|配置|设置|更换|替换|换成|换掉|换|更改|调整|更新|改成|变更|редакт|измен|замен|настро|cấu hình|chỉnh sửa|thay đổi)|\b(?:edit|modify|configur|setting|settings|change|replace|swap|update|alter|editar|modificar|configurar|ajustar|cambiar|reemplazar|actualizar|trocar|substituir)\w*\b/i],
   ["create", /(?:创建|新建|添加|新增|建立|生成|созда|добав|tạo|thêm)|\b(?:create|add|new|generate|criar|adicionar|crear|agregar)\w*\b/i],
   ["delete", /(?:删除|移除|清除|注销|удал|xóa|gỡ)|\b(?:delete|remove|clear|erase|deletar|remover|eliminar|borrar)\w*\b/i],
@@ -127,7 +127,9 @@ export function rerankCandidates(question: string, intent: QueryIntent, candidat
     const categoricalCoverage = Math.max(outOfScopeCategory, sharingCategory);
     const baseCoverage = Math.max(coverage, structuralCoverage);
     // 专用知识在相近分数下优先；通用问答只有明显更贴近用户原问时才越过它。
-    const sourcePriority = candidate.knowledgeType === 'general_faq' ? -0.03 : 0;
+    const sourcePriority = candidate.knowledgeType === "general_faq"
+      ? intent.knowledgeTypes.includes("function") ? -0.12 : -0.03
+      : 0;
     const rerankScore = retrievalConfig.rerank.rrf * (candidate.rrfScore / maxRrf) + retrievalConfig.rerank.vector * Math.max(0, candidate.vectorScore) + retrievalConfig.rerank.text * normalizedText + retrievalConfig.rerank.coverage * baseCoverage + retrievalConfig.rerank.categorical * categoricalCoverage + actionAdjustment(question, candidate) + keywordAliasAdjustment(question, candidate) + sourcePriority;
     return { ...candidate, rerankScore };
   }).sort((a, b) => b.rerankScore - a.rerankScore);
@@ -149,6 +151,9 @@ export function calculateConfidence(intent: QueryIntent, candidates: RetrievalCa
   const deterministicOutOfScope = intent.knowledgeTypes.length === 1 && intent.knowledgeTypes[0] === "out_of_scope" && candidates.slice(0, 4).every((candidate) => candidate.knowledgeType === "out_of_scope");
   if (deterministicOutOfScope) return { confidence: "medium", reasons: [...reasons, "确定性识别为非产品支持范围"] };
   if (effectiveMissing.length >= 2 && first.rerankScore < retrievalConfig.confidence.medium) return { confidence: "none", reasons: [...reasons, "结构化条件不足且候选不够强"] };
+  const strongFuzzyFunctionMatch = intent.knowledgeTypes.length === 1 && intent.knowledgeTypes[0] === "function"
+    && first.knowledgeType === "function" && first.textScore >= 0.45 && gap >= retrievalConfig.confidence.strongGap;
+  if (strongFuzzyFunctionMatch) return { confidence: "medium", reasons: [...reasons, "功能候选具备强词形匹配且明显领先"] };
   if (first.rerankScore < retrievalConfig.confidence.minimum) {
     const typoTolerantFunction = !["zh", "en"].includes(intent.language) && first.knowledgeType === "function" && candidates.slice(0, 3).every((candidate) => candidate.knowledgeType === "function") && first.vectorScore >= 0.18 && gap >= retrievalConfig.confidence.weakGap;
     if (typoTolerantFunction) return { confidence: "medium", reasons: [...reasons, "多语言功能意图一致，容忍明显拼写偏差"] };

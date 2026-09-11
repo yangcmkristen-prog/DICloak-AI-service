@@ -174,10 +174,31 @@ test("supplemental retrieval replaces the original only with materially better e
   assert.equal(preferRetrievalTrace(base, speculative).reranked[0].knowledgeId, "WRONG");
 });
 
+test("noisy English feature wording is still scoped to function knowledge", () => {
+  assert.deepEqual(parseQuery("Just came across your websites and would like to test simulated input display").knowledgeTypes, ["function"]);
+  assert.deepEqual(extractSearchTerms("Just came across your websites and would like to test simulated input display"), ["test", "simulated", "input", "display"]);
+});
+
+test("function intent does not let generic FAQ wording outrank product functions", () => {
+  const ranked = rerankCandidates("test simulated input display", intent({ knowledgeTypes: ["function"] }), [
+    candidate("FAQ", { knowledgeType: "general_faq", textScore: 0.4, vectorScore: 0.35, rrfScore: 0.03 }),
+    candidate("FUNCTION", { knowledgeType: "function", textScore: 0.35, vectorScore: 0.35, rrfScore: 0.03 }),
+  ]);
+  assert.equal(ranked[0].knowledgeId, "FUNCTION");
+});
+
 test("confidence returns none for weak knowledge and low for conflicts", () => {
   assert.equal(calculateConfidence(intent(), [candidate("weak", { rerankScore: 0.19, vectorScore: 0.05, textScore: 0.05 })]).confidence, "none");
   const conflict = [candidate("http", { rerankScore: 0.7, apiType: "http" }), candidate("local", { rerankScore: 0.69, apiType: "local" })];
   assert.equal(calculateConfidence(intent({ apiType: "http" }), conflict).confidence, "low");
+});
+
+test("strong fuzzy function match is usable when it clearly leads alternatives", () => {
+  const result = calculateConfidence(intent({ knowledgeTypes: ["function"] }), [
+    candidate("FUNC-USER-007", { knowledgeType: "function", rerankScore: 0.27, textScore: 0.5 }),
+    candidate("OTHER", { knowledgeType: "function", rerankScore: 0.06, textScore: 0.25 }),
+  ]);
+  assert.equal(result.confidence, "medium");
 });
 
 test("confidence accepts a consistent generic API family and typo-tolerant multilingual function", () => {
