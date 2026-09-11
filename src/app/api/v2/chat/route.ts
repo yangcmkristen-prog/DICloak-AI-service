@@ -95,10 +95,21 @@ export async function POST(request: NextRequest): Promise<Response> {
         if (!reply) throw new Error("V2 主模型没有返回回复内容");
         return reply;
       };
-      const generated = await run();
+      let generated: string;
+      let generationError: string | undefined;
+      try {
+        generated = await run();
+      } catch (error) {
+        if (request.signal.aborted) throw error;
+        generationError = error instanceof Error ? error.message : "V2_MODEL_FAILED";
+        const groundedFallback = trace.selectedKnowledge[0]?.text?.trim();
+        generated = groundedFallback
+          ? prepared.markers.reduce((text, marker) => text.split(marker.marker).join(marker.value), groundedFallback)
+          : confirmationRequiredReply(targetLanguage);
+      }
       const totalMs = Math.round(performance.now() - startedAt);
-      controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, usage, modelCalls, retry: false, validationDisabled: true, firstTokenMs, generationMs: Math.round(performance.now() - generationStartedAt), totalMs } }));
-      sendStatus("正在完成回复", "模型回复已生成");
+      controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, usage, modelCalls, retry: false, validationDisabled: true, generationFallback: Boolean(generationError), generationError, firstTokenMs, generationMs: Math.round(performance.now() - generationStartedAt), totalMs } }));
+      sendStatus("正在完成回复", generationError ? "模型调用异常，已使用已命中知识回答" : "模型回复已生成");
       controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: generated })); controller.close();
     } catch (error) { if (!request.signal.aborted) controller.enqueue(encodeStreamEvent({ type: "error", requestId, message: error instanceof Error ? error.message : "V2 生成失败" })); controller.close(); }
   } });

@@ -614,6 +614,7 @@ function V2SingleReply({ message, onCopy, copiedId, isIncomplete }: { message: M
         <p>术语告警：{message.v2Debug.terminologyWarnings?.join(", ") || "无"}</p>
         <p>Token：{message.v2Debug.usage?.total_tokens ?? "-"}；首字：{message.v2Debug.firstTokenMs ?? "-"} ms；完整：{message.v2Debug.totalMs ?? "-"} ms</p>
         <p>模型调用：{message.v2Debug.modelCalls ?? 1}；受控重试：{message.v2Debug.retry ? "是" : "否"}</p>
+        {message.v2Debug.generationFallback ? <p className="text-amber-600">生成降级：是；原因：{message.v2Debug.generationError || "模型调用异常"}</p> : null}
       </div>
     </details> : null}
   </div>;

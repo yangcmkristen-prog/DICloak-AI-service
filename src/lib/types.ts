@@ -29,6 +29,8 @@ export interface Message {
     usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
     modelCalls?: number;
     retry?: boolean;
+    generationFallback?: boolean;
+    generationError?: string;
     firstTokenMs?: number | null;
     totalMs?: number;
     claims?: Array<{ text: string; knowledgeIds: string[] }>;
