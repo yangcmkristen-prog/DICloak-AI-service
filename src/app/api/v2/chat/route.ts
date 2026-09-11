@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { encodeStreamEvent } from "@/lib/stream-events";
-import { retrieveV2, loadV2Terms, expandPricingKnowledge } from "@/lib/server/v2/retrieval/service";
+import { retrieveV2, loadV2Terms, expandPricingKnowledge, preferRetrievalTrace } from "@/lib/server/v2/retrieval/service";
+import { buildQueryUnderstandingMessages, parseQueryUnderstanding, supplementalQueries } from "@/lib/server/v2/retrieval/query-understanding";
 import { prepareTerminologyPipeline } from "@/lib/server/v2/terminology/pipeline";
 import type { SupportedTermLanguage, TerminologyKnowledge } from "@/lib/server/v2/terminology/types";
 import { buildV2Messages, confirmationRequiredReply, unsupportedFeatureReply, type V2PromptHistory } from "@/lib/server/v2/prompt";
 import { parseV2Envelope, V2VisibleStreamFilter } from "@/lib/server/v2/generation/protocol";
 import { validateV2Generation } from "@/lib/server/v2/generation/validation";
-import { resolveV2ModelConfig, streamV2Model, type V2ModelUsage } from "@/lib/server/v2/generation/model";
+import { completeV2Json, resolveV2ModelConfig, streamV2Model, type V2ModelUsage } from "@/lib/server/v2/generation/model";
 import { selectGenerationKnowledge } from "@/lib/server/v2/generation/context";
 import { logV2Route } from "@/lib/server/v2/logger";
 
@@ -32,8 +33,29 @@ export async function POST(request: NextRequest): Promise<Response> {
   const stream = new ReadableStream<Uint8Array>({ async start(controller) {
     const sendStatus = (label: string, detail?: string): void => controller.enqueue(encodeStreamEvent({ type: "status", requestId, label, detail, elapsedMs: Math.round(performance.now() - startedAt) }));
     try {
-      sendStatus("正在检索相关知识", "并行执行全文和向量召回");
-      const [retrievalTrace, modelConfig] = await Promise.all([retrieveV2(question, product, request.signal), resolveV2ModelConfig()]);
+      sendStatus("正在理解问题并检索知识", "问题理解与原文召回并行执行");
+      const modelConfigPromise = resolveV2ModelConfig();
+      const understandingPromise = modelConfigPromise.then(async (config) => {
+        if (!config) return null;
+        try {
+          const raw = await completeV2Json({ config, model: process.env.V2_QUERY_MODEL || config.model, signal: request.signal, maxCompletionTokens: 768, messages: buildQueryUnderstandingMessages(question, product) });
+          return parseQueryUnderstanding(raw);
+        } catch { return null; }
+      });
+      const [originalRetrieval, modelConfig] = await Promise.all([retrieveV2(question, product, request.signal), modelConfigPromise]);
+      const queryUnderstanding = originalRetrieval.evidenceConfidence === "high" ? null : await understandingPromise;
+      const supplementalRetrievals = queryUnderstanding ? await Promise.all(supplementalQueries(queryUnderstanding, question)
+        .map((query) => retrieveV2(query, product, request.signal).catch(() => null))) : [];
+      const preferredRetrieval = supplementalRetrievals.reduce(preferRetrievalTrace, originalRetrieval);
+      const hasUsefulAmbiguousEvidence = Boolean(queryUnderstanding?.ambiguity) && (preferredRetrieval.evidenceConfidence === "high" || preferredRetrieval.evidenceConfidence === "medium") && preferredRetrieval.selectedKnowledge.length > 0;
+      const retrievalTrace = {
+        ...preferredRetrieval,
+        intent: { ...preferredRetrieval.intent, language: originalRetrieval.intent.language },
+        ...(queryUnderstanding?.ambiguity ? {
+          responseStrategy: hasUsefulAmbiguousEvidence ? "answer_then_clarify" as const : "clarify_only" as const,
+          optionalFollowUpFields: [queryUnderstanding.ambiguity],
+        } : {}),
+      };
       const expandedKnowledge = await expandPricingKnowledge(retrievalTrace.selectedKnowledge, question);
       const selectedKnowledge = selectGenerationKnowledge({ ...retrievalTrace, selectedKnowledge: expandedKnowledge }, question);
       const selectedIds = new Set(selectedKnowledge.map((item) => item.knowledgeId));
@@ -46,7 +68,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       const terminologyKnowledge: TerminologyKnowledge[] = trace.selectedKnowledge.map((item) => ({ id: item.knowledgeId, type: item.knowledgeType === "function" ? "function" : item.knowledgeType, sourceLanguage: item.sourceLanguage || String(item.metadata.sourceLanguage ?? "en"), body: item.text, termIds: item.termIds ?? [], metadata: item.metadata, protectedFields: item.protectedFields ?? [] }));
       const prepared = prepareTerminologyPipeline({ knowledge: terminologyKnowledge, terms, targetLanguage, branches: trace.branches });
       if (!prepared.ok) throw new Error(`V2 术语准备失败：${prepared.errors.map((item) => item.code).join(",")}`);
-      const baseMeta = { engine: "v2", knowledgeIds: trace.selectedKnowledge.map((item) => item.knowledgeId), evidenceConfidence: trace.evidenceConfidence, responseStrategy: trace.responseStrategy, language: targetLanguage, terminologyWarnings: prepared.warnings.map((item) => item.code), retrievalMs: trace.timings.total };
+      const baseMeta = { engine: "v2", knowledgeIds: trace.selectedKnowledge.map((item) => item.knowledgeId), evidenceConfidence: trace.evidenceConfidence, responseStrategy: trace.responseStrategy, language: targetLanguage, terminologyWarnings: prepared.warnings.map((item) => item.code), retrievalMs: trace.timings.total, queryUnderstanding: queryUnderstanding ? { normalizedQuery: queryUnderstanding.normalizedQuery, ambiguity: queryUnderstanding.ambiguity, confidence: queryUnderstanding.confidence } : undefined };
       controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, retry: false } }));
       const isUnsupportedFeature = trace.responseStrategy === "unsupported" && trace.intent.knowledgeTypes.length === 1 && trace.intent.knowledgeTypes[0] === "function";
       if (trace.responseStrategy === "confirmation_required") {
@@ -65,11 +87,11 @@ export async function POST(request: NextRequest): Promise<Response> {
       }
       if (!modelConfig) throw new Error("V2 主模型配置不完整，请配置独立 V2 模型");
       sendStatus("正在生成回复", "已准备选中知识，等待模型首个响应片段");
-      let usage: V2ModelUsage = {}; let modelCalls = 0; let firstTokenMs: number | null = null; const generationStartedAt = performance.now();
+      let usage: V2ModelUsage = {}; let modelCalls = modelConfig ? 1 : 0; let firstTokenMs: number | null = null; const generationStartedAt = performance.now();
       const run = async (retryErrors?: string[], streamCustomer = false) => {
         modelCalls += 1;
         const filter = new V2VisibleStreamFilter(new Map(prepared.markers.map((marker) => [marker.marker, marker.value])));
-        const raw = await streamV2Model({ config: modelConfig, messages: buildV2Messages({ question, history, product, language: targetLanguage, trace, prepared, retryErrors }), signal: request.signal,
+        const raw = await streamV2Model({ config: modelConfig, messages: buildV2Messages({ question, history, product, language: targetLanguage, trace, prepared, queryUnderstanding, retryErrors }), signal: request.signal,
           onDelta: (delta) => { if (firstTokenMs === null) { firstTokenMs = Math.round(performance.now() - startedAt); sendStatus("正在生成回复", "已收到模型输出，完成前暂不可使用"); } const visible = filter.push(delta); if (streamCustomer && visible) controller.enqueue(encodeStreamEvent({ type: "delta", requestId, content: visible })); },
           onUsage: (next) => { usage = { prompt_tokens: (usage.prompt_tokens ?? 0) + (next.prompt_tokens ?? 0), completion_tokens: (usage.completion_tokens ?? 0) + (next.completion_tokens ?? 0), total_tokens: (usage.total_tokens ?? 0) + (next.total_tokens ?? 0) }; },
         });

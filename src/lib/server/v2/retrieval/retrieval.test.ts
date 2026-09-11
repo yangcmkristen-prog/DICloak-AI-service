@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { extractSearchTerms, parseQuery } from "./query-parser.ts";
 import { calculateConfidence, reciprocalRankFusion, rerankCandidates } from "./ranking.ts";
-import { buildRetrievalFilters, dedupeKnowledgeCandidates, runParallelRecall, runTimedOperation } from "./service.ts";
-import type { QueryIntent, RetrievalCandidate } from "./types.ts";
+import { buildRetrievalFilters, dedupeKnowledgeCandidates, preferRetrievalTrace, runParallelRecall, runTimedOperation } from "./service.ts";
+import type { QueryIntent, RetrievalCandidate, RetrievalTrace } from "./types.ts";
 
 const candidate = (id: string, overrides: Partial<RetrievalCandidate> = {}): RetrievalCandidate => ({ chunkId: id, knowledgeId: id.split("#")[0], title: id, text: "create profile POST /v1/env", metadata: {}, knowledgeType: "faq", apiType: null, apiVersion: null, products: ["dicloak"], source: "vector", sourceRank: 1, textScore: 0, vectorScore: 0.6, rrfScore: 0, rerankScore: 0, matchedBy: ["vector"], ...overrides });
 const intent = (overrides: Partial<QueryIntent> = {}): QueryIntent => ({ product: "dicloak", language: "en", knowledgeTypes: [], apiType: null, apiVersion: null, method: null, object: null, action: null, missingConditions: [], ...overrides });
@@ -164,6 +164,14 @@ test("general FAQ candidates are diversified by answer template", () => {
     candidate("FAQ-D", { knowledgeType: "general_faq", metadata: {}, rerankScore: 0.5 }),
   ];
   assert.deepEqual(dedupeKnowledgeCandidates(rows).map((row) => row.knowledgeId), ["FAQ-A", "FAQ-C", "FAQ-D"]);
+});
+
+test("supplemental retrieval replaces the original only with materially better evidence", () => {
+  const base = { evidenceConfidence: "low", reranked: [candidate("WRONG", { rerankScore: 0.2 })] } as RetrievalTrace;
+  const better = { evidenceConfidence: "high", reranked: [candidate("FUNC-USER-007", { rerankScore: 0.62 })] } as RetrievalTrace;
+  assert.equal(preferRetrievalTrace(base, better).reranked[0].knowledgeId, "FUNC-USER-007");
+  const speculative = { evidenceConfidence: "low", reranked: [candidate("SPECULATIVE", { rerankScore: 0.25 })] } as RetrievalTrace;
+  assert.equal(preferRetrievalTrace(base, speculative).reranked[0].knowledgeId, "WRONG");
 });
 
 test("confidence returns none for weak knowledge and low for conflicts", () => {

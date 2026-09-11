@@ -32,6 +32,7 @@ export interface Message {
     firstTokenMs?: number | null;
     totalMs?: number;
     claims?: Array<{ text: string; knowledgeIds: string[] }>;
+    queryUnderstanding?: { normalizedQuery?: string; ambiguity?: string; confidence?: string };
   };
 }
 

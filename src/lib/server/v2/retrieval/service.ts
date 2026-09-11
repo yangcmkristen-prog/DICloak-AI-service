@@ -42,6 +42,16 @@ export function dedupeKnowledgeCandidates(candidates: RetrievalCandidate[]): Ret
   return candidates.filter((candidate, index, items) => items.findIndex((item) => key(item) === key(candidate)) === index);
 }
 
+const confidenceRank = (value: RetrievalTrace["evidenceConfidence"]): number => ({ none: 0, low: 1, medium: 2, high: 3 })[value];
+
+export function preferRetrievalTrace(original: RetrievalTrace, supplemental: RetrievalTrace | null): RetrievalTrace {
+  if (!supplemental) return original;
+  const originalRank = confidenceRank(original.evidenceConfidence); const supplementalRank = confidenceRank(supplemental.evidenceConfidence);
+  if (supplementalRank !== originalRank) return supplementalRank > originalRank ? supplemental : original;
+  const originalScore = original.reranked[0]?.rerankScore ?? 0; const supplementalScore = supplemental.reranked[0]?.rerankScore ?? 0;
+  return supplementalScore >= originalScore + 0.08 ? supplemental : original;
+}
+
 export function buildRetrievalFilters(intent: QueryIntent, alias = "c"): { sql: string; params: unknown[]; debug: Record<string, unknown> } {
   const conditions = ["v.status='published'", `${alias}.enabled`, `${alias}.knowledge_type <> 'terminology'`, "$1 = any(c.products)"];
   const params: unknown[] = [intent.product];

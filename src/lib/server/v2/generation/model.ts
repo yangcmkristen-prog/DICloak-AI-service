@@ -26,6 +26,21 @@ function completionsUrl(config: V2ModelConfig): string {
   return base.endsWith("/chat/completions") ? base : `${base}/chat/completions`;
 }
 
+export async function completeV2Json(input: { config: V2ModelConfig; messages: Array<{ role: "system" | "user"; content: string }>; signal: AbortSignal; model?: string; maxCompletionTokens?: number }): Promise<string> {
+  const model = input.model || input.config.model;
+  const queryReasoningEffort = process.env.V2_QUERY_REASONING_EFFORT || (/^gpt-5/i.test(model) ? "low" : "");
+  const response = await fetch(completionsUrl(input.config), {
+    method: "POST", signal: input.signal,
+    headers: { authorization: `Bearer ${input.config.apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model, messages: input.messages, response_format: { type: "json_object" }, temperature: 0, max_completion_tokens: input.maxCompletionTokens ?? 768, ...(queryReasoningEffort ? { reasoning_effort: queryReasoningEffort } : {}) }),
+  });
+  if (!response.ok) throw new Error(`V2 查询理解调用失败：HTTP ${response.status}`);
+  const payload = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
+  const content = payload.choices?.[0]?.message?.content;
+  if (typeof content !== "string" || !content.trim()) throw new Error("V2 查询理解没有返回内容");
+  return content;
+}
+
 export async function streamV2Model(input: { config: V2ModelConfig; messages: Array<{ role: "system" | "user"; content: string }>; signal: AbortSignal; onDelta: (delta: string) => void; onUsage: (usage: V2ModelUsage) => void }): Promise<string> {
   const reasoningEffort = process.env.V2_CHAT_REASONING_EFFORT;
   const configuredLimit = Number(process.env.V2_CHAT_MAX_COMPLETION_TOKENS ?? "2048");
