@@ -9,6 +9,8 @@ export interface QueryUnderstanding {
 
 const SYSTEM = `Understand noisy customer questions for a software support search system.
 Correct likely spelling, grammar, translation and word-form errors, but preserve genuine ambiguity.
+Product context for DICloak: 环境 normally means a browser profile, 打开环境 means launching a browser profile, 成员 means a team member, 代理 means the proxy configured for a profile, and 指纹 means browser fingerprint settings.
+These are defaults, not absolute rules. If the customer explicitly says 开发环境, 部署环境, 系统环境, 运行环境, development environment, deployment environment, system environment, or runtime environment, follow that explicit context instead.
 Return compact JSON only: {"language":"","normalizedQuery":"","searchQueries":[""],"possibleIntent":"","ambiguity":"","confidence":"high|medium|low"}.
 normalizedQuery must express the most likely user goal as object + action. searchQueries may contain at most two short alternatives.
 Do not answer the question, invent product capabilities, or assume an uncertain word is definitely a typo. Use an empty ambiguity only when the goal is clear.`;
