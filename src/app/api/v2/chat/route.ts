@@ -35,15 +35,14 @@ export async function POST(request: NextRequest): Promise<Response> {
     try {
       sendStatus("正在理解问题并检索知识", "问题理解与原文召回并行执行");
       const modelConfigPromise = resolveV2ModelConfig();
-      const understandingPromise = modelConfigPromise.then(async (config) => {
-        if (!config) return null;
-        try {
-          const raw = await completeV2Json({ config, model: process.env.V2_QUERY_MODEL || config.model, signal: request.signal, maxCompletionTokens: 768, messages: buildQueryUnderstandingMessages(question, product) });
-          return parseQueryUnderstanding(raw);
-        } catch { return null; }
-      });
       const [originalRetrieval, modelConfig] = await Promise.all([retrieveV2(question, product, request.signal), modelConfigPromise]);
-      const queryUnderstanding = originalRetrieval.evidenceConfidence === "high" ? null : await understandingPromise;
+      let queryUnderstanding = null;
+      if (originalRetrieval.evidenceConfidence !== "high" && modelConfig) {
+        try {
+          const raw = await completeV2Json({ config: modelConfig, model: process.env.V2_QUERY_MODEL || modelConfig.model, signal: request.signal, maxCompletionTokens: 768, messages: buildQueryUnderstandingMessages(question, product) });
+          queryUnderstanding = parseQueryUnderstanding(raw);
+        } catch { queryUnderstanding = null; }
+      }
       const supplementalRetrievals = queryUnderstanding ? await Promise.all(supplementalQueries(queryUnderstanding, question)
         .map((query) => retrieveV2(query, product, request.signal).catch(() => null))) : [];
       const preferredRetrieval = supplementalRetrievals.reduce(preferRetrievalTrace, originalRetrieval);
@@ -87,7 +86,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       }
       if (!modelConfig) throw new Error("V2 主模型配置不完整，请配置独立 V2 模型");
       sendStatus("正在生成回复", "已准备选中知识，等待模型首个响应片段");
-      let usage: V2ModelUsage = {}; let modelCalls = modelConfig ? 1 : 0; let firstTokenMs: number | null = null; const generationStartedAt = performance.now();
+      let usage: V2ModelUsage = {}; let modelCalls = queryUnderstanding ? 1 : 0; let firstTokenMs: number | null = null; const generationStartedAt = performance.now();
       const run = async (retryErrors?: string[], streamCustomer = false) => {
         modelCalls += 1;
         const filter = new V2VisibleStreamFilter(new Map(prepared.markers.map((marker) => [marker.marker, marker.value])));
