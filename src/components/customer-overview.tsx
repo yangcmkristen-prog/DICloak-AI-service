@@ -110,8 +110,8 @@ function DatePickerField({ value, onChange, placeholder, ariaLabel = placeholder
   return <Popover><PopoverTrigger asChild><Button type="button" aria-label={ariaLabel} variant="outline" className="w-full justify-start font-normal"><CalendarDays className="size-4 text-muted-foreground" /><span className={value ? "" : "text-muted-foreground"}>{value ? displayDate(value) : placeholder}</span></Button></PopoverTrigger><PopoverContent align="start" className="w-auto p-0"><Calendar locale={zhCN} mode="single" selected={parseDateValue(value)} onSelect={(date) => onChange(date ? dateValue(date) : "")} /></PopoverContent></Popover>;
 }
 
-function FollowUpDateRangePicker({ from, to, onFromChange, onToChange }: { from: string; to: string; onFromChange: (value: string) => void; onToChange: (value: string) => void }) {
-  return <Popover><PopoverTrigger asChild><Button type="button" variant="outline" className="h-10 w-full justify-start gap-3 bg-background px-3 font-normal md:w-[430px]"><CalendarDays className="size-4 shrink-0 text-muted-foreground" /><span className={from ? "" : "text-muted-foreground"}>{from ? displayDate(from) : "最近跟进开始时间"}</span><span className="ml-auto"> 至 </span><span className={to ? "" : "text-muted-foreground"}>{to ? displayDate(to) : "最近跟进结束时间"}</span></Button></PopoverTrigger><PopoverContent align="start" className="w-auto max-w-[calc(100vw-2rem)] overflow-x-auto p-0"><Calendar locale={zhCN} mode="range" numberOfMonths={2} selected={{ from: parseDateValue(from), to: parseDateValue(to) }} onSelect={(range) => { onFromChange(range?.from ? dateValue(range.from) : ""); onToChange(range?.to ? dateValue(range.to) : ""); }} /></PopoverContent></Popover>;
+function DateRangeFilter({ label, from, to, onFromChange, onToChange }: { label: string; from: string; to: string; onFromChange: (value: string) => void; onToChange: (value: string) => void }) {
+  return <Popover><PopoverTrigger asChild><Button type="button" aria-label={`${label}范围`} variant="outline" className="h-9 w-full min-w-0 justify-start gap-2 bg-background px-3 font-normal"><CalendarDays className="size-4 shrink-0 text-muted-foreground" /><span className="shrink-0 text-muted-foreground">{label}</span><span className="ml-auto whitespace-nowrap">{from ? displayDate(from) : "开始时间"} 至 {to ? displayDate(to) : "结束时间"}</span></Button></PopoverTrigger><PopoverContent align="start" className="w-auto max-w-[calc(100vw-2rem)] overflow-x-auto p-0"><Calendar locale={zhCN} mode="range" numberOfMonths={2} selected={{ from: parseDateValue(from), to: parseDateValue(to) }} onSelect={(range) => { onFromChange(range?.from ? dateValue(range.from) : ""); onToChange(range?.to ? dateValue(range.to) : ""); }} /></PopoverContent></Popover>;
 }
 
 function newestFirst<T extends { date: string }>(items: T[]): T[] {
@@ -201,9 +201,15 @@ export function CustomerOverview() {
   const [region, setRegion] = useState("all");
   const [customerSource, setCustomerSource] = useState("all");
   const [useCase, setUseCase] = useState("all");
+  const [plan, setPlan] = useState("all");
+  const [channel, setChannel] = useState("all");
   const [status, setStatus] = useState("all");
   const [followUpFrom, setFollowUpFrom] = useState("");
   const [followUpTo, setFollowUpTo] = useState("");
+  const [dueFrom, setDueFrom] = useState("");
+  const [dueTo, setDueTo] = useState("");
+  const [createdFrom, setCreatedFrom] = useState("");
+  const [createdTo, setCreatedTo] = useState("");
   const [quickFilter, setQuickFilter] = useState<"all" | Customer["status"] | FollowUpStatus>("all");
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
@@ -269,18 +275,22 @@ export function CustomerOverview() {
       && (featureStatus === "all" || customer.features.some((feature) => feature.status === featureStatus))
       && (customerSource === "all" || splitCustomerSource(customer.customerSource).type === customerSource)
       && (useCase === "all" || splitUseCase(customer.scenario).type === useCase)
+      && (plan === "all" || customer.plan === plan)
+      && (channel === "all" || parseCustomerChannels(customer.channel).includes(channel as (typeof customerChannelOptions)[number]))
       && (region === "all" || customer.region === region) && (status === "all" || customer.status === status)
       && (quickFilter === "all" || customer.status === quickFilter || customer.followUpStatus === quickFilter)
       && (!followUpFrom || Boolean(customer.followUps[0]?.date && customer.followUps[0].date >= followUpFrom))
-      && (!followUpTo || Boolean(customer.followUps[0]?.date && customer.followUps[0].date <= followUpTo));
-  }), [customerSource, customers, featureQuery, featureStatus, followUpFrom, followUpTo, issueQuery, issueStatus, query, quickFilter, region, status, useCase]);
+      && (!followUpTo || Boolean(customer.followUps[0]?.date && customer.followUps[0].date <= followUpTo))
+      && (!dueFrom || customer.dueDate >= dueFrom) && (!dueTo || customer.dueDate <= dueTo)
+      && (!createdFrom || customer.createdAt >= createdFrom) && (!createdTo || customer.createdAt <= createdTo);
+  }), [channel, createdFrom, createdTo, customerSource, customers, dueFrom, dueTo, featureQuery, featureStatus, followUpFrom, followUpTo, issueQuery, issueStatus, plan, query, quickFilter, region, status, useCase]);
   const visibleCustomers = useMemo(() => {
     if (!sort) return filtered;
     return [...filtered].sort((left, right) => compareCustomers(left, right, sort.key, sort.direction));
   }, [filtered, sort]);
   const pageCount = Math.max(1, Math.ceil(visibleCustomers.length / pageSize));
   const pagedCustomers = visibleCustomers.slice((page - 1) * pageSize, page * pageSize);
-  useEffect(() => { setPage(1); setJumpPage("1"); }, [customerSource, featureQuery, featureStatus, followUpFrom, followUpTo, issueQuery, issueStatus, pageSize, query, quickFilter, region, status, useCase]);
+  useEffect(() => { setPage(1); setJumpPage("1"); }, [channel, createdFrom, createdTo, customerSource, dueFrom, dueTo, featureQuery, featureStatus, followUpFrom, followUpTo, issueQuery, issueStatus, pageSize, plan, query, quickFilter, region, status, useCase]);
   useEffect(() => { if (page > pageCount) { setPage(pageCount); setJumpPage(String(pageCount)); } }, [page, pageCount]);
   const summaryCards: Array<{ label: string; filter: Customer["status"] | FollowUpStatus; count: number; className: string }> = [
     { label: "待跟进", filter: "待跟进", count: customers.filter((item) => item.followUpStatus === "待跟进").length, className: "text-amber-700" },
@@ -334,29 +344,35 @@ export function CustomerOverview() {
         </div>
       </div>
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">{summaryCards.map((card) => <button key={card.label} type="button" aria-pressed={quickFilter === card.filter} onClick={() => setQuickFilter((current) => current === card.filter ? "all" : card.filter)} className={`rounded-xl border bg-background p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow ${quickFilter === card.filter ? "border-blue-400 ring-2 ring-blue-100" : "border-border"}`}><p className={`text-sm font-medium ${card.className}`}>{card.label}</p><p className="mt-2 text-2xl font-bold text-foreground">{card.count}</p></button>)}</div>
-      <div className="mb-3 flex flex-col items-stretch gap-3 2xl:flex-row 2xl:items-start">
-        <div className="relative min-w-0 2xl:w-[420px] 2xl:flex-none"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(event) => setQuery(event.target.value)} className="h-9 bg-background pl-9" placeholder="搜索联系人、团队 ID 或联系方式" /></div>
-        <div className="grid shrink-0 grid-cols-2 items-start gap-3 sm:grid-cols-3 2xl:grid-cols-6">
-          <Select value={region} onValueChange={setRegion}><SelectTrigger className="h-9 w-full bg-background 2xl:w-40"><Globe2 className="size-4" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部地区</SelectItem>{[...new Set(customers.map((customer) => customer.region))].map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
-          <Select value={customerSource} onValueChange={setCustomerSource}><SelectTrigger className="h-9 w-full bg-background 2xl:w-40"><SelectValue placeholder="客户来源" /></SelectTrigger><SelectContent><SelectItem value="all">全部客户来源</SelectItem>{customerSourceOptions.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
-          <Select value={useCase} onValueChange={setUseCase}><SelectTrigger className="h-9 w-full bg-background 2xl:w-40"><SelectValue placeholder="使用场景" /></SelectTrigger><SelectContent><SelectItem value="all">全部使用场景</SelectItem>{useCaseOptions.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
-          <Select value={status} onValueChange={setStatus}><SelectTrigger className="h-9 w-full bg-background 2xl:w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem><SelectItem value="活跃">活跃</SelectItem><SelectItem value="流失风险">流失风险</SelectItem><SelectItem value="已停滞">已停滞</SelectItem><SelectItem value="潜在客户">潜在客户</SelectItem></SelectContent></Select>
-          <Select value={issueStatus} onValueChange={(value) => setIssueStatus(value as "all" | IssueStatus)}><SelectTrigger className="h-9 w-full bg-background 2xl:w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部问题状态</SelectItem>{(["未处理", "处理中", "已解决"] as const).map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
-          <Select value={featureStatus} onValueChange={(value) => setFeatureStatus(value as "all" | FeatureStatus)}><SelectTrigger className="h-9 w-full bg-background 2xl:w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部需求状态</SelectItem>{featureStatuses.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
+      <div className="mb-4 space-y-3 rounded-xl border bg-background p-3">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-[1fr_1fr_1.15fr_1.15fr_1fr_1.15fr_1.15fr_1.2fr]">
+          <Select value={plan} onValueChange={setPlan}><SelectTrigger className="h-9 w-full min-w-0 bg-background"><SelectValue placeholder="全部套餐" /></SelectTrigger><SelectContent><SelectItem value="all">全部套餐</SelectItem>{[...new Set([...planOptions, ...customers.map((customer) => customer.plan)])].filter((item) => item && item !== "未知").map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
+          <Select value={channel} onValueChange={setChannel}><SelectTrigger className="h-9 w-full min-w-0 bg-background"><SelectValue placeholder="全部联系渠道" /></SelectTrigger><SelectContent><SelectItem value="all">全部联系渠道</SelectItem>{customerChannelOptions.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
+          <Select value={region} onValueChange={setRegion}><SelectTrigger className="h-9 w-full min-w-0 bg-background"><Globe2 className="size-4 shrink-0" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部地区</SelectItem>{[...new Set(customers.map((customer) => customer.region))].map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
+          <Select value={customerSource} onValueChange={setCustomerSource}><SelectTrigger className="h-9 w-full min-w-0 bg-background"><SelectValue placeholder="全部客户来源" /></SelectTrigger><SelectContent><SelectItem value="all">全部客户来源</SelectItem>{customerSourceOptions.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
+          <Select value={useCase} onValueChange={setUseCase}><SelectTrigger className="h-9 w-full min-w-0 bg-background"><SelectValue placeholder="全部使用场景" /></SelectTrigger><SelectContent><SelectItem value="all">全部使用场景</SelectItem>{useCaseOptions.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
+          <Select value={status} onValueChange={setStatus}><SelectTrigger className="h-9 w-full min-w-0 bg-background"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部客户状态</SelectItem><SelectItem value="活跃">活跃</SelectItem><SelectItem value="流失风险">流失风险</SelectItem><SelectItem value="已停滞">已停滞</SelectItem><SelectItem value="潜在客户">潜在客户</SelectItem></SelectContent></Select>
+          <Select value={issueStatus} onValueChange={(value) => setIssueStatus(value as "all" | IssueStatus)}><SelectTrigger className="h-9 w-full min-w-0 bg-background"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部问题状态</SelectItem>{(["未处理", "处理中", "已解决"] as const).map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
+          <Select value={featureStatus} onValueChange={(value) => setFeatureStatus(value as "all" | FeatureStatus)}><SelectTrigger className="h-9 w-full min-w-0 bg-background"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部需求状态</SelectItem>{featureStatuses.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-[1.25fr_1fr_1fr]">
+          <div className="relative min-w-0"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={query} onChange={(event) => setQuery(event.target.value)} className="h-9 bg-background pl-9" placeholder="搜索联系人、团队 ID 或联系方式" /></div>
+          <SearchInput value={issueQuery} onChange={setIssueQuery} placeholder="按历史问题标题或内容筛选客户" />
+          <SearchInput value={featureQuery} onChange={setFeatureQuery} placeholder="按功能需求标题或内容筛选客户" />
+        </div>
+        <div className="grid gap-3 xl:grid-cols-3">
+          <DateRangeFilter label="最近跟进时间" from={followUpFrom} to={followUpTo} onFromChange={setFollowUpFrom} onToChange={setFollowUpTo} />
+          <DateRangeFilter label="到期时间" from={dueFrom} to={dueTo} onFromChange={setDueFrom} onToChange={setDueTo} />
+          <DateRangeFilter label="创建时间" from={createdFrom} to={createdTo} onFromChange={setCreatedFrom} onToChange={setCreatedTo} />
         </div>
       </div>
-      <div className="mb-4 flex flex-col items-stretch gap-3 md:flex-row md:items-start md:flex-wrap">
-        <div className="md:w-[420px]"><SearchInput value={issueQuery} onChange={setIssueQuery} placeholder="按历史问题标题或内容筛选客户" /></div>
-        <div className="md:w-[420px]"><SearchInput value={featureQuery} onChange={setFeatureQuery} placeholder="按功能需求标题或内容筛选客户" /></div>
-      </div>
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border bg-background p-3"><span className="text-sm font-medium">最近跟进时间</span><FollowUpDateRangePicker from={followUpFrom} to={followUpTo} onFromChange={setFollowUpFrom} onToChange={setFollowUpTo} />{followUpFrom || followUpTo ? <Button variant="ghost" size="sm" onClick={() => { setFollowUpFrom(""); setFollowUpTo(""); }}>清除</Button> : null}</div>
-      <Card className="overflow-hidden py-0">
+      <Card className="overflow-hidden py-0 [&_[data-slot=table-container]]:max-h-[70vh] [&_[data-slot=table-container]]:overflow-auto">
         <div className="flex items-start gap-2 border-b px-5 py-4">
           <div><p className="font-semibold">客户列表</p><p className="text-xs text-muted-foreground">共 {visibleCustomers.length} 位客户</p></div>
           <Button aria-label="刷新客户列表" title="刷新客户列表" variant="ghost" size="icon-sm" disabled={loading} onClick={() => void loadCustomers(true)}><RefreshCw className={loading ? "animate-spin" : ""} /></Button>
         </div>
         <Table className="table-fixed" style={{ width: Object.values(columnWidths).reduce((total, width) => total + width, 0) }}>
-          <TableHeader className="bg-muted/40"><TableRow>
+          <TableHeader className="sticky top-0 z-30 bg-muted"><TableRow>
             {([
               ["name", "联系人"], ["teamId", "团队 ID"], ["contact", "联系方式"], ["region", "地区"], ["plan", "当前套餐"],
             ] as const).map(([key, label]) => <ResizableHead key={key} label={label} width={columnWidths[key]} onResize={(startX) => startColumnResize(key, startX)} onSort={() => toggleSort(key)} direction={sort?.key === key ? sort.direction : undefined} className={key === "name" ? "pl-5" : undefined} />)}
@@ -376,7 +392,7 @@ export function CustomerOverview() {
             <TableCell className="overflow-hidden text-ellipsis font-mono text-xs">{customer.teamId}</TableCell>
             <TableCell className="overflow-hidden"><p>{customer.channel}</p><Tooltip><TooltipTrigger asChild><p className="truncate text-xs text-muted-foreground">{customer.contact}</p></TooltipTrigger><TooltipContent className="max-w-80 select-text break-all" sideOffset={6} onClick={(event) => event.stopPropagation()}>{customer.contact}</TooltipContent></Tooltip></TableCell>
             <TableCell className="overflow-hidden text-ellipsis">{customer.region}</TableCell><TableCell>{customer.plan}</TableCell><TableCell>{customer.monthlyFee}</TableCell>
-            <TableCell className="overflow-hidden text-ellipsis">{customer.scenario}</TableCell><TableCell>{customer.status === "已停滞" ? <Tooltip><TooltipTrigger asChild><Badge variant="outline" className={statusStyle[customer.status]}>{customer.status}</Badge></TooltipTrigger><TooltipContent className="max-w-72 whitespace-pre-wrap">流失原因：{customer.churnReason || "暂未记录"}</TooltipContent></Tooltip> : <Badge variant="outline" className={statusStyle[customer.status]}>{customer.status}</Badge>}</TableCell>
+            <TableCell className="overflow-hidden"><Tooltip><TooltipTrigger asChild><p className="truncate">{customer.scenario}</p></TooltipTrigger><TooltipContent className="max-w-80 select-text whitespace-pre-wrap break-words" sideOffset={6} onClick={(event) => event.stopPropagation()}>{customer.scenario}</TooltipContent></Tooltip></TableCell><TableCell>{customer.status === "已停滞" ? <Tooltip><TooltipTrigger asChild><Badge variant="outline" className={statusStyle[customer.status]}>{customer.status}</Badge></TooltipTrigger><TooltipContent className="max-w-72 whitespace-pre-wrap">流失原因：{customer.churnReason || "暂未记录"}</TooltipContent></Tooltip> : <Badge variant="outline" className={statusStyle[customer.status]}>{customer.status}</Badge>}</TableCell>
             <TableCell><button type="button" className="rounded-full" onClick={(event) => { event.stopPropagation(); if (customer.followUpStatus === "待跟进") setFollowUpCustomerId(customer.id); }}><Badge variant="outline" className={customer.followUpStatus === "待跟进" ? "border-amber-200 bg-amber-50 text-amber-700" : customer.followUpStatus === "已跟进" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600"}>{customer.followUpStatus}</Badge></button></TableCell>
             <TableCell className="text-xs text-muted-foreground">{displayDate(customer.followUps[0]?.date || "—")}</TableCell><TableCell className="text-xs text-muted-foreground">{displayDate(customer.dueDate)}</TableCell><TableCell className="text-xs text-muted-foreground">{displayDate(customer.createdAt)}</TableCell><TableCell className="text-xs text-muted-foreground">{displayDate(customer.updatedAt)}</TableCell><TableCell className="text-xs text-muted-foreground">{displayDate(customer.automaticUpdatedAt)}</TableCell>
             <TableCell className="sticky right-0 z-10 border-l bg-background shadow-[-6px_0_8px_-8px_rgba(15,23,42,0.45)] group-hover:bg-muted"><Button variant="ghost" size="sm" className="text-blue-600">详情<ChevronRight /></Button></TableCell>
