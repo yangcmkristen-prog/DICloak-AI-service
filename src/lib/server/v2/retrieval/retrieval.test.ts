@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { extractSearchTerms, parseQuery } from "./query-parser.ts";
 import { calculateConfidence, reciprocalRankFusion, rerankCandidates } from "./ranking.ts";
-import { buildRetrievalFilters, dedupeKnowledgeCandidates, runParallelRecall, runTimedOperation } from "./service.ts";
-import type { QueryIntent, RetrievalCandidate } from "./types.ts";
+import { buildRetrievalFilters, dedupeKnowledgeCandidates, preferRetrievalTrace, runParallelRecall, runTimedOperation } from "./service.ts";
+import type { QueryIntent, RetrievalCandidate, RetrievalTrace } from "./types.ts";
 
 const candidate = (id: string, overrides: Partial<RetrievalCandidate> = {}): RetrievalCandidate => ({ chunkId: id, knowledgeId: id.split("#")[0], title: id, text: "create profile POST /v1/env", metadata: {}, knowledgeType: "faq", apiType: null, apiVersion: null, products: ["dicloak"], source: "vector", sourceRank: 1, textScore: 0, vectorScore: 0.6, rrfScore: 0, rerankScore: 0, matchedBy: ["vector"], ...overrides });
 const intent = (overrides: Partial<QueryIntent> = {}): QueryIntent => ({ product: "dicloak", language: "en", knowledgeTypes: [], apiType: null, apiVersion: null, method: null, object: null, action: null, missingConditions: [], ...overrides });
@@ -14,7 +14,7 @@ test("general FAQ participates as fallback without weakening API isolation", () 
 });
 
 test("deterministic parser extracts product, language and strict API fields", () => {
-  assert.deepEqual(parseQuery("DICloak HTTP API v1 POST object:env action:create", "paraturbo"), { product: "dicloak", language: "en", knowledgeTypes: ["http_api"], apiType: "http", apiVersion: "v1", method: "POST", object: "env", action: "create", missingConditions: [] });
+  assert.deepEqual(parseQuery("DICloak HTTP API v1 POST object:env action:create", "paraturbo"), { product: "paraturbo", language: "en", knowledgeTypes: ["http_api"], apiType: "http", apiVersion: "v1", method: "POST", object: "env", action: "create", missingConditions: [] });
   assert.equal(parseQuery("Как создать профиль браузера?").language, "ru");
   assert.equal(parseQuery("Como criar um perfil de navegador?").language, "pt");
   assert.equal(parseQuery("visualização grátis").language, "pt");
@@ -166,10 +166,47 @@ test("general FAQ candidates are diversified by answer template", () => {
   assert.deepEqual(dedupeKnowledgeCandidates(rows).map((row) => row.knowledgeId), ["FAQ-A", "FAQ-C", "FAQ-D"]);
 });
 
+test("supplemental retrieval replaces the original only with materially better evidence", () => {
+  const base = { evidenceConfidence: "low", reranked: [candidate("WRONG", { rerankScore: 0.2 })] } as RetrievalTrace;
+  const better = { evidenceConfidence: "high", reranked: [candidate("FUNC-USER-007", { rerankScore: 0.62 })] } as RetrievalTrace;
+  assert.equal(preferRetrievalTrace(base, better).reranked[0].knowledgeId, "FUNC-USER-007");
+  const speculative = { evidenceConfidence: "low", reranked: [candidate("SPECULATIVE", { rerankScore: 0.25 })] } as RetrievalTrace;
+  assert.equal(preferRetrievalTrace(base, speculative).reranked[0].knowledgeId, "WRONG");
+});
+
+test("noisy English feature wording is still scoped to function knowledge", () => {
+  assert.deepEqual(parseQuery("Just came across your websites and would like to test simulated input display").knowledgeTypes, ["function"]);
+  assert.deepEqual(extractSearchTerms("Just came across your websites and would like to test simulated input display"), ["test", "simulated", "input", "display"]);
+});
+
+test("function intent does not let generic FAQ wording outrank product functions", () => {
+  const ranked = rerankCandidates("test simulated input display", intent({ knowledgeTypes: ["function"] }), [
+    candidate("FAQ", { knowledgeType: "general_faq", textScore: 0.4, vectorScore: 0.35, rrfScore: 0.03 }),
+    candidate("FUNCTION", { knowledgeType: "function", textScore: 0.35, vectorScore: 0.35, rrfScore: 0.03 }),
+  ]);
+  assert.equal(ranked[0].knowledgeId, "FUNCTION");
+});
+
 test("confidence returns none for weak knowledge and low for conflicts", () => {
   assert.equal(calculateConfidence(intent(), [candidate("weak", { rerankScore: 0.19, vectorScore: 0.05, textScore: 0.05 })]).confidence, "none");
   const conflict = [candidate("http", { rerankScore: 0.7, apiType: "http" }), candidate("local", { rerankScore: 0.69, apiType: "local" })];
   assert.equal(calculateConfidence(intent({ apiType: "http" }), conflict).confidence, "low");
+});
+
+test("strong fuzzy function match is usable when it clearly leads alternatives", () => {
+  const result = calculateConfidence(intent({ knowledgeTypes: ["function"] }), [
+    candidate("FUNC-USER-007", { knowledgeType: "function", rerankScore: 0.27, textScore: 0.5 }),
+    candidate("OTHER", { knowledgeType: "function", rerankScore: 0.06, textScore: 0.25 }),
+  ]);
+  assert.equal(result.confidence, "medium");
+});
+
+test("strong function match remains high confidence when score and lead are decisive", () => {
+  const result = calculateConfidence(intent({ knowledgeTypes: ["function"] }), [
+    candidate("BEST", { knowledgeType: "function", rerankScore: 0.8, textScore: 0.7 }),
+    candidate("OTHER", { knowledgeType: "function", rerankScore: 0.3, textScore: 0.25 }),
+  ]);
+  assert.equal(result.confidence, "high");
 });
 
 test("confidence accepts a consistent generic API family and typo-tolerant multilingual function", () => {

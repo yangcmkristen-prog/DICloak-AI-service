@@ -1,0 +1,57 @@
+export type QueryTaskType = "troubleshooting" | "feature_operation" | "feature_capability" | "pricing" | "api" | "account_or_service" | "unknown";
+
+export interface QueryUnderstanding {
+  language: string;
+  normalizedQuery: string;
+  searchQueries: string[];
+  possibleIntent: string;
+  ambiguity: string;
+  taskType: QueryTaskType;
+  confidence: "high" | "medium" | "low";
+}
+
+const SYSTEM = `Understand noisy customer questions for a software support search system.
+Correct likely spelling, grammar, translation and word-form errors, but preserve genuine ambiguity.
+Product context for DICloak: 环境 normally means a browser profile, 打开环境 means launching a browser profile, 成员 means a team member, 代理 means the proxy configured for a profile, and 指纹 means browser fingerprint settings.
+These are defaults, not absolute rules. If the customer explicitly says 开发环境, 部署环境, 系统环境, 运行环境, development environment, deployment environment, system environment, or runtime environment, follow that explicit context instead.
+Classify taskType as exactly one of: troubleshooting, feature_operation, feature_capability, pricing, api, account_or_service, unknown.
+Return compact JSON only: {"language":"","normalizedQuery":"","searchQueries":[""],"possibleIntent":"","ambiguity":"","taskType":"unknown","confidence":"high|medium|low"}.
+normalizedQuery must express the most likely user goal as object + action. searchQueries may contain at most two short alternatives.
+Do not answer the question, invent product capabilities, or assume an uncertain word is definitely a typo. Use an empty ambiguity only when the goal is clear.`;
+
+const text = (value: unknown): string => typeof value === "string" ? value.trim() : "";
+const TASK_TYPES = new Set<QueryTaskType>(["troubleshooting", "feature_operation", "feature_capability", "pricing", "api", "account_or_service", "unknown"]);
+
+export function knowledgeTypesForTaskType(taskType: QueryTaskType): string[] | undefined {
+  if (taskType === "troubleshooting") return ["troubleshooting", "troubleshooting_flow", "user_routing"];
+  if (taskType === "feature_operation" || taskType === "feature_capability") return ["function"];
+  if (taskType === "pricing") return ["pricing"];
+  if (taskType === "api") return ["http_api", "local_api"];
+  if (taskType === "account_or_service") return ["faq", "user_routing", "out_of_scope"];
+  return undefined;
+}
+
+export function buildQueryUnderstandingMessages(question: string, product: string): Array<{ role: "system" | "user"; content: string }> {
+  return [{ role: "system", content: SYSTEM }, { role: "user", content: JSON.stringify({ product, customerQuestion: question }) }];
+}
+
+export function parseQueryUnderstanding(raw: string): QueryUnderstanding | null {
+  try {
+    const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/gi, "")) as Record<string, unknown>;
+    const normalizedQuery = text(parsed.normalizedQuery).slice(0, 240);
+    if (!normalizedQuery) return null;
+    const alternatives = Array.isArray(parsed.searchQueries) ? parsed.searchQueries.map(text).filter(Boolean) : [];
+    const searchQueries = [...new Set([normalizedQuery, ...alternatives])].slice(0, 2).map((value) => value.slice(0, 240));
+    const confidence = parsed.confidence === "high" || parsed.confidence === "low" ? parsed.confidence : "medium";
+    const rawTaskType = text(parsed.taskType) as QueryTaskType;
+    const taskType = TASK_TYPES.has(rawTaskType) ? rawTaskType : "unknown";
+    return { language: text(parsed.language), normalizedQuery, searchQueries, possibleIntent: text(parsed.possibleIntent).slice(0, 240), ambiguity: text(parsed.ambiguity).slice(0, 300), taskType, confidence };
+  } catch { return null; }
+}
+
+export function supplementalQueries(understanding: QueryUnderstanding | null, original: string): string[] {
+  if (!understanding) return [];
+  const normalizedOriginal = original.trim().toLocaleLowerCase();
+  const limit = understanding.ambiguity ? 2 : 1;
+  return understanding.searchQueries.filter((query) => query.trim().toLocaleLowerCase() !== normalizedOriginal).slice(0, limit);
+}

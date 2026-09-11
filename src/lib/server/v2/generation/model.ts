@@ -3,6 +3,11 @@ import { consumeOpenAIStream } from "@/lib/server/openai-stream";
 
 export interface V2ModelUsage { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
 export interface V2ModelConfig { baseUrl: string; apiKey: string; model: string }
+export class V2ModelRequestError extends Error {
+  constructor(message: string, public readonly status: number, public readonly providerType?: string, public readonly providerCode?: string, public readonly providerParam?: string) {
+    super(message); this.name = "V2ModelRequestError";
+  }
+}
 
 interface StoredConfig { apiKey?: unknown; baseUrl?: unknown; v2Model?: unknown; customConfig?: { endpoint?: unknown } }
 
@@ -26,6 +31,21 @@ function completionsUrl(config: V2ModelConfig): string {
   return base.endsWith("/chat/completions") ? base : `${base}/chat/completions`;
 }
 
+export async function completeV2Json(input: { config: V2ModelConfig; messages: Array<{ role: "system" | "user"; content: string }>; signal: AbortSignal; model?: string; maxCompletionTokens?: number }): Promise<string> {
+  const model = input.model || input.config.model;
+  const queryReasoningEffort = process.env.V2_QUERY_REASONING_EFFORT || (/^gpt-5/i.test(model) ? "low" : "");
+  const response = await fetch(completionsUrl(input.config), {
+    method: "POST", signal: input.signal,
+    headers: { authorization: `Bearer ${input.config.apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model, messages: input.messages, response_format: { type: "json_object" }, max_completion_tokens: input.maxCompletionTokens ?? 768, ...(queryReasoningEffort ? { reasoning_effort: queryReasoningEffort } : {}) }),
+  });
+  if (!response.ok) throw new Error(`V2 查询理解调用失败：HTTP ${response.status}`);
+  const payload = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
+  const content = payload.choices?.[0]?.message?.content;
+  if (typeof content !== "string" || !content.trim()) throw new Error("V2 查询理解没有返回内容");
+  return content;
+}
+
 export async function streamV2Model(input: { config: V2ModelConfig; messages: Array<{ role: "system" | "user"; content: string }>; signal: AbortSignal; onDelta: (delta: string) => void; onUsage: (usage: V2ModelUsage) => void }): Promise<string> {
   const reasoningEffort = process.env.V2_CHAT_REASONING_EFFORT;
   const configuredLimit = Number(process.env.V2_CHAT_MAX_COMPLETION_TOKENS ?? "2048");
@@ -33,9 +53,24 @@ export async function streamV2Model(input: { config: V2ModelConfig; messages: Ar
   const response = await fetch(completionsUrl(input.config), {
     method: "POST", signal: input.signal,
     headers: { authorization: `Bearer ${input.config.apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({ model: input.config.model, messages: input.messages, response_format: { type: "json_object" }, temperature: 0.1, max_completion_tokens: maxCompletionTokens, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}), stream: true, stream_options: { include_usage: true } }),
+    body: JSON.stringify({ model: input.config.model, messages: input.messages, max_completion_tokens: maxCompletionTokens, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}), stream: true, stream_options: { include_usage: true } }),
   });
-  if (!response.ok) throw new Error(`V2 主模型调用失败：HTTP ${response.status}`);
+  if (!response.ok) {
+    const raw = (await response.text()).slice(0, 1200);
+    let detail = raw;
+    let providerType: string | undefined; let providerCode: string | undefined; let providerParam: string | undefined;
+    try {
+      const parsed = JSON.parse(raw) as { error?: { message?: unknown; type?: unknown; code?: unknown; param?: unknown } };
+      const error = parsed.error;
+      if (error) {
+        detail = typeof error.message === "string" ? error.message : raw;
+        providerType = typeof error.type === "string" ? error.type : undefined;
+        providerCode = typeof error.code === "string" ? error.code : undefined;
+        providerParam = typeof error.param === "string" ? error.param : undefined;
+      }
+    } catch { /* keep the truncated provider response */ }
+    throw new V2ModelRequestError(detail || `HTTP ${response.status}`, response.status, providerType, providerCode, providerParam);
+  }
   if (!response.body) throw new Error("V2 主模型没有返回响应流");
   return consumeOpenAIStream(response.body, input.onDelta, { signal: input.signal, onUsage: (usage) => input.onUsage(usage as V2ModelUsage) });
 }

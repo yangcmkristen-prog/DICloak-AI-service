@@ -7,7 +7,7 @@ const STRATEGY_LIMITS: Record<RetrievalTrace["responseStrategy"], number> = {
   function_comparison: 3,
   aggregated: 5,
   conditional: 3,
-  answer_then_clarify: 4,
+  answer_then_clarify: 1,
   clarify_only: 0,
   confirmation_required: 0,
   unsupported: 2,
@@ -63,11 +63,41 @@ function compactApi(candidate: RetrievalCandidate, question: string): string {
   return lines.join("\n");
 }
 
+function compactFunction(candidate: RetrievalCandidate): string {
+  const metadata = candidate.metadata;
+  const standardAnswer = stringValue(metadata.standardAnswer);
+  if (standardAnswer) return standardAnswer;
+  return [
+    stringValue(metadata.functionName) || candidate.title,
+    stringValue(metadata.description),
+    stringValue(metadata.prerequisites) ? `前置条件：${stringValue(metadata.prerequisites)}` : "",
+    stringValue(metadata.entryPath) ? `操作入口：${stringValue(metadata.entryPath)}` : "",
+    stringValue(metadata.uiLocation) ? `界面位置：${stringValue(metadata.uiLocation)}` : "",
+    stringValue(metadata.steps) ? `操作步骤：${stringValue(metadata.steps)}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function compactAnswerVariants(candidate: RetrievalCandidate): string | null {
+  const variants = candidate.metadata.answerVariants;
+  if (!variants || typeof variants !== "object" || Array.isArray(variants)) return null;
+  const lines = Object.entries(variants).flatMap(([role, value]) => {
+    const answer = stringValue(value);
+    return answer ? [`${role}：${answer}`] : [];
+  });
+  return lines.length ? lines.join("\n") : null;
+}
+
+function hasDecisiveLead(trace: RetrievalTrace): boolean {
+  const [first, second] = trace.selectedKnowledge;
+  if (!first || trace.evidenceConfidence !== "high") return false;
+  return first.rerankScore >= 0.42 && first.rerankScore - (second?.rerankScore ?? 0) >= 0.06;
+}
+
 export function selectGenerationKnowledge(trace: RetrievalTrace, question: string): RetrievalCandidate[] {
   const limit = STRATEGY_LIMITS[trace.responseStrategy];
   const hasPricing = trace.selectedKnowledge.some((candidate) => candidate.knowledgeType === "pricing");
-  const directFunction = trace.responseStrategy === "direct" && trace.selectedKnowledge[0]?.knowledgeType === "function";
-  const candidates = hasPricing ? trace.selectedKnowledge : trace.selectedKnowledge.slice(0, directFunction ? 1 : limit);
+  const decisiveDirectAnswer = trace.responseStrategy === "direct" && hasDecisiveLead(trace);
+  const candidates = hasPricing ? trace.selectedKnowledge : trace.selectedKnowledge.slice(0, decisiveDirectAnswer ? 1 : limit);
   return candidates.map((candidate) => {
     if (candidate.knowledgeType === "pricing") {
       const plan = stringValue(candidate.metadata.planName) || stringValue(candidate.metadata.planKey);
@@ -79,6 +109,16 @@ export function selectGenerationKnowledge(trace: RetrievalTrace, question: strin
     if (candidate.knowledgeType === "general_faq") {
       const answer = stringValue(candidate.metadata.answer);
       return answer ? { ...candidate, text: answer } : candidate;
+    }
+    if (candidate.knowledgeType === "function") {
+      const compactText = compactFunction(candidate);
+      const presentProtectedFields = (candidate.protectedFields ?? []).filter((field) => compactText.includes(field.value));
+      return { ...candidate, text: compactText, protectedFields: presentProtectedFields };
+    }
+    const answerVariants = compactAnswerVariants(candidate);
+    if (answerVariants) {
+      const presentProtectedFields = (candidate.protectedFields ?? []).filter((field) => answerVariants.includes(field.value));
+      return { ...candidate, text: answerVariants, protectedFields: presentProtectedFields };
     }
     const isApi = candidate.knowledgeType.includes("api") || candidate.apiType !== null;
     if (!isApi) return candidate;

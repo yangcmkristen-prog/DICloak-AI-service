@@ -610,9 +610,12 @@ function V2SingleReply({ message, onCopy, copiedId, isIncomplete }: { message: M
       <div className="mt-2 space-y-1 break-words">
         <p>知识 ID：{message.v2Debug.knowledgeIds?.join(", ") || "无"}</p>
         <p>置信度：{message.v2Debug.evidenceConfidence || "-"}；策略：{message.v2Debug.responseStrategy || "-"}；语言：{message.v2Debug.language || "-"}</p>
+        {message.v2Debug.queryUnderstanding?.normalizedQuery ? <p>问题理解：{message.v2Debug.queryUnderstanding.normalizedQuery}；任务类型：{message.v2Debug.queryUnderstanding.taskType || "unknown"}{message.v2Debug.queryUnderstanding.ambiguity ? `；歧义：${message.v2Debug.queryUnderstanding.ambiguity}` : ""}</p> : null}
         <p>术语告警：{message.v2Debug.terminologyWarnings?.join(", ") || "无"}</p>
         <p>Token：{message.v2Debug.usage?.total_tokens ?? "-"}；首字：{message.v2Debug.firstTokenMs ?? "-"} ms；完整：{message.v2Debug.totalMs ?? "-"} ms</p>
+        <p>模型：{message.v2Debug.model || "-"}</p>
         <p>模型调用：{message.v2Debug.modelCalls ?? 1}；受控重试：{message.v2Debug.retry ? "是" : "否"}</p>
+        {message.v2Debug.generationFallback ? <p className="text-amber-600">生成降级：是；HTTP：{message.v2Debug.generationHttpStatus ?? "-"}；类型：{message.v2Debug.generationProviderType || "-"}；代码：{message.v2Debug.generationProviderCode || "-"}；参数：{message.v2Debug.generationProviderParam || "-"}；原因：{message.v2Debug.generationError || "模型调用异常"}</p> : null}
       </div>
     </details> : null}
   </div>;

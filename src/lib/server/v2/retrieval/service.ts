@@ -42,6 +42,16 @@ export function dedupeKnowledgeCandidates(candidates: RetrievalCandidate[]): Ret
   return candidates.filter((candidate, index, items) => items.findIndex((item) => key(item) === key(candidate)) === index);
 }
 
+const confidenceRank = (value: RetrievalTrace["evidenceConfidence"]): number => ({ none: 0, low: 1, medium: 2, high: 3 })[value];
+
+export function preferRetrievalTrace(original: RetrievalTrace, supplemental: RetrievalTrace | null): RetrievalTrace {
+  if (!supplemental) return original;
+  const originalRank = confidenceRank(original.evidenceConfidence); const supplementalRank = confidenceRank(supplemental.evidenceConfidence);
+  if (supplementalRank !== originalRank) return supplementalRank > originalRank ? supplemental : original;
+  const originalScore = original.reranked[0]?.rerankScore ?? 0; const supplementalScore = supplemental.reranked[0]?.rerankScore ?? 0;
+  return supplementalScore >= originalScore + 0.08 ? supplemental : original;
+}
+
 export function buildRetrievalFilters(intent: QueryIntent, alias = "c"): { sql: string; params: unknown[]; debug: Record<string, unknown> } {
   const conditions = ["v.status='published'", `${alias}.enabled`, `${alias}.knowledge_type <> 'terminology'`, "$1 = any(c.products)"];
   const params: unknown[] = [intent.product];
@@ -111,7 +121,7 @@ async function fulltextRecall(question: string, intent: QueryIntent): Promise<Re
   const scoped = buildRetrievalFilters(intent); const queryParam = scoped.params.length + 1; const termsParam = queryParam + 1; const deterministicFallbackParam = termsParam + 1;
   const searchTerms = extractSearchTerms(question);
   const deterministicFallback = intent.knowledgeTypes.length === 1 && intent.knowledgeTypes[0] === "out_of_scope";
-  const result = await getPool().query(`select c.chunk_id,c.knowledge_id,c.title,c.full_text,c.metadata,c.protected_fields,c.source_language,c.knowledge_type,c.api_type,c.api_version,c.products, greatest(ts_rank_cd(c.search_document,websearch_to_tsquery('simple',$${queryParam})),similarity(c.title,$${queryParam}),similarity(c.full_text,$${queryParam}),case when $${queryParam}=any(c.exact_terms) then 1 else 0 end,lexical.score) text_score from v2_search.chunks c join v2_search.index_versions v on v.id=c.index_version_id cross join lateral (select coalesce(count(*) filter (where lower(c.full_text) like '%' || lower(term) || '%'),0)::float / greatest(cardinality($${termsParam}::text[]),1) score from unnest($${termsParam}::text[]) term) lexical where ${scoped.sql} and ($${deterministicFallbackParam} or c.search_document @@ websearch_to_tsquery('simple',$${queryParam}) or similarity(c.title,$${queryParam})>0.08 or similarity(c.full_text,$${queryParam})>0.08 or $${queryParam}=any(c.exact_terms) or lexical.score>0) order by text_score desc limit ${retrievalConfig.fulltextTopK}`, [...scoped.params, question, searchTerms, deterministicFallback]);
+  const result = await getPool().query(`select c.chunk_id,c.knowledge_id,c.title,c.full_text,c.metadata,c.protected_fields,c.source_language,c.knowledge_type,c.api_type,c.api_version,c.products, greatest(ts_rank_cd(c.search_document,websearch_to_tsquery('simple',$${queryParam})),similarity(c.title,$${queryParam}),similarity(c.full_text,$${queryParam}),case when $${queryParam}=any(c.exact_terms) then 1 else 0 end,lexical.score) text_score from v2_search.chunks c join v2_search.index_versions v on v.id=c.index_version_id cross join lateral (select greatest(coalesce(count(*) filter (where lower(c.full_text) like '%' || lower(term) || '%'),0)::float / greatest(cardinality($${termsParam}::text[]),1),coalesce(sum(case when greatest(word_similarity(lower(term),lower(c.title)),word_similarity(lower(term),lower(concat_ws(' ',c.metadata->>'functionName',c.metadata->>'description',c.metadata->>'keywordsEn',c.metadata->>'keywordsZh'))))>=0.45 then greatest(word_similarity(lower(term),lower(c.title)),word_similarity(lower(term),lower(concat_ws(' ',c.metadata->>'functionName',c.metadata->>'description',c.metadata->>'keywordsEn',c.metadata->>'keywordsZh')))) else 0 end),0)::float / greatest(cardinality($${termsParam}::text[]),1)) score from unnest($${termsParam}::text[]) term) lexical where ${scoped.sql} and ($${deterministicFallbackParam} or c.search_document @@ websearch_to_tsquery('simple',$${queryParam}) or similarity(c.title,$${queryParam})>0.08 or similarity(c.full_text,$${queryParam})>0.08 or $${queryParam}=any(c.exact_terms) or lexical.score>0) order by text_score desc limit ${retrievalConfig.fulltextTopK}`, [...scoped.params, question, searchTerms, deterministicFallback]);
   return result.rows.map((row, index) => candidate(row, "fulltext", index + 1));
 }
 
@@ -121,9 +131,11 @@ async function vectorRecall(vector: string, intent: QueryIntent): Promise<Retrie
   return result.rows.map((row, index) => candidate(row, "vector", index + 1));
 }
 
-export async function retrieveV2(question: string, product: "dicloak" | "paraturbo" = "dicloak", signal?: AbortSignal): Promise<RetrievalTrace> {
+export async function retrieveV2(question: string, product: "dicloak" | "paraturbo" = "dicloak", signal?: AbortSignal, knowledgeTypes?: string[]): Promise<RetrievalTrace> {
   const totalStarted = performance.now(); const timings: Record<string, number> = {}; const degradedRoutes: string[] = [];
-  const intent = parseQuery(question, product); const scoped = buildRetrievalFilters(intent);
+  const parsedIntent = parseQuery(question, product);
+  const intent = knowledgeTypes?.length ? { ...parsedIntent, knowledgeTypes } : parsedIntent;
+  const scoped = buildRetrievalFilters(intent);
   const textTask = runTimedOperation("全文召回", () => fulltextRecall(question, intent), signal);
   const embeddingTask = runTimedOperation("查询 embedding", (taskSignal) => embedQuery(question, taskSignal), signal, retrievalConfig.embeddingTimeoutMs);
   const [textResult, embeddingResult] = await Promise.all([textTask, embeddingTask]);

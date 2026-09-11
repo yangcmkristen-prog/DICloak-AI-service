@@ -10,17 +10,7 @@ const KNOWLEDGE_ID = /\b(?:(?:ERR|FUNC|API|ROUTING|BILL)-[A-Z0-9_]+-[A-Z0-9_.:#-
 
 export function validateV2Generation(envelope: V2GeneratedEnvelope, trace: RetrievalTrace, prepared: PreparedTerminologyPipeline): V2ValidationResult {
   const errors: string[] = []; const allowedIds = new Set(trace.selectedKnowledge.map((item) => item.knowledgeId));
-  for (const claim of envelope.claims) {
-    if (!claim.text || !claim.knowledgeIds.length) errors.push("CLAIM_WITHOUT_EVIDENCE");
-    if (claim.knowledgeIds.some((id) => !allowedIds.has(id))) errors.push("CLAIM_USES_UNSELECTED_KNOWLEDGE");
-  }
-  if (!["clarify_only", "confirmation_required", "unsupported"].includes(trace.responseStrategy) && !envelope.claims.length) errors.push("CLAIMS_MISSING");
   if (trace.responseStrategy === "clarify_only" && (envelope.reply.match(/[?？]/g) ?? []).length > 1) errors.push("CLARIFY_MORE_THAN_ONE_QUESTION");
-  if (trace.responseStrategy === "conditional" && trace.branches.length >= 2) for (const branch of trace.branches) if (!envelope.claims.some((claim) => claim.knowledgeIds.some((id) => branch.knowledgeIds.includes(id)))) errors.push(`CONDITIONAL_BRANCH_MISSING:${branch.label}`);
-  if (["aggregated", "answer_then_clarify"].includes(trace.responseStrategy) && trace.knowledgeGroups.length > 1) {
-    const covered = trace.knowledgeGroups.filter((group) => envelope.claims.some((claim) => claim.knowledgeIds.some((id) => group.knowledgeIds.includes(id))));
-    if (covered.length < Math.min(3, trace.knowledgeGroups.length)) errors.push("AGGREGATED_DIRECTIONS_INCOMPLETE");
-  }
   if (INTERNAL_LANGUAGE.test(envelope.reply)) errors.push("INTERNAL_LANGUAGE_LEAKED");
   if (MISSING_INFORMATION_LANGUAGE.test(envelope.reply)) errors.push("MISSING_INFORMATION_LANGUAGE_LEAKED");
   if (prepared.targetLanguage !== "zh" && /\p{Script=Han}/u.test(envelope.reply)) errors.push("UNEXPECTED_HAN_SCRIPT");
