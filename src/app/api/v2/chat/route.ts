@@ -43,12 +43,16 @@ export async function POST(request: NextRequest): Promise<Response> {
       }
       const supplementalRetrievals = queryUnderstanding ? await Promise.all(supplementalQueries(queryUnderstanding, question)
         .map((query) => retrieveV2(query, product, request.signal).catch(() => null))) : [];
-      const preferredRetrieval = supplementalRetrievals.reduce(preferRetrievalTrace, originalRetrieval);
-      const hasUsefulAmbiguousEvidence = Boolean(queryUnderstanding?.ambiguity) && (preferredRetrieval.evidenceConfidence === "high" || preferredRetrieval.evidenceConfidence === "medium") && preferredRetrieval.selectedKnowledge.length > 0;
+      const compatibleSupplementalRetrievals = originalRetrieval.questionMode === "precise"
+        ? supplementalRetrievals
+        : supplementalRetrievals.filter((trace) => trace?.questionMode === originalRetrieval.questionMode);
+      const preferredRetrieval = compatibleSupplementalRetrievals.reduce(preferRetrievalTrace, originalRetrieval);
+      const mayOverrideWithAmbiguity = originalRetrieval.questionMode === "precise";
+      const hasUsefulAmbiguousEvidence = mayOverrideWithAmbiguity && Boolean(queryUnderstanding?.ambiguity) && (preferredRetrieval.evidenceConfidence === "high" || preferredRetrieval.evidenceConfidence === "medium") && preferredRetrieval.selectedKnowledge.length > 0;
       const retrievalTrace = {
         ...preferredRetrieval,
         intent: { ...preferredRetrieval.intent, language: originalRetrieval.intent.language },
-        ...(queryUnderstanding?.ambiguity ? {
+        ...(mayOverrideWithAmbiguity && queryUnderstanding?.ambiguity ? {
           responseStrategy: hasUsefulAmbiguousEvidence ? "answer_then_clarify" as const : "clarify_only" as const,
           optionalFollowUpFields: [queryUnderstanding.ambiguity],
         } : {}),
@@ -87,7 +91,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       let usage: V2ModelUsage = {}; let modelCalls = queryUnderstanding ? 1 : 0; let firstTokenMs: number | null = null; const generationStartedAt = performance.now();
       const run = async () => {
         modelCalls += 1;
-        const raw = await streamV2Model({ config: modelConfig, messages: buildV2Messages({ question, history, product, language: targetLanguage, trace, prepared, queryUnderstanding }), signal: request.signal,
+        const promptUnderstanding = queryUnderstanding && !mayOverrideWithAmbiguity ? { ...queryUnderstanding, ambiguity: "" } : queryUnderstanding;
+        const raw = await streamV2Model({ config: modelConfig, messages: buildV2Messages({ question, history, product, language: targetLanguage, trace, prepared, queryUnderstanding: promptUnderstanding }), signal: request.signal,
           onDelta: () => { if (firstTokenMs === null) { firstTokenMs = Math.round(performance.now() - startedAt); sendStatus("正在生成回复", "已收到模型输出，完成前暂不可使用"); } },
           onUsage: (next) => { usage = { prompt_tokens: (usage.prompt_tokens ?? 0) + (next.prompt_tokens ?? 0), completion_tokens: (usage.completion_tokens ?? 0) + (next.completion_tokens ?? 0), total_tokens: (usage.total_tokens ?? 0) + (next.total_tokens ?? 0) }; },
         });
