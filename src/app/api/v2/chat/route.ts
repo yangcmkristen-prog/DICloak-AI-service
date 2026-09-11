@@ -86,7 +86,19 @@ export async function POST(request: NextRequest): Promise<Response> {
         const correction = firstError instanceof Error ? [firstError.message] : ["V2_OUTPUT_INVALID"];
         generated = await run(correction, false);
       }
-      if (!generated.validation.ok || !generated.validation.reply) throw new Error(`V2 回复验证失败：${generated.validation.errors.join(",")}`);
+      if (!generated.validation.ok || !generated.validation.reply) {
+        const fallback = confirmationRequiredReply(targetLanguage);
+        const totalMs = Math.round(performance.now() - startedAt);
+        controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: {
+          ...baseMeta, usage, modelCalls, retry: retried, validationFallback: true,
+          validationErrors: generated.validation.errors, firstTokenMs,
+          generationMs: Math.round(performance.now() - generationStartedAt), totalMs,
+        } }));
+        sendStatus("正在完成回复", "生成内容未通过事实验证，已改用安全回复");
+        controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: fallback }));
+        controller.close();
+        return;
+      }
       const totalMs = Math.round(performance.now() - startedAt);
       controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, usage, modelCalls, retry: retried, firstTokenMs, generationMs: Math.round(performance.now() - generationStartedAt), totalMs, claims: generated.claims } }));
       sendStatus("正在完成回复", "事实、术语和技术字段验证通过");
