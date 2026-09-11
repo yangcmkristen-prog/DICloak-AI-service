@@ -201,6 +201,14 @@ test("strong fuzzy function match is usable when it clearly leads alternatives",
   assert.equal(result.confidence, "medium");
 });
 
+test("strong function match remains high confidence when score and lead are decisive", () => {
+  const result = calculateConfidence(intent({ knowledgeTypes: ["function"] }), [
+    candidate("BEST", { knowledgeType: "function", rerankScore: 0.8, textScore: 0.7 }),
+    candidate("OTHER", { knowledgeType: "function", rerankScore: 0.3, textScore: 0.25 }),
+  ]);
+  assert.equal(result.confidence, "high");
+});
+
 test("confidence accepts a consistent generic API family and typo-tolerant multilingual function", () => {
   const genericApi = intent({ knowledgeTypes: ["http_api", "local_api"], missingConditions: ["apiType", "method"] });
   assert.equal(calculateConfidence(genericApi, [candidate("local-one", { rerankScore: 0.26, apiType: "local" }), candidate("local-two", { rerankScore: 0.22, apiType: "local" })]).confidence, "low");

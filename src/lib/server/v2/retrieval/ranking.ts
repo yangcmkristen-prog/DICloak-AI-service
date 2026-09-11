@@ -153,7 +153,7 @@ export function calculateConfidence(intent: QueryIntent, candidates: RetrievalCa
   if (effectiveMissing.length >= 2 && first.rerankScore < retrievalConfig.confidence.medium) return { confidence: "none", reasons: [...reasons, "结构化条件不足且候选不够强"] };
   const strongFuzzyFunctionMatch = intent.knowledgeTypes.length === 1 && intent.knowledgeTypes[0] === "function"
     && first.knowledgeType === "function" && first.textScore >= 0.45 && gap >= retrievalConfig.confidence.strongGap;
-  if (strongFuzzyFunctionMatch) return { confidence: "medium", reasons: [...reasons, "功能候选具备强词形匹配且明显领先"] };
+  if (strongFuzzyFunctionMatch && first.rerankScore < retrievalConfig.confidence.high) return { confidence: "medium", reasons: [...reasons, "功能候选具备强词形匹配且明显领先"] };
   if (first.rerankScore < retrievalConfig.confidence.minimum) {
     const typoTolerantFunction = !["zh", "en"].includes(intent.language) && first.knowledgeType === "function" && candidates.slice(0, 3).every((candidate) => candidate.knowledgeType === "function") && first.vectorScore >= 0.18 && gap >= retrievalConfig.confidence.weakGap;
     if (typoTolerantFunction) return { confidence: "medium", reasons: [...reasons, "多语言功能意图一致，容忍明显拼写偏差"] };

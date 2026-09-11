@@ -26,12 +26,40 @@ test("direct 只传前三条且 API Endpoint 保持原样", () => {
   assert.deepEqual(result[0].protectedFields?.map((field) => field.value), ["/openapi/v1/env/{env_id}/open"]);
 });
 
-test("direct 功能回答保留前三名供模型判断", () => {
+test("高置信且明显领先的 direct 功能回答只传第一名", () => {
   const selectedKnowledge = Array.from({ length: 3 }, (_, index) => ({
-    ...candidate(String(index + 1)), knowledgeType: "function", apiType: null,
+    ...candidate(String(index + 1)), knowledgeType: "function", apiType: null, rerankScore: 0.8 - index * 0.3,
+    metadata: { standardAnswer: index === 0 ? "进入扩展管理，点击添加扩展并保存。" : "无关内容" },
   }));
-  const result = selectGenerationKnowledge({ ...trace("direct"), selectedKnowledge }, "怎么修改环境代理？");
+  const result = selectGenerationKnowledge({ ...trace("direct"), evidenceConfidence: "high", selectedKnowledge }, "怎么操作？");
+  assert.deepEqual(result.map((item) => item.knowledgeId), ["1"]);
+  assert.equal(result[0].text, "进入扩展管理，点击添加扩展并保存。");
+  assert.doesNotMatch(result[0].text, /TERM-|huge|\n1\n2/);
+});
+
+test("没有决定性领先时 direct 仍保留多个候选供模型判断", () => {
+  const selectedKnowledge = Array.from({ length: 3 }, (_, index) => ({
+    ...candidate(String(index + 1)), knowledgeType: "function", apiType: null, rerankScore: 0.45 - index * 0.01,
+    metadata: { standardAnswer: `答案 ${index + 1}` },
+  }));
+  const result = selectGenerationKnowledge({ ...trace("direct"), evidenceConfidence: "medium", selectedKnowledge }, "怎么操作？");
   assert.deepEqual(result.map((item) => item.knowledgeId), ["1", "2", "3"]);
+});
+
+test("回答后追问只传最相关知识，避免把多个歧义答案塞给模型", () => {
+  const result = selectGenerationKnowledge(trace("answer_then_clarify"), "登录失败");
+  assert.equal(result.length, 1);
+});
+
+test("多角色 FAQ 只传答案变体，不传检索正文", () => {
+  const first = {
+    ...candidate("FAQ-ROLE"), knowledgeType: "troubleshooting", apiType: null,
+    text: "问题标题\nzh: 问题\nTERM-X\n1\n2",
+    metadata: { answerVariants: { client: "客户端排查步骤", end_user: "终端用户说明" } },
+  };
+  const result = selectGenerationKnowledge({ ...trace("direct"), selectedKnowledge: [first] }, "登录失败");
+  assert.equal(result[0].text, "client：客户端排查步骤\nend_user：终端用户说明");
+  assert.doesNotMatch(result[0].text, /TERM-X|问题标题/);
 });
 
 test("通用问答检索正文与生成答案分离", () => {
