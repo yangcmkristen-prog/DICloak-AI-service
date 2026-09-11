@@ -9,6 +9,7 @@ import { buildV2Messages, confirmationRequiredReply, unsupportedFeatureReply, ty
 import { completeV2Json, resolveV2ModelConfig, streamV2Model, V2ModelRequestError, type V2ModelUsage } from "@/lib/server/v2/generation/model";
 import { selectGenerationKnowledge } from "@/lib/server/v2/generation/context";
 import { logV2Route } from "@/lib/server/v2/logger";
+import { rewriteProductContent } from "@/lib/product-url";
 
 export const runtime = "nodejs";
 interface V2ChatRequest { message?: unknown; history?: unknown; product?: unknown; conversationId?: unknown; aiEngine?: unknown; aiEngineVersion?: unknown }
@@ -31,6 +32,7 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const stream = new ReadableStream<Uint8Array>({ async start(controller) {
     const sendStatus = (label: string, detail?: string): void => controller.enqueue(encodeStreamEvent({ type: "status", requestId, label, detail, elapsedMs: Math.round(performance.now() - startedAt) }));
+    const customerReply = (content: string): string => rewriteProductContent(content, product);
     try {
       sendStatus("正在理解问题并检索知识", "问题理解与原文召回并行执行");
       const modelConfigPromise = resolveV2ModelConfig();
@@ -76,14 +78,14 @@ export async function POST(request: NextRequest): Promise<Response> {
       if (trace.responseStrategy === "confirmation_required") {
         const reply = confirmationRequiredReply(targetLanguage);
         sendStatus("正在完成回复", "该问题需要进一步确认");
-        controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: reply }));
+        controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: customerReply(reply) }));
         controller.close();
         return;
       }
       if (isUnsupportedFeature) {
         const reply = unsupportedFeatureReply(targetLanguage);
         sendStatus("正在完成回复", "已确认当前功能支持范围");
-        controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: reply }));
+        controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: customerReply(reply) }));
         controller.close();
         return;
       }
@@ -124,7 +126,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       const totalMs = Math.round(performance.now() - startedAt);
       controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, model: modelConfig.model, usage, modelCalls, retry: false, validationDisabled: true, generationFallback: Boolean(generationError), generationError, generationHttpStatus, generationProviderType, generationProviderCode, generationProviderParam, firstTokenMs, generationMs: Math.round(performance.now() - generationStartedAt), totalMs } }));
       sendStatus("正在完成回复", generationError ? "模型调用异常，已使用已命中知识回答" : "模型回复已生成");
-      controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: generated })); controller.close();
+      controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: customerReply(generated) })); controller.close();
     } catch (error) { if (!request.signal.aborted) controller.enqueue(encodeStreamEvent({ type: "error", requestId, message: error instanceof Error ? error.message : "V2 生成失败" })); controller.close(); }
   } });
   return new Response(stream, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform", "Connection": "keep-alive", "x-request-id": requestId, "x-ai-engine": "v2", "x-ai-engine-version": typeof body.aiEngineVersion === "string" ? body.aiEngineVersion : "2.0-phase-6" } });

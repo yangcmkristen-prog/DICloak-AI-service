@@ -8,13 +8,16 @@ export function rewriteProductDomains(
   content: string,
   product: ProductName
 ): string {
-  if (product !== 'paraturbo') return content;
-
+  const source = product === 'paraturbo' ? 'dicloak' : 'paraturbo';
+  const target = product === 'paraturbo' ? 'paraturbo' : 'dicloak';
   return content.replace(
-    /\b(https?:\/\/)((?:[a-z0-9-]+\.)*)dicloak\.com\b/gi,
-    (_domain, protocol: string, subdomains: string) =>
-      `${protocol}${subdomains}paraturbo.com`
+    new RegExp(`\\b(https?:\\/\\/)((?:[a-z0-9-]+\\.)*)${source}\\.com\\b`, 'gi'),
+    (_domain, protocol: string, subdomains: string) => `${protocol}${subdomains}${target}.com`,
   );
+}
+
+export function rewriteProductContent(content: string, product: ProductName): string {
+  return rewriteProductBrand(rewriteProductDomains(content, product), product);
 }
 
 /**

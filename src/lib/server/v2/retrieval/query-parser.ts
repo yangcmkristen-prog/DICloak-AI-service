@@ -39,7 +39,7 @@ function detectLanguage(question: string): string {
 export function parseQuery(question: string, requestedProduct: "dicloak" | "paraturbo" = "dicloak"): QueryIntent {
   const normalized = question.trim();
   const upper = normalized.toUpperCase();
-  const product = /\bparaturbo\b/i.test(normalized) ? "paraturbo" : /\bdicloak\b/i.test(normalized) ? "dicloak" : requestedProduct;
+  const product = requestedProduct;
   const localApi = /\b(local api|api local)\b|本地\s*API|localhost|127\.0\.0\.1/i.test(normalized);
   const httpApi = /\b(http api|open api|remote api|http)\b|HTTP\s*接口|开放\s*API|云端\s*API/i.test(normalized);
   const apiType = localApi ? "local" : httpApi ? "http" : null;
