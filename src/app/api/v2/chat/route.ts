@@ -5,7 +5,6 @@ import { buildQueryUnderstandingMessages, parseQueryUnderstanding, supplementalQ
 import { prepareTerminologyPipeline } from "@/lib/server/v2/terminology/pipeline";
 import type { SupportedTermLanguage, TerminologyKnowledge } from "@/lib/server/v2/terminology/types";
 import { buildV2Messages, confirmationRequiredReply, unsupportedFeatureReply, type V2PromptHistory } from "@/lib/server/v2/prompt";
-import { parseV2Envelope, V2VisibleStreamFilter } from "@/lib/server/v2/generation/protocol";
 import { completeV2Json, resolveV2ModelConfig, streamV2Model, type V2ModelUsage } from "@/lib/server/v2/generation/model";
 import { selectGenerationKnowledge } from "@/lib/server/v2/generation/context";
 import { logV2Route } from "@/lib/server/v2/logger";
@@ -88,20 +87,19 @@ export async function POST(request: NextRequest): Promise<Response> {
       let usage: V2ModelUsage = {}; let modelCalls = queryUnderstanding ? 1 : 0; let firstTokenMs: number | null = null; const generationStartedAt = performance.now();
       const run = async () => {
         modelCalls += 1;
-        const filter = new V2VisibleStreamFilter(new Map(prepared.markers.map((marker) => [marker.marker, marker.value])));
         const raw = await streamV2Model({ config: modelConfig, messages: buildV2Messages({ question, history, product, language: targetLanguage, trace, prepared, queryUnderstanding }), signal: request.signal,
-          onDelta: (delta) => { if (firstTokenMs === null) { firstTokenMs = Math.round(performance.now() - startedAt); sendStatus("正在生成回复", "已收到模型输出，完成前暂不可使用"); } filter.push(delta); },
+          onDelta: () => { if (firstTokenMs === null) { firstTokenMs = Math.round(performance.now() - startedAt); sendStatus("正在生成回复", "已收到模型输出，完成前暂不可使用"); } },
           onUsage: (next) => { usage = { prompt_tokens: (usage.prompt_tokens ?? 0) + (next.prompt_tokens ?? 0), completion_tokens: (usage.completion_tokens ?? 0) + (next.completion_tokens ?? 0), total_tokens: (usage.total_tokens ?? 0) + (next.total_tokens ?? 0) }; },
         });
-        const envelope = parseV2Envelope(raw);
-        const reply = prepared.markers.reduce((text, marker) => text.split(marker.marker).join(marker.value), envelope.reply);
-        return { reply, claims: envelope.claims };
+        const reply = prepared.markers.reduce((text, marker) => text.split(marker.marker).join(marker.value), raw.trim());
+        if (!reply) throw new Error("V2 主模型没有返回回复内容");
+        return reply;
       };
       const generated = await run();
       const totalMs = Math.round(performance.now() - startedAt);
-      controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, usage, modelCalls, retry: false, validationDisabled: true, firstTokenMs, generationMs: Math.round(performance.now() - generationStartedAt), totalMs, claims: generated.claims } }));
+      controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: { ...baseMeta, usage, modelCalls, retry: false, validationDisabled: true, firstTokenMs, generationMs: Math.round(performance.now() - generationStartedAt), totalMs } }));
       sendStatus("正在完成回复", "模型回复已生成");
-      controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: generated.reply })); controller.close();
+      controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: generated })); controller.close();
     } catch (error) { if (!request.signal.aborted) controller.enqueue(encodeStreamEvent({ type: "error", requestId, message: error instanceof Error ? error.message : "V2 生成失败" })); controller.close(); }
   } });
   return new Response(stream, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform", "Connection": "keep-alive", "x-request-id": requestId, "x-ai-engine": "v2", "x-ai-engine-version": typeof body.aiEngineVersion === "string" ? body.aiEngineVersion : "2.0-phase-6" } });

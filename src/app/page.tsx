@@ -829,6 +829,7 @@ export default function Home() {
 
     let imageOcrResults: Array<{ id: string; name: string; text: string }> = [];
     let messageAttachments = attachments;
+    let responseLanguage = "en";
 
     // 先添加用户消息，让点击 Enter/发送按钮后立即显示已发送状态；OCR 和回复生成在后台继续。
     const userMessage: Message = {
@@ -1006,6 +1007,7 @@ export default function Home() {
 
       // 构建请求
       const detectedLang = detectLanguage(content || ocrTextForModel);
+      responseLanguage = detectedLang;
       console.log('[DEBUG] 检测语言:', detectedLang, '原文:', content);
       updateGenerationStatus("AI 正在生成回复", "等待模型输出");
       response = await fetch("/api/chat", {
@@ -1125,7 +1127,15 @@ export default function Home() {
         const updated = prev.map((c) => {
           if (c.id === requestConversationId) {
             if (c.aiEngine === "v2") {
-              const fallback = "这个问题我们需要进一步确认，确认后会给您准确答复。";
+              const fallbackByLanguage: Record<string, string> = {
+                zh: "这个问题我们需要进一步确认，确认后会给您准确答复。",
+                en: "We need to confirm this further and will provide you with an accurate answer once it has been verified.",
+                ru: "Нам необходимо дополнительно уточнить этот вопрос. После проверки мы предоставим точный ответ.",
+                pt: "Precisamos confirmar melhor essa questão e forneceremos uma resposta precisa após a verificação.",
+                es: "Necesitamos confirmar esta cuestión con más detalle y te daremos una respuesta precisa después de verificarla.",
+                vi: "Chúng tôi cần xác nhận thêm vấn đề này và sẽ cung cấp câu trả lời chính xác sau khi kiểm tra.",
+              };
+              const fallback = fallbackByLanguage[responseLanguage] ?? fallbackByLanguage.en;
               return { ...c, messages: c.messages.some((message) => message.id === assistantMessageId)
                 ? c.messages.map((message) => message.id === assistantMessageId ? { ...message, content: fallback } : message)
                 : [...c.messages, { id: assistantMessageId, role: "assistant" as const, content: fallback, timestamp: Date.now() }] };

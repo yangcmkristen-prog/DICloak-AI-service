@@ -58,7 +58,7 @@ const STRATEGY_RULES: Record<RetrievalTrace["responseStrategy"], string> = {
   partial_support: "State that the exact requested capability is currently unsupported, then distinguish and explain only the closely related supported capability using its supplied standard answer. Make the direction of the limitation explicit. Do not add another feature or workaround.",
 };
 
-export const V2_SYSTEM_PROMPT = `Write one concise, natural customer-support reply as one JSON object.
+export const V2_SYSTEM_PROMPT = `Write one concise, natural customer-support reply.
 
 Hard rules:
 - Use only SELECTED_KNOWLEDGE and REQUIRED_FACTS. Never invent facts or links.
@@ -74,9 +74,7 @@ Hard rules:
 - For broad troubleshooting, give high-priority distinct directions first, summarize lower-priority causes in one sentence, then ask one screenshot/detail question.
 - Be complete but concise. Never mention unavailable internal fields or data.
 
-Output JSON exactly in this shape:
-{"reply":"one natural reply only"}
-Do not wrap the JSON in Markdown. Do not output any text outside the JSON object.`;
+Output only the customer-facing reply as natural plain text. Do not wrap it in JSON or Markdown fences. Do not add labels, analysis, notes, or any text outside the reply.`;
 
 export function buildV2Messages(input: { question: string; history: V2PromptHistory[]; product: string; language: string; trace: RetrievalTrace; prepared: PreparedTerminologyPipeline; queryUnderstanding?: QueryUnderstanding | null; retryErrors?: string[] }): Array<{ role: "system" | "user"; content: string }> {
   const preparedById = new Map(input.prepared.knowledge.map((item) => [item.knowledgeId, item]));
