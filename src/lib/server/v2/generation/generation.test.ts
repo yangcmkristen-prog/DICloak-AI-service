@@ -127,10 +127,10 @@ test("generation safely permits repeated known markers but still rejects unknown
   assert.ok(unknown.errors.includes("MARKER_UNKNOWN"));
 });
 
-test("grounding rejects unselected claims, invented links, IDs and excessive clarification", () => {
+test("grounding treats claims as advisory but still rejects customer-facing safety violations", () => {
   const result = validateV2Generation({ reply: "根据知识库 FAQ-9 请访问 https://invented.test。为什么？版本？", claims: [{ text: "猜测", knowledgeIds: ["B"] }] }, trace({ responseStrategy: "clarify_only" }), prepared);
   assert.equal(result.ok, false);
-  assert.ok(result.errors.includes("CLAIM_USES_UNSELECTED_KNOWLEDGE")); assert.ok(result.errors.some((error) => error.startsWith("UNSELECTED_OR_MODIFIED_TECHNICAL_FIELD"))); assert.ok(result.errors.includes("INTERNAL_LANGUAGE_LEAKED"));
+  assert.ok(!result.errors.includes("CLAIM_USES_UNSELECTED_KNOWLEDGE")); assert.ok(result.errors.some((error) => error.startsWith("UNSELECTED_OR_MODIFIED_TECHNICAL_FIELD"))); assert.ok(result.errors.includes("INTERNAL_LANGUAGE_LEAKED"));
 });
 
 test("grounding rejects customer-facing claims that information was not found", () => {
@@ -145,8 +145,8 @@ test("grounding rejects Chinese prose in a non-Chinese reply", () => {
   assert.ok(result.errors.includes("UNEXPECTED_HAN_SCRIPT"));
 });
 
-test("conditional and aggregated strategies require traceable coverage", () => {
+test("conditional claim coverage is advisory when the visible reply is safe", () => {
   const conditional = trace({ responseStrategy: "conditional", branches: [{ label: "DICloak", knowledgeIds: ["A"] }, { label: "平台", knowledgeIds: ["B"] }], selectedKnowledge: [...trace().selectedKnowledge, { ...trace().selectedKnowledge[0], chunkId: "B#1", knowledgeId: "B" }] });
   const result = validateV2Generation({ reply: "如果是 DICloak，请检查网络。", claims: [{ text: "检查网络", knowledgeIds: ["A"] }] }, conditional, { ...prepared, markers: [] });
-  assert.ok(result.errors.some((error) => error.startsWith("CONDITIONAL_BRANCH_MISSING")));
+  assert.equal(result.ok, true);
 });

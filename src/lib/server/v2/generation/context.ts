@@ -66,8 +66,7 @@ function compactApi(candidate: RetrievalCandidate, question: string): string {
 export function selectGenerationKnowledge(trace: RetrievalTrace, question: string): RetrievalCandidate[] {
   const limit = STRATEGY_LIMITS[trace.responseStrategy];
   const hasPricing = trace.selectedKnowledge.some((candidate) => candidate.knowledgeType === "pricing");
-  const directFunction = trace.responseStrategy === "direct" && trace.selectedKnowledge[0]?.knowledgeType === "function";
-  const candidates = hasPricing ? trace.selectedKnowledge : trace.selectedKnowledge.slice(0, directFunction ? 1 : limit);
+  const candidates = hasPricing ? trace.selectedKnowledge : trace.selectedKnowledge.slice(0, limit);
   return candidates.map((candidate) => {
     if (candidate.knowledgeType === "pricing") {
       const plan = stringValue(candidate.metadata.planName) || stringValue(candidate.metadata.planKey);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { encodeStreamEvent } from "@/lib/stream-events";
-import { retrieveV2, loadV2Terms, expandPricingKnowledge, findExactFaq, preferRetrievalTrace } from "@/lib/server/v2/retrieval/service";
+import { retrieveV2, loadV2Terms, expandPricingKnowledge, preferRetrievalTrace } from "@/lib/server/v2/retrieval/service";
 import { buildQueryUnderstandingMessages, parseQueryUnderstanding, supplementalQueries } from "@/lib/server/v2/retrieval/query-understanding";
 import { prepareTerminologyPipeline } from "@/lib/server/v2/terminology/pipeline";
 import type { SupportedTermLanguage, TerminologyKnowledge } from "@/lib/server/v2/terminology/types";
@@ -35,19 +35,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     try {
       sendStatus("正在理解问题并检索知识", "问题理解与原文召回并行执行");
       const modelConfigPromise = resolveV2ModelConfig();
-      const exactFaq = await findExactFaq(question, product).catch(() => null);
-      if (exactFaq) {
-        controller.enqueue(encodeStreamEvent({ type: "meta", requestId, data: {
-          engine: "v2", knowledgeIds: [exactFaq.knowledgeId], evidenceConfidence: "high", responseStrategy: "direct",
-          language: exactFaq.sourceLanguage || "en", terminologyWarnings: [], retrievalMs: exactFaq.elapsedMs,
-          usage: {}, modelCalls: 0, retry: false, exactFaq: true, firstTokenMs: Math.round(performance.now() - startedAt),
-          generationMs: 0, totalMs: Math.round(performance.now() - startedAt),
-        } }));
-        sendStatus("正在完成回复", "已精确匹配标准问答");
-        controller.enqueue(encodeStreamEvent({ type: "final", requestId, content: exactFaq.answer }));
-        controller.close();
-        return;
-      }
       const understandingPromise = modelConfigPromise.then(async (config) => {
         if (!config) return null;
         try {

@@ -26,12 +26,12 @@ test("direct 只传前三条且 API Endpoint 保持原样", () => {
   assert.deepEqual(result[0].protectedFields?.map((field) => field.value), ["/openapi/v1/env/{env_id}/open"]);
 });
 
-test("direct 功能回答只把第一名传给生成模型", () => {
+test("direct 功能回答保留前三名供模型判断", () => {
   const selectedKnowledge = Array.from({ length: 3 }, (_, index) => ({
     ...candidate(String(index + 1)), knowledgeType: "function", apiType: null,
   }));
   const result = selectGenerationKnowledge({ ...trace("direct"), selectedKnowledge }, "怎么修改环境代理？");
-  assert.deepEqual(result.map((item) => item.knowledgeId), ["1"]);
+  assert.deepEqual(result.map((item) => item.knowledgeId), ["1", "2", "3"]);
 });
 
 test("通用问答检索正文与生成答案分离", () => {

@@ -68,13 +68,14 @@ Hard rules:
 - Write every customer-facing word in targetLanguageName. A source answer in another language is evidence to translate, not a language to copy. Preserve only supplied markers and technical fields.
 - Include every non-empty REQUIRED_FACT. Translate all ordinary prose inside REQUIRED_FACTS into the target language; only markers and technical fields stay exact. When a function standardAnswer is supplied, preserve all of its factual content and operation steps while translating it naturally.
 - SUPPORTING_FACTS are optional evidence for overview, workflow, and comparison answers. Select only facts that directly contribute to the current question, combine complementary facts, and omit irrelevant or duplicate facts. Do not treat every supporting answer as mandatory.
+- For direct answers, relevance rank 1 is the primary evidence. Other selected items are alternatives or supporting context: reason over their meaning and use them only when they genuinely help. Never concatenate every answer mechanically.
 - QUERY_UNDERSTANDING is a short interpretation aid, not product evidence. Use it to understand noisy wording and ignore irrelevant retrieved items. If it reports unresolved ambiguity that changes the answer, explain the likely interpretation briefly and ask one natural clarification instead of assuming.
 - If selected knowledge contains client/admin and end_user/member variants and the user's role is unknown, answer conditionally for both roles. Do not guess the role; state shared safe steps only once.
 - For broad troubleshooting, give high-priority distinct directions first, summarize lower-priority causes in one sentence, then ask one screenshot/detail question.
 - Be complete but concise. Never mention unavailable internal fields or data.
 
-Output JSON exactly in this shape, with reply as the first property:
-{"reply":"one natural reply only","claims":[{"text":"short factual claim or major suggestion","knowledgeIds":["selected-id"]}]}
+Output JSON exactly in this shape:
+{"reply":"one natural reply only"}
 Do not wrap the JSON in Markdown. Do not output any text outside the JSON object.`;
 
 export function buildV2Messages(input: { question: string; history: V2PromptHistory[]; product: string; language: string; trace: RetrievalTrace; prepared: PreparedTerminologyPipeline; queryUnderstanding?: QueryUnderstanding | null; retryErrors?: string[] }): Array<{ role: "system" | "user"; content: string }> {
@@ -103,21 +104,23 @@ export function buildV2Messages(input: { question: string; history: V2PromptHist
     const isApi = candidate.knowledgeType.includes("api") || candidate.apiType !== null;
     const standardAnswer = fact(item?.naturalLanguageFields.standardAnswer);
     const isFunctionSynthesis = ["feature_overview", "function_workflow", "function_comparison"].includes(input.trace.responseStrategy);
-    const requiredFacts = candidate.knowledgeType === "function" && !isFunctionSynthesis ? standardAnswer
+    const secondaryDirect = input.trace.responseStrategy === "direct" && index > 0;
+    const content = item?.body;
+    const requiredFacts = candidate.knowledgeType === "function" && !isFunctionSynthesis && !secondaryDirect ? standardAnswer
       ? { standardAnswer }
       : uniqueFacts([
         ["module", fact(item?.naturalLanguageFields.module)], ["description", fact(item?.naturalLanguageFields.description)], ["steps", fact(item?.naturalLanguageFields.steps)],
-      ]) : isApi ? {
+      ]) : candidate.knowledgeType === "general_faq" && !secondaryDirect ? { answer: content }
+      : isApi && !secondaryDirect ? {
       apiType: fact(candidate.metadata.apiType), version: fact(candidate.metadata.version), method: fact(candidate.metadata.method),
       endpoint: fact(candidate.metadata.endpoint), fullPath: fact(candidate.metadata.fullPath), authentication: fact(candidate.metadata.authentication),
       parameters: selectedApiParameters(candidate),
     } : undefined;
-    const content = item?.body;
-    const supportingFacts = candidate.knowledgeType === "function" && isFunctionSynthesis ? standardAnswer
+    const supportingFacts = candidate.knowledgeType === "function" && (isFunctionSynthesis || secondaryDirect) ? standardAnswer
       ? { standardAnswer }
       : uniqueFacts([
         ["module", fact(item?.naturalLanguageFields.module)], ["description", fact(item?.naturalLanguageFields.description)], ["steps", fact(item?.naturalLanguageFields.steps)],
-      ]) : undefined;
+      ]) : candidate.knowledgeType === "general_faq" && secondaryDirect ? { answer: content } : undefined;
     return item && content ? [{ relevanceRank: index + 1, knowledgeId: item.knowledgeId, title: candidate.title, content,
       roleVariants, requiredFacts, supportingFacts, technicalFields: item.technicalFields }] : [];
   });

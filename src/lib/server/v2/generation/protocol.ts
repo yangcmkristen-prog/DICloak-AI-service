@@ -13,8 +13,8 @@ export function parseV2Envelope(raw: string): V2GeneratedEnvelope {
   catch { throw new Error("V2_OUTPUT_PROTOCOL_INVALID"); }
   if (!parsed || typeof parsed !== "object") throw new Error("V2_OUTPUT_PROTOCOL_INVALID");
   const value = parsed as { reply?: unknown; claims?: unknown };
-  if (typeof value.reply !== "string" || !value.reply.trim() || !Array.isArray(value.claims)) throw new Error("V2_OUTPUT_PROTOCOL_INVALID");
-  const claims = value.claims.flatMap((claim): V2Claim[] => {
+  if (typeof value.reply !== "string" || !value.reply.trim() || value.claims !== undefined && !Array.isArray(value.claims)) throw new Error("V2_OUTPUT_PROTOCOL_INVALID");
+  const claims = (value.claims ?? []).flatMap((claim): V2Claim[] => {
     if (!claim || typeof claim !== "object") return [];
     const item = claim as { text?: unknown; knowledgeIds?: unknown };
     if (typeof item.text !== "string" || !Array.isArray(item.knowledgeIds) || !item.knowledgeIds.every((id) => typeof id === "string")) return [];
