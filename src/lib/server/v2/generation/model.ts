@@ -37,7 +37,7 @@ export async function completeV2Json(input: { config: V2ModelConfig; messages: A
   const response = await fetch(completionsUrl(input.config), {
     method: "POST", signal: input.signal,
     headers: { authorization: `Bearer ${input.config.apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({ model, messages: input.messages, response_format: { type: "json_object" }, temperature: 0, max_completion_tokens: input.maxCompletionTokens ?? 768, ...(queryReasoningEffort ? { reasoning_effort: queryReasoningEffort } : {}) }),
+    body: JSON.stringify({ model, messages: input.messages, response_format: { type: "json_object" }, max_completion_tokens: input.maxCompletionTokens ?? 768, ...(queryReasoningEffort ? { reasoning_effort: queryReasoningEffort } : {}) }),
   });
   if (!response.ok) throw new Error(`V2 查询理解调用失败：HTTP ${response.status}`);
   const payload = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
@@ -53,7 +53,7 @@ export async function streamV2Model(input: { config: V2ModelConfig; messages: Ar
   const response = await fetch(completionsUrl(input.config), {
     method: "POST", signal: input.signal,
     headers: { authorization: `Bearer ${input.config.apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({ model: input.config.model, messages: input.messages, temperature: 0.1, max_completion_tokens: maxCompletionTokens, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}), stream: true, stream_options: { include_usage: true } }),
+    body: JSON.stringify({ model: input.config.model, messages: input.messages, max_completion_tokens: maxCompletionTokens, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}), stream: true, stream_options: { include_usage: true } }),
   });
   if (!response.ok) {
     const raw = (await response.text()).slice(0, 1200);
@@ -69,7 +69,7 @@ export async function streamV2Model(input: { config: V2ModelConfig; messages: Ar
         providerParam = typeof error.param === "string" ? error.param : undefined;
       }
     } catch { /* keep the truncated provider response */ }
-    throw new V2ModelRequestError(`V2 主模型调用失败：HTTP ${response.status}${detail ? `；${detail}` : ""}`, response.status, providerType, providerCode, providerParam);
+    throw new V2ModelRequestError(detail || `HTTP ${response.status}`, response.status, providerType, providerCode, providerParam);
   }
   if (!response.body) throw new Error("V2 主模型没有返回响应流");
   return consumeOpenAIStream(response.body, input.onDelta, { signal: input.signal, onUsage: (usage) => input.onUsage(usage as V2ModelUsage) });
