@@ -11,6 +11,16 @@ let pool: Pool | null = null;
 const getPool = () => pool ??= new Pool({ connectionString: process.env.SUPABASE_DB_URL, ssl: { rejectUnauthorized: process.env.SUPABASE_DB_SSL_REJECT_UNAUTHORIZED !== "false" }, max: 5 });
 const elapsed = (started: number) => Math.round((performance.now() - started) * 10) / 10;
 
+export interface ExactFaqMatch { knowledgeId: string; answer: string; sourceLanguage: string; elapsedMs: number }
+
+export async function findExactFaq(question: string, product: "dicloak" | "paraturbo" = "dicloak"): Promise<ExactFaqMatch | null> {
+  const started = performance.now();
+  const result = await getPool().query(`select distinct on (c.knowledge_id) c.knowledge_id,c.metadata->>'answer' answer,c.source_language from v2_search.chunks c join v2_search.index_versions v on v.id=c.index_version_id where v.status='published' and c.enabled and c.knowledge_type='general_faq' and $2=any(c.products) and lower(btrim(c.title))=lower(btrim($1)) and nullif(btrim(c.metadata->>'answer'),'') is not null order by c.knowledge_id,c.ordinal limit 1`, [question, product]);
+  const row = result.rows[0] as { knowledge_id?: unknown; answer?: unknown; source_language?: unknown } | undefined;
+  if (!row || typeof row.knowledge_id !== "string" || typeof row.answer !== "string") return null;
+  return { knowledgeId: row.knowledge_id, answer: row.answer, sourceLanguage: typeof row.source_language === "string" ? row.source_language : "", elapsedMs: elapsed(started) };
+}
+
 export async function loadV2Terms(termIds: string[]): Promise<V2TermDefinition[]> {
   const ids = [...new Set(termIds)].filter(Boolean).sort();
   if (!ids.length) return [];
